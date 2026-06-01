@@ -1,4 +1,4 @@
-"""Hatch build hook that bundles the webui (Vite) into nanobot/web/dist.
+"""Hatch build hook that bundles the webui (Vite) into munchkin/web/dist.
 
 Triggered automatically by `python -m build` (and any other hatch-driven build)
 so published wheels and sdists ship a fresh webui without requiring developers
@@ -10,10 +10,10 @@ Behaviour:
   development; webui contributors use `cd webui && bun run dev` (Vite HMR) and
   do not need a packaged `dist/`.
 - No-op when `webui/package.json` is absent (e.g. installing from an sdist that
-  already contains a prebuilt `nanobot/web/dist/`).
-- Skips when `NANOBOT_SKIP_WEBUI_BUILD=1` is set.
-- Skips when `nanobot/web/dist/index.html` already exists, unless
-  `NANOBOT_FORCE_WEBUI_BUILD=1` is set.
+  already contains a prebuilt `munchkin/web/dist/`).
+- Skips when `MUNCHKIN_SKIP_WEBUI_BUILD=1` is set.
+- Skips when `munchkin/web/dist/index.html` already exists, unless
+  `MUNCHKIN_FORCE_WEBUI_BUILD=1` is set.
 - Uses `bun` when available, otherwise falls back to `npm`. The chosen tool
   performs `install` followed by `run build`.
 """
@@ -35,7 +35,7 @@ class WebUIBuildHook(BuildHookInterface):
         root = Path(self.root)
         webui_dir = root / "webui"
         package_json = webui_dir / "package.json"
-        dist_dir = root / "nanobot" / "web" / "dist"
+        dist_dir = root / "munchkin" / "web" / "dist"
         index_html = dist_dir / "index.html"
 
         # `pip install -e .` builds an editable wheel; skip the (slow) webui
@@ -48,21 +48,21 @@ class WebUIBuildHook(BuildHookInterface):
             )
             return
 
-        if os.environ.get("NANOBOT_SKIP_WEBUI_BUILD") == "1":
-            self.app.display_info("[webui-build] skipped via NANOBOT_SKIP_WEBUI_BUILD=1")
+        if os.environ.get("MUNCHKIN_SKIP_WEBUI_BUILD") == "1":
+            self.app.display_info("[webui-build] skipped via MUNCHKIN_SKIP_WEBUI_BUILD=1")
             return
 
         if not package_json.is_file():
             self.app.display_info(
-                "[webui-build] no webui/ source tree, assuming prebuilt nanobot/web/dist/"
+                "[webui-build] no webui/ source tree, assuming prebuilt munchkin/web/dist/"
             )
             return
 
-        force = os.environ.get("NANOBOT_FORCE_WEBUI_BUILD") == "1"
+        force = os.environ.get("MUNCHKIN_FORCE_WEBUI_BUILD") == "1"
         if index_html.is_file() and not force:
             self.app.display_info(
                 f"[webui-build] reusing existing build at {dist_dir} "
-                "(set NANOBOT_FORCE_WEBUI_BUILD=1 to rebuild)"
+                "(set MUNCHKIN_FORCE_WEBUI_BUILD=1 to rebuild)"
             )
             return
 
@@ -70,7 +70,7 @@ class WebUIBuildHook(BuildHookInterface):
         if runner is None:
             raise RuntimeError(
                 "[webui-build] neither `bun` nor `npm` is available on PATH; "
-                "install one or set NANOBOT_SKIP_WEBUI_BUILD=1 to bypass."
+                "install one or set MUNCHKIN_SKIP_WEBUI_BUILD=1 to bypass."
             )
 
         self.app.display_info(f"[webui-build] using {runner} to build webui")

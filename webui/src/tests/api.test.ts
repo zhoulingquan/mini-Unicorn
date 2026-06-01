@@ -17,7 +17,6 @@ import {
   runMcpPresetAction,
   saveCustomMcpServer,
   updateSidebarState,
-  updateImageGenerationSettings,
   updateModelConfiguration,
   updateMcpServerTools,
   updateNetworkSafetySettings,
@@ -63,17 +62,17 @@ describe("webui API helpers", () => {
   it("serializes settings updates as a narrow query string", async () => {
     await updateSettings("tok", {
       modelPreset: "default",
-      model: "openrouter/test",
-      provider: "openrouter",
+      model: "deepseek/deepseek-chat",
+      provider: "deepseek",
       contextWindowTokens: 262144,
       timezone: "Asia/Shanghai",
-      botName: "nanobot",
+      botName: "Munchkin",
       botIcon: "nb",
       toolHintMaxLength: 120,
     });
 
     expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/update?model_preset=default&model=openrouter%2Ftest&provider=openrouter&context_window_tokens=262144&timezone=Asia%2FShanghai&bot_name=nanobot&bot_icon=nb&tool_hint_max_length=120",
+      "/api/settings/update?model_preset=default&model=deepseek%2Fdeepseek-chat&provider=deepseek&context_window_tokens=262144&timezone=Asia%2FShanghai&bot_name=Munchkin&bot_icon=nb&tool_hint_max_length=120",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
@@ -83,12 +82,12 @@ describe("webui API helpers", () => {
   it("serializes model configuration creation", async () => {
     await createModelConfiguration("tok", {
       label: "Fast writing",
-      provider: "openai",
-      model: "openai/gpt-4.1-mini",
+      provider: "deepseek",
+      model: "deepseek/deepseek-chat",
     });
 
     expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/model-configurations/create?label=Fast+writing&provider=openai&model=openai%2Fgpt-4.1-mini",
+      "/api/settings/model-configurations/create?label=Fast+writing&provider=deepseek&model=deepseek%2Fdeepseek-chat",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
@@ -97,15 +96,15 @@ describe("webui API helpers", () => {
 
   it("serializes model configuration updates", async () => {
     await updateModelConfiguration("tok", {
-      name: "codex",
-      label: "Codex",
-      provider: "openai_codex",
-      model: "openai-codex/gpt-5.5",
+      name: "opencode",
+      label: "OpenCode Zen",
+      provider: "opencode",
+      model: "opencode/big-pickle",
       contextWindowTokens: 65536,
     });
 
     expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/model-configurations/update?name=codex&label=Codex&provider=openai_codex&model=openai-codex%2Fgpt-5.5&context_window_tokens=65536",
+      "/api/settings/model-configurations/update?name=opencode&label=OpenCode+Zen&provider=opencode&model=opencode%2Fbig-pickle&context_window_tokens=65536",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
@@ -125,12 +124,12 @@ describe("webui API helpers", () => {
 
     await expect(
       updateModelConfiguration("tok", {
-        name: "codex",
-        model: "openai-codex/gpt-5.5",
+        name: "opencode",
+        model: "opencode/big-pickle",
       }),
     ).rejects.toMatchObject({
       status: 200,
-      message: "Gateway returned WebUI HTML instead of JSON. Restart nanobot gateway and try again.",
+      message: "Gateway returned WebUI HTML instead of JSON. Restart Munchkin gateway and try again.",
     });
   });
 
@@ -152,13 +151,13 @@ describe("webui API helpers", () => {
 
   it("serializes provider settings updates without returning secrets", async () => {
     await updateProviderSettings("tok", {
-      provider: "openrouter",
-      apiKey: "sk-or-test",
-      apiBase: "https://openrouter.ai/api/v1",
+      provider: "deepseek",
+      apiKey: "sk-deep-test",
+      apiBase: "https://api.deepseek.com",
     });
 
     expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/provider/update?provider=openrouter&api_key=sk-or-test&api_base=https%3A%2F%2Fopenrouter.ai%2Fapi%2Fv1",
+      "/api/settings/provider/update?provider=deepseek&api_key=sk-deep-test&api_base=https%3A%2F%2Fapi.deepseek.com",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
@@ -166,17 +165,17 @@ describe("webui API helpers", () => {
   });
 
   it("serializes provider OAuth login and logout actions", async () => {
-    await loginProviderOAuth("tok", "openai_codex");
+    await loginProviderOAuth("tok", "opencode");
     expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/provider/oauth-login?provider=openai_codex",
+      "/api/settings/provider/oauth-login?provider=opencode",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
     );
 
-    await logoutProviderOAuth("tok", "openai_codex");
+    await logoutProviderOAuth("tok", "opencode");
     expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/provider/oauth-logout?provider=openai_codex",
+      "/api/settings/provider/oauth-logout?provider=opencode",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
@@ -208,24 +207,6 @@ describe("webui API helpers", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "/api/settings/network-safety/update?webui_allow_local_service_access=false&webui_default_access_mode=full",
-      expect.objectContaining({
-        headers: { Authorization: "Bearer tok" },
-      }),
-    );
-  });
-
-  it("serializes image generation settings updates", async () => {
-    await updateImageGenerationSettings("tok", {
-      enabled: true,
-      provider: "openrouter",
-      model: "openai/gpt-5.4-image-2",
-      defaultAspectRatio: "16:9",
-      defaultImageSize: "2K",
-      maxImagesPerTurn: 3,
-    });
-
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/image-generation/update?enabled=true&provider=openrouter&model=openai%2Fgpt-5.4-image-2&default_aspect_ratio=16%3A9&default_image_size=2K&max_images_per_turn=3",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
@@ -284,7 +265,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-Nanobot-MCP-Values": JSON.stringify({
+          "X-Munchkin-MCP-Values": JSON.stringify({
             browserbase_api_key: "bb_live_test",
           }),
         }),
@@ -305,7 +286,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-Nanobot-MCP-Values": JSON.stringify({
+          "X-Munchkin-MCP-Values": JSON.stringify({
             name: "docs",
             transport: "stdio",
             command: "npx",
@@ -322,7 +303,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-Nanobot-MCP-Values": JSON.stringify({
+          "X-Munchkin-MCP-Values": JSON.stringify({
             config: '{"mcpServers":{"docs":{"command":"npx"}}}',
           }),
         }),
@@ -335,7 +316,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-Nanobot-MCP-Values": JSON.stringify({
+          "X-Munchkin-MCP-Values": JSON.stringify({
             name: "docs",
             enabled_tools: ["search", "fetch"],
           }),
@@ -350,7 +331,7 @@ describe("webui API helpers", () => {
       pinned_keys: ["websocket:chat-1"],
       archived_keys: ["websocket:old"],
       title_overrides: { "websocket:chat-1": "Release" },
-      project_name_overrides: { "/Users/me/nanobot": "Core" },
+      project_name_overrides: { "/Users/me/munchkin": "Core" },
       tags_by_key: {},
       collapsed_groups: {},
       view: {
@@ -386,7 +367,7 @@ describe("webui API helpers", () => {
     expect(JSON.parse(encodedState ?? "{}")).toMatchObject({
       pinned_keys: ["websocket:chat-1"],
       title_overrides: { "websocket:chat-1": "Release" },
-      project_name_overrides: { "/Users/me/nanobot": "Core" },
+      project_name_overrides: { "/Users/me/munchkin": "Core" },
     });
   });
 
@@ -458,7 +439,7 @@ describe("webui API helpers", () => {
           },
           {
             command: "/restart",
-            title: "Restart nanobot",
+            title: "Restart Munchkin",
             description: "Restart the bot process.",
             icon: "rotate-cw",
           },

@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from nanobot.bus.events import InboundMessage
-from nanobot.session import webui_turns as wth
+from munchkin.bus.events import InboundMessage
+from munchkin.session import webui_turns as wth
 
 
 @pytest.fixture(autouse=True)

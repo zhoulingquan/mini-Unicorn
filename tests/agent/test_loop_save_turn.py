@@ -4,14 +4,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from nanobot.agent.context import ContextBuilder
-from nanobot.agent.loop import AgentLoop
-from nanobot.bus.events import InboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.providers.base import LLMResponse
-from nanobot.session.goal_state import GOAL_STATE_KEY
-from nanobot.session.manager import Session, SessionManager
-from nanobot.session.webui_turns import (
+from munchkin.agent.context import ContextBuilder
+from munchkin.agent.loop import AgentLoop
+from munchkin.bus.events import InboundMessage
+from munchkin.bus.queue import MessageBus
+from munchkin.providers.base import LLMResponse
+from munchkin.session.goal_state import GOAL_STATE_KEY
+from munchkin.session.manager import Session, SessionManager
+from munchkin.session.webui_turns import (
     TITLE_GENERATION_MAX_TOKENS,
     TITLE_GENERATION_REASONING_EFFORT,
     WEBUI_SESSION_METADATA_KEY,
@@ -19,12 +19,12 @@ from nanobot.session.webui_turns import (
     WebuiTurnCoordinator,
     maybe_generate_webui_title,
 )
-from nanobot.utils.llm_runtime import LLMRuntime
+from munchkin.utils.llm_runtime import LLMRuntime
 
 
 def _mk_loop() -> AgentLoop:
     loop = AgentLoop.__new__(AgentLoop)
-    from nanobot.config.schema import AgentDefaults
+    from munchkin.config.schema import AgentDefaults
 
     loop.max_tool_result_chars = AgentDefaults().max_tool_result_chars
     return loop
@@ -143,7 +143,7 @@ def test_webui_title_update_uses_captured_llm_runtime(
         return False
 
     monkeypatch.setattr(
-        "nanobot.session.webui_turns.maybe_generate_webui_title_after_turn",
+        "munchkin.session.webui_turns.maybe_generate_webui_title_after_turn",
         fake_title_after_turn,
     )
     coordinator = WebuiTurnCoordinator(
@@ -707,8 +707,8 @@ async def test_next_turn_after_crash_closes_pending_user_turn_before_new_input(t
 
 @pytest.mark.asyncio
 async def test_stop_preserves_runtime_checkpoint_for_next_turn(tmp_path: Path) -> None:
-    from nanobot.command.builtin import cmd_stop
-    from nanobot.command.router import CommandContext
+    from munchkin.command.builtin import cmd_stop
+    from munchkin.command.router import CommandContext
 
     loop = _make_full_loop(tmp_path)
     loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]

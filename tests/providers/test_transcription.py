@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from nanobot.providers.transcription import (
+from munchkin.providers.transcription import (
     GroqTranscriptionProvider,
     OpenAITranscriptionProvider,
     _resolve_transcription_url,

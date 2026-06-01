@@ -7,15 +7,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from nanobot.agent.loop import AgentLoop
-from nanobot.agent.tools.context import RequestContext
-from nanobot.agent.tools.long_task import (
+from munchkin.agent.loop import AgentLoop
+from munchkin.agent.tools.context import RequestContext
+from munchkin.agent.tools.long_task import (
     CompleteGoalTool,
     LongTaskTool,
 )
-from nanobot.bus.queue import MessageBus
-from nanobot.session.goal_state import GOAL_STATE_KEY
-from nanobot.session.manager import SessionManager
+from munchkin.bus.queue import MessageBus
+from munchkin.session.goal_state import GOAL_STATE_KEY
+from munchkin.session.manager import SessionManager
 
 
 def _tools(sm: SessionManager) -> tuple[LongTaskTool, CompleteGoalTool]:

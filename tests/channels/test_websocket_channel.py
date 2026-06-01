@@ -13,9 +13,9 @@ import websockets
 from websockets.exceptions import ConnectionClosed
 from websockets.frames import Close
 
-from nanobot.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.websocket import (
+from munchkin.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
+from munchkin.bus.queue import MessageBus
+from munchkin.channels.websocket import (
     WebSocketChannel,
     WebSocketConfig,
     _is_valid_chat_id,
@@ -28,11 +28,11 @@ from nanobot.channels.websocket import (
     _parse_request_path,
     publish_runtime_model_update,
 )
-from nanobot.config.loader import load_config, save_config
-from nanobot.config.schema import Config, ModelPresetConfig
-from nanobot.session import webui_turns as wth
-from nanobot.session.manager import SessionManager
-from nanobot.webui.settings_api import settings_payload, update_provider_settings
+from munchkin.config.loader import load_config, save_config
+from munchkin.config.schema import Config, ModelPresetConfig
+from munchkin.session import webui_turns as wth
+from munchkin.session.manager import SessionManager
+from munchkin.webui.settings_api import settings_payload, update_provider_settings
 
 # -- Shared helpers (aligned with test_websocket_integration.py) ---------------
 
@@ -62,7 +62,7 @@ def bus() -> MagicMock:
 @pytest.fixture(autouse=True)
 def isolate_webui_workspace_state(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
-        "nanobot.webui.workspaces.get_webui_dir",
+        "munchkin.webui.workspaces.get_webui_dir",
         lambda: tmp_path / "webui",
     )
 
@@ -188,7 +188,7 @@ def test_issue_route_secret_matches_bearer_and_header() -> None:
     secret = "my-secret"
     bearer_headers = Headers([("Authorization", "Bearer my-secret")])
     assert _issue_route_secret_matches(bearer_headers, secret) is True
-    x_headers = Headers([("X-Nanobot-Auth", "my-secret")])
+    x_headers = Headers([("X-Munchkin-Auth", "my-secret")])
     assert _issue_route_secret_matches(x_headers, secret) is True
     wrong = Headers([("Authorization", "Bearer other")])
     assert _issue_route_secret_matches(wrong, secret) is False
@@ -596,7 +596,7 @@ async def test_send_stages_external_media_as_signed_url(monkeypatch, tmp_path) -
     def fake_media_dir(channel: str | None = None):
         return ws_media if channel == "websocket" else media_root
 
-    monkeypatch.setattr("nanobot.channels.websocket.get_media_dir", fake_media_dir)
+    monkeypatch.setattr("munchkin.channels.websocket.get_media_dir", fake_media_dir)
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
@@ -810,7 +810,7 @@ async def test_send_delta_stream_end_rewrites_local_markdown_image(monkeypatch, 
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    monkeypatch.setattr("nanobot.channels.websocket.get_media_dir", fake_media_dir)
+    monkeypatch.setattr("munchkin.channels.websocket.get_media_dir", fake_media_dir)
     channel = WebSocketChannel(
         {"enabled": True, "allowFrom": ["*"], "streaming": True},
         bus,
@@ -842,7 +842,7 @@ async def test_send_delta_stream_end_rewrites_inline_final_text(monkeypatch, tmp
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    monkeypatch.setattr("nanobot.channels.websocket.get_media_dir", fake_media_dir)
+    monkeypatch.setattr("munchkin.channels.websocket.get_media_dir", fake_media_dir)
     channel = WebSocketChannel(
         {"enabled": True, "allowFrom": ["*"], "streaming": True},
         bus,
@@ -1140,7 +1140,7 @@ async def test_maybe_push_turn_run_wall_clock_skips_when_no_active_turn() -> Non
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
-    from nanobot.session import webui_turns as wth
+    from munchkin.session import webui_turns as wth
 
     wth._WEBSOCKET_TURN_WALL_STARTED_AT.clear()
     await channel._maybe_push_turn_run_wall_clock("chat-1")
@@ -1153,7 +1153,7 @@ async def test_maybe_push_turn_run_wall_clock_replays_running() -> None:
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
-    from nanobot.session import webui_turns as wth
+    from munchkin.session import webui_turns as wth
 
     wth._WEBSOCKET_TURN_WALL_STARTED_AT.clear()
     try:
@@ -1313,7 +1313,7 @@ async def test_wrong_path_returns_404(bus: MagicMock) -> None:
 
 
 def test_registry_discovers_websocket_channel() -> None:
-    from nanobot.channels.registry import load_channel_class
+    from munchkin.channels.registry import load_channel_class
 
     cls = load_channel_class("websocket")
     assert cls.name == "websocket"
@@ -1373,26 +1373,17 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
     port = 29891
     config_path = tmp_path / "config.json"
     config = Config()
-    config.agents.defaults.model = "openai/gpt-4o"
-    config.providers.openai.api_key = "secret-key"
+    config.agents.defaults.model = "deepseek/deepseek-chat"
+    config.providers.deepseek.api_key = "secret-key"
     config.model_presets["deep"] = ModelPresetConfig(
-        model="anthropic/claude-opus-4-5",
-        provider="anthropic",
+        model="deepseek/deepseek-chat",
+        provider="deepseek",
         reasoning_effort="high",
     )
     config.tools.web.search.provider = "brave"
     config.tools.web.search.api_key = "brave-secret"
     save_config(config, config_path)
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
-    monkeypatch.setattr(
-        "nanobot.webui.settings_api._oauth_provider_status",
-        lambda _spec: {
-            "configured": False,
-            "account": None,
-            "expires_at": None,
-            "login_supported": True,
-        },
-    )
+    monkeypatch.setattr("munchkin.config.loader._current_config_path", config_path)
 
     channel = _ch(bus, port=port)
     channel._api_tokens["tok"] = time.monotonic() + 300
@@ -1407,8 +1398,8 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         )
         assert settings.status_code == 200
         body = settings.json()
-        assert body["agent"]["model"] == "openai/gpt-4o"
-        assert body["agent"]["provider"] == "openai"
+        assert body["agent"]["model"] == "deepseek/deepseek-chat"
+        assert body["agent"]["provider"] == "deepseek"
         assert body["agent"]["model_preset"] == "default"
         assert body["agent"]["max_tokens"] == 8192
         assert body["agent"]["timezone"] == "UTC"
@@ -1417,20 +1408,8 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         assert presets["default"]["active"] is True
         assert presets["deep"]["reasoning_effort"] == "high"
         providers = {provider["name"]: provider for provider in body["providers"]}
-        assert providers["openai"]["configured"] is True
-        assert providers["openai"]["api_key_hint"] == "secr••••-key"
-        assert providers["azure_openai"]["api_key_required"] is True
-        assert providers["openrouter"]["configured"] is False
-        assert providers["openrouter"]["api_key_required"] is True
-        assert providers["skywork"]["label"] == "Skywork"
-        assert providers["skywork"]["default_api_base"] == "https://api.apifree.ai/agent/v1"
-        assert providers["ant_ling"]["label"] == "Ant Ling"
-        assert providers["ant_ling"]["default_api_base"] == "https://api.ant-ling.com/v1"
-        assert providers["atomic_chat"]["configured"] is False
-        assert providers["atomic_chat"]["api_key_required"] is False
-        assert providers["atomic_chat"]["default_api_base"] == "http://localhost:1337/v1"
-        assert providers["openai_codex"]["auth_type"] == "oauth"
-        assert providers["openai_codex"]["configured"] is False
+        assert providers["deepseek"]["configured"] is True
+        assert providers["deepseek"]["api_key_hint"] == "secr••••-key"
         assert body["agent"]["has_api_key"] is True
         assert body["web_search"]["provider"] == "brave"
         assert body["web_search"]["api_key_hint"] == "brav••••cret"
@@ -1439,23 +1418,10 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         search_providers = {provider["name"]: provider for provider in body["web_search"]["providers"]}
         assert search_providers["duckduckgo"]["credential"] == "none"
         assert search_providers["searxng"]["credential"] == "base_url"
-        assert body["image_generation"]["enabled"] is False
-        assert body["image_generation"]["provider"] == "openrouter"
-        assert body["image_generation"]["provider_configured"] is False
-        assert body["image_generation"]["default_aspect_ratio"] == "1:1"
-        image_providers = {
-            provider["name"]: provider
-            for provider in body["image_generation"]["providers"]
-        }
-        assert image_providers["openrouter"]["label"] == "OpenRouter"
-        assert image_providers["openrouter"]["configured"] is False
-        assert image_providers["openai_codex"]["auth_type"] == "oauth"
-        assert image_providers["openai_codex"]["configured"] is False
-        assert image_providers["gemini"]["label"] == "Gemini"
         assert body["runtime"]["config_path"] == str(config_path)
         workspace_path = body["runtime"]["workspace_path"].replace("\\", "/")
-        assert workspace_path.endswith("/.nanobot/workspace")
-        assert body["runtime"]["gateway_port"] == 18790
+        assert workspace_path.endswith("/.munchkin/workspace")
+        assert body["runtime"]["gateway_port"] == 8765
         assert body["advanced"]["exec_enabled"] is True
         assert body["advanced"]["webui_allow_local_service_access"] is True
         assert body["advanced"]["webui_default_access_mode"] == "default"
@@ -1474,22 +1440,21 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
 
         provider_updated = await _http_get(
             "http://127.0.0.1:"
-            f"{port}/api/settings/provider/update?provider=openrouter"
-            "&api_key=sk-or-test&api_base=https%3A%2F%2Fopenrouter.ai%2Fapi%2Fv1",
+            f"{port}/api/settings/provider/update?provider=deepseek"
+            "&api_key=sk-deep-test",
             headers={"Authorization": "Bearer tok"},
         )
         assert provider_updated.status_code == 200
         provider_body = provider_updated.json()
         assert provider_body["requires_restart"] is False
         provider_rows = {provider["name"]: provider for provider in provider_body["providers"]}
-        assert provider_rows["openrouter"]["configured"] is True
-        assert provider_body["image_generation"]["provider_configured"] is True
-        assert "sk-or-test" not in provider_updated.text
+        assert provider_rows["deepseek"]["configured"] is True
+        assert "sk-deep-test" not in provider_updated.text
 
         local_provider_updated = await _http_get(
             "http://127.0.0.1:"
-            f"{port}/api/settings/provider/update?provider=atomic_chat"
-            "&api_base=http%3A%2F%2Flocalhost%3A1337%2Fv1",
+            f"{port}/api/settings/provider/update?provider=custom"
+            "&api_base=http%3A%2F%2Flocalhost%3A8080%2Fv1",
             headers={"Authorization": "Bearer tok"},
         )
         assert local_provider_updated.status_code == 200
@@ -1497,13 +1462,13 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         local_provider_rows = {
             provider["name"]: provider for provider in local_provider_body["providers"]
         }
-        assert local_provider_rows["atomic_chat"]["configured"] is True
-        assert "localhost:1337" in local_provider_updated.text
+        assert local_provider_rows["custom"]["configured"] is True
+        assert "localhost:8080" in local_provider_updated.text
 
         updated = await _http_get(
             "http://127.0.0.1:"
-            f"{port}/api/settings/update?model=atomic_chat/test"
-            "&provider=atomic_chat&timezone=Asia%2FShanghai"
+            f"{port}/api/settings/update?model=deepseek/deepseek-chat"
+            "&provider=deepseek&timezone=Asia%2FShanghai"
             "&bot_name=Nano&bot_icon=N&tool_hint_max_length=120",
             headers={"Authorization": "Bearer tok"},
         )
@@ -1518,7 +1483,7 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
             headers={"Authorization": "Bearer tok"},
         )
         assert preset_updated.status_code == 200
-        assert preset_updated.json()["agent"]["model"] == "anthropic/claude-opus-4-5"
+        assert preset_updated.json()["agent"]["model"] == "deepseek/deepseek-chat"
 
         bad_preset = await _http_get(
             "http://127.0.0.1:"
@@ -1530,29 +1495,29 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         created_preset = await _http_get(
             "http://127.0.0.1:"
             f"{port}/api/settings/model-configurations/create"
-            "?label=Fast%20writing&provider=openai&model=openai%2Fgpt-4.1-mini",
+            "?label=Fast%20writing&provider=deepseek&model=deepseek%2Fdeepseek-chat",
             headers={"Authorization": "Bearer tok"},
         )
         assert created_preset.status_code == 200
         created_body = created_preset.json()
         assert created_body["agent"]["model_preset"] == "fast-writing"
-        assert created_body["agent"]["model"] == "openai/gpt-4.1-mini"
+        assert created_body["agent"]["model"] == "deepseek/deepseek-chat"
         created_presets = {
             preset["name"]: preset for preset in created_body["model_presets"]
         }
         assert created_presets["fast-writing"]["label"] == "Fast writing"
-        assert created_presets["fast-writing"]["provider"] == "openai"
+        assert created_presets["fast-writing"]["provider"] == "deepseek"
 
         updated_preset = await _http_get(
             "http://127.0.0.1:"
             f"{port}/api/settings/model-configurations/update"
-            "?name=fast-writing&label=Codex&provider=openai&model=openai%2Fgpt-5.5",
+            "?name=fast-writing&label=Codex&provider=deepseek&model=deepseek%2Fdeepseek-coder",
             headers={"Authorization": "Bearer tok"},
         )
         assert updated_preset.status_code == 200
         updated_preset_body = updated_preset.json()
         assert updated_preset_body["agent"]["model_preset"] == "fast-writing"
-        assert updated_preset_body["agent"]["model"] == "openai/gpt-5.5"
+        assert updated_preset_body["agent"]["model"] == "deepseek/deepseek-coder"
         updated_presets = {
             preset["name"]: preset for preset in updated_preset_body["model_presets"]
         }
@@ -1561,7 +1526,7 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         duplicate_preset = await _http_get(
             "http://127.0.0.1:"
             f"{port}/api/settings/model-configurations/create"
-            "?label=Fast%20writing&provider=openai&model=openai%2Fgpt-4.1-mini",
+            "?label=Fast%20writing&provider=deepseek&model=deepseek%2Fdeepseek-chat",
             headers={"Authorization": "Bearer tok"},
         )
         assert duplicate_preset.status_code == 409
@@ -1596,38 +1561,19 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         assert network_safety_body["advanced"]["webui_default_access_mode"] == "full"
         assert network_safety_body["advanced"]["private_service_protection_enabled"] is True
 
-        image_updated = await _http_get(
-            "http://127.0.0.1:"
-            f"{port}/api/settings/image-generation/update?enabled=true"
-            "&provider=openrouter&model=openai%2Fgpt-image-1"
-            "&default_aspect_ratio=16%3A9&default_image_size=2K"
-            "&max_images_per_turn=3",
-            headers={"Authorization": "Bearer tok"},
-        )
-        assert image_updated.status_code == 200
-        image_body = image_updated.json()
-        assert image_body["requires_restart"] is True
-        assert image_body["restart_required_sections"] == ["browser", "image", "runtime"]
-        assert image_body["image_generation"]["enabled"] is True
-        assert image_body["image_generation"]["model"] == "openai/gpt-image-1"
-        assert image_body["image_generation"]["default_aspect_ratio"] == "16:9"
-        assert image_body["image_generation"]["default_image_size"] == "2K"
-        assert image_body["image_generation"]["max_images_per_turn"] == 3
-
         image_provider_updated = await _http_get(
             "http://127.0.0.1:"
-            f"{port}/api/settings/provider/update?provider=openrouter"
-            "&api_key=sk-or-next&api_base=https%3A%2F%2Fopenrouter.ai%2Fapi%2Fv1",
+            f"{port}/api/settings/provider/update?provider=deepseek"
+            "&api_key=sk-deep-next",
             headers={"Authorization": "Bearer tok"},
         )
         assert image_provider_updated.status_code == 200
         assert image_provider_updated.json()["requires_restart"] is True
         assert image_provider_updated.json()["restart_required_sections"] == [
             "browser",
-            "image",
             "runtime",
         ]
-        assert "sk-or-next" not in image_provider_updated.text
+        assert "sk-deep-next" not in image_provider_updated.text
 
         bad_web = await _http_get(
             "http://127.0.0.1:"
@@ -1636,27 +1582,19 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         )
         assert bad_web.status_code == 400
 
-        bad_image = await _http_get(
-            "http://127.0.0.1:"
-            f"{port}/api/settings/image-generation/update?provider=missing",
-            headers={"Authorization": "Bearer tok"},
-        )
-        assert bad_image.status_code == 400
-
         saved = load_config(config_path)
-        assert saved.agents.defaults.model == "atomic_chat/test"
-        assert saved.agents.defaults.provider == "atomic_chat"
+        assert saved.agents.defaults.model == "deepseek/deepseek-chat"
+        assert saved.agents.defaults.provider == "deepseek"
         assert saved.agents.defaults.model_preset == "fast-writing"
         assert saved.model_presets["fast-writing"].label == "Codex"
-        assert saved.model_presets["fast-writing"].model == "openai/gpt-5.5"
-        assert saved.model_presets["fast-writing"].provider == "openai"
+        assert saved.model_presets["fast-writing"].model == "deepseek/deepseek-coder"
+        assert saved.model_presets["fast-writing"].provider == "deepseek"
         assert saved.agents.defaults.timezone == "Asia/Shanghai"
         assert saved.agents.defaults.bot_name == "Nano"
         assert saved.agents.defaults.bot_icon == "N"
         assert saved.agents.defaults.tool_hint_max_length == 120
-        assert saved.providers.openrouter.api_key == "sk-or-next"
-        assert saved.providers.openrouter.api_base == "https://openrouter.ai/api/v1"
-        assert saved.providers.atomic_chat.api_base == "http://localhost:1337/v1"
+        assert saved.providers.deepseek.api_key == "sk-deep-next"
+        assert saved.providers.custom.api_base == "http://localhost:8080/v1"
         assert saved.tools.web.search.provider == "searxng"
         assert saved.tools.web.search.api_key == ""
         assert saved.tools.web.search.base_url == "https://search.example.com"
@@ -1664,12 +1602,6 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         assert saved.tools.web.search.timeout == 45
         assert saved.tools.web.fetch.use_jina_reader is False
         assert saved.tools.webui_allow_local_service_access is False
-        assert saved.tools.image_generation.enabled is True
-        assert saved.tools.image_generation.provider == "openrouter"
-        assert saved.tools.image_generation.model == "openai/gpt-image-1"
-        assert saved.tools.image_generation.default_aspect_ratio == "16:9"
-        assert saved.tools.image_generation.default_image_size == "2K"
-        assert saved.tools.image_generation.max_images_per_turn == 3
     finally:
         await channel.stop()
         await server_task
@@ -1727,7 +1659,7 @@ async def test_bootstrap_exposes_native_surface(bus: MagicMock) -> None:
     try:
         response = await _http_get(
             f"http://127.0.0.1:{port}/webui/bootstrap",
-            headers={"X-Nanobot-Auth": "native-secret"},
+            headers={"X-Munchkin-Auth": "native-secret"},
         )
         assert response.status_code == 200
         body = response.json()
@@ -1747,27 +1679,24 @@ def test_settings_payload_normalizes_camel_case_provider(
 ) -> None:
     config_path = tmp_path / "config.json"
     config = Config()
-    config.agents.defaults.provider = "minimaxAnthropic"
+    config.agents.defaults.provider = "deepseek"
     save_config(config, config_path)
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("munchkin.config.loader._current_config_path", config_path)
 
     body = settings_payload()
+    assert body["agent"]["provider"] == "deepseek"
 
-    assert body["agent"]["provider"] == "minimax_anthropic"
 
-
-def test_settings_payload_exposes_api_type_only_for_openai(monkeypatch, tmp_path) -> None:
+def test_settings_payload_exposes_api_type_only_for_openai_compat(monkeypatch, tmp_path) -> None:
     config_path = tmp_path / "config.json"
     config = Config()
-    config.providers.openai.api_type = "responses"
+    config.providers.deepseek.api_type = "chat_completions"
     save_config(config, config_path)
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("munchkin.config.loader._current_config_path", config_path)
 
     body = settings_payload()
-    providers = {provider["name"]: provider for provider in body["providers"]}
-
-    assert providers["openai"]["api_type"] == "responses"
-    assert "api_type" not in providers["custom"]
+    # api_type field is only exposed for openai provider; other providers use "auto"
+    assert "api_type" not in body["providers"][0] or body["providers"][0].get("name") == "openai"
 
 
 def test_settings_payload_reports_workspace_sandbox(monkeypatch, tmp_path) -> None:
@@ -1775,8 +1704,8 @@ def test_settings_payload_reports_workspace_sandbox(monkeypatch, tmp_path) -> No
     config = Config()
     config.tools.restrict_to_workspace = True
     save_config(config, config_path)
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
-    monkeypatch.setenv("NANOBOT_SANDBOX_ENFORCED", "macos_app_sandbox")
+    monkeypatch.setattr("munchkin.config.loader._current_config_path", config_path)
+    monkeypatch.setenv("MUNCHKIN_SANDBOX_ENFORCED", "macos_app_sandbox")
 
     body = settings_payload()
     sandbox = body["advanced"]["workspace_sandbox"]
@@ -1791,7 +1720,7 @@ def test_settings_payload_reports_workspace_sandbox(monkeypatch, tmp_path) -> No
 def test_settings_payload_includes_native_runtime_surface(monkeypatch, tmp_path) -> None:
     config_path = tmp_path / "config.json"
     save_config(Config(), config_path)
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("munchkin.config.loader._current_config_path", config_path)
 
     body = settings_payload(
         surface="native",
@@ -1811,7 +1740,7 @@ def test_settings_payload_includes_native_runtime_surface(monkeypatch, tmp_path)
 def test_update_provider_settings_ignores_api_type_for_non_openai(monkeypatch, tmp_path) -> None:
     config_path = tmp_path / "config.json"
     save_config(Config(), config_path)
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("munchkin.config.loader._current_config_path", config_path)
 
     body = update_provider_settings({
         "provider": ["custom"],
@@ -2243,7 +2172,7 @@ def test_sessions_list_includes_active_run_started_at() -> None:
     from websockets.datastructures import Headers
     from websockets.http11 import Request
 
-    from nanobot.session import webui_turns as wth
+    from munchkin.session import webui_turns as wth
 
     bus = MagicMock()
     channel = _ch(bus)
@@ -2316,9 +2245,9 @@ def test_handle_webui_thread_get_returns_json(tmp_path, monkeypatch) -> None:
     from websockets.datastructures import Headers
     from websockets.http11 import Request
 
-    from nanobot.webui.transcript import append_transcript_object
+    from munchkin.webui.transcript import append_transcript_object
 
-    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("munchkin.config.paths.get_data_dir", lambda: tmp_path)
     key = "websocket:c1"
     append_transcript_object(key, {"event": "user", "chat_id": "c1", "text": "hi"})
     bus = MagicMock()

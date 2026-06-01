@@ -1,8 +1,8 @@
-from nanobot.agent.tools.apply_patch import ApplyPatchTool
-from nanobot.agent.tools.exec_session import ListExecSessionsTool, WriteStdinTool
-from nanobot.agent.tools.filesystem import EditFileTool, ReadFileTool, WriteFileTool
-from nanobot.agent.tools.search import FindFilesTool, GrepTool
-from nanobot.agent.tools.shell import ExecTool
+from munchkin.agent.tools.apply_patch import ApplyPatchTool
+from munchkin.agent.tools.exec_session import ListExecSessionsTool, WriteStdinTool
+from munchkin.agent.tools.filesystem import EditFileTool, ReadFileTool, WriteFileTool
+from munchkin.agent.tools.search import FindFilesTool, GrepTool
+from munchkin.agent.tools.shell import ExecTool
 
 
 def test_coding_tool_descriptions_steer_editing_priority() -> None:

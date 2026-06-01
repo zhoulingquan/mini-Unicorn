@@ -14,14 +14,13 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { cliAppInitials, mcpPresetInitials } from "@/components/CliAppMentionText";
 import { FileReferenceChip } from "@/components/FileReferenceChip";
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
 import { StreamingLabelSheen } from "@/components/MessageBubble";
-import { faviconUrls, logoFallbackUrls } from "@/lib/provider-brand";
+import { faviconUrls } from "@/lib/provider-brand";
 import { formatToolCallTrace } from "@/lib/tool-traces";
 import { cn } from "@/lib/utils";
-import type { CliAppInfo, McpPresetInfo, ToolProgressEvent, UIFileEdit, UIMessage } from "@/lib/types";
+import type { ToolProgressEvent, UIFileEdit, UIMessage } from "@/lib/types";
 
 /** Scrollport height for the Cursor-style “live trace” strip (tailwind spacing). */
 const CLUSTER_SCROLL_MAX_CLASS = "max-h-52";
@@ -182,8 +181,6 @@ interface AgentActivityClusterProps {
   hasBodyBelow: boolean;
   /** Persisted end-to-end turn latency from the assistant answer, used for history replay. */
   turnLatencyMs?: number;
-  cliApps?: CliAppInfo[];
-  mcpPresets?: McpPresetInfo[];
 }
 
 /**
@@ -195,8 +192,6 @@ export function AgentActivityCluster({
   isTurnStreaming,
   hasBodyBelow,
   turnLatencyMs,
-  cliApps = [],
-  mcpPresets = [],
 }: AgentActivityClusterProps) {
   const { t } = useTranslation();
   const fileEdits = useMemo(
@@ -205,14 +200,6 @@ export function AgentActivityCluster({
   );
   const cliRuns = useMemo(() => collectCliRuns(messages), [messages]);
   const mcpRuns = useMemo(() => collectMcpRuns(messages), [messages]);
-  const cliAppsByName = useMemo(
-    () => new Map(cliApps.map((app) => [app.name.toLowerCase(), app])),
-    [cliApps],
-  );
-  const mcpPresetsByName = useMemo(
-    () => new Map(mcpPresets.map((preset) => [preset.name.toLowerCase(), preset])),
-    [mcpPresets],
-  );
   const {
     reasoningSteps,
     toolCalls,
@@ -514,8 +501,6 @@ export function AgentActivityCluster({
                       key={m.id}
                       message={m}
                       active={isTurnStreaming}
-                      cliAppsByName={cliAppsByName}
-                      mcpPresetsByName={mcpPresetsByName}
                     />
                   );
                 }
@@ -750,13 +735,9 @@ function ActivityTraceList({
 function ActivityTraceTimeline({
   message,
   active,
-  cliAppsByName,
-  mcpPresetsByName,
 }: {
   message: UIMessage;
   active: boolean;
-  cliAppsByName: Map<string, CliAppInfo>;
-  mcpPresetsByName: Map<string, McpPresetInfo>;
 }) {
   const lines = traceLines(message);
   const cliRunsByLine = cliRunMapByTraceLine(message);
@@ -787,7 +768,6 @@ function ActivityTraceTimeline({
           key={`${message.id}:cli:${cliRun.key}:${index}`}
           runs={[cliRun]}
           active={active}
-          cliAppsByName={cliAppsByName}
         />,
       );
       return;
@@ -802,7 +782,6 @@ function ActivityTraceTimeline({
           key={`${message.id}:mcp:${mcpRun.key}:${index}`}
           runs={[mcpRun]}
           active={active}
-          mcpPresetsByName={mcpPresetsByName}
         />,
       );
       return;
@@ -820,7 +799,6 @@ function ActivityTraceTimeline({
         key={`${message.id}:cli:${run.key}:event`}
         runs={[run]}
         active={active}
-        cliAppsByName={cliAppsByName}
       />,
     );
   }
@@ -831,7 +809,6 @@ function ActivityTraceTimeline({
         key={`${message.id}:mcp:${run.key}:event`}
         runs={[run]}
         active={active}
-        mcpPresetsByName={mcpPresetsByName}
       />,
     );
   }
@@ -1657,11 +1634,9 @@ function formatFileEditError(error?: string): string {
 function CliRunGroup({
   runs,
   active,
-  cliAppsByName,
 }: {
   runs: CliRunSummary[];
   active: boolean;
-  cliAppsByName: Map<string, CliAppInfo>;
 }) {
   if (runs.length === 0) return null;
   return (
@@ -1671,27 +1646,21 @@ function CliRunGroup({
           key={run.key}
           run={run}
           active={active}
-          app={cliAppsByName.get(run.name.toLowerCase())}
         />
       ))}
     </ul>
   );
 }
 
-function CliRunRow({ run, active, app }: { run: CliRunSummary; active: boolean; app?: CliAppInfo }) {
+function CliRunRow({ run, active }: { run: CliRunSummary; active: boolean }) {
   const { t } = useTranslation();
-  const [logoIndex, setLogoIndex] = useState(0);
   const args = formatCliArgs(run);
   const failed = run.status === "error";
   const rowActive = active && run.status === "running";
-  const color = failed ? "#DC2626" : app?.brand_color || "#0891B2";
-  const logoUrls = useMemo(() => logoFallbackUrls(app?.logo_url), [app?.logo_url]);
-  const logoUrl = logoUrls[logoIndex];
+  const color = failed ? "#DC2626" : "#0891B2";
   const label = t(cliRunLabelKey(run, active), {
     defaultValue: cliRunLabelDefault(run, active),
   });
-
-  useEffect(() => setLogoIndex(0), [app?.logo_url]);
 
   return (
     <li
@@ -1706,23 +1675,12 @@ function CliRunRow({ run, active, app }: { run: CliRunSummary; active: boolean; 
         )}
         style={{
           borderColor: alphaColor(color, 22),
-          backgroundColor: logoUrl ? "hsl(var(--background))" : color,
+          backgroundColor: color,
           boxShadow: rowActive ? `0 0 0 3px ${alphaColor(color, 9)}` : undefined,
         }}
         aria-hidden
       >
-        {logoUrl ? (
-          <img
-            src={logoUrl}
-            alt=""
-            className="h-[78%] w-[78%] object-contain"
-            onError={() => setLogoIndex((index) => index + 1)}
-          />
-        ) : app ? (
-          cliAppInitials(app).slice(0, 2)
-        ) : (
-          <Terminal className="h-3 w-3" aria-hidden />
-        )}
+        <Terminal className="h-3 w-3" aria-hidden />
       </span>
       <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
         <StreamingLabelSheen active={rowActive} className="shrink-0 font-medium text-muted-foreground/85">
@@ -1766,11 +1724,9 @@ function CliRunRow({ run, active, app }: { run: CliRunSummary; active: boolean; 
 function McpRunGroup({
   runs,
   active,
-  mcpPresetsByName,
 }: {
   runs: McpRunSummary[];
   active: boolean;
-  mcpPresetsByName: Map<string, McpPresetInfo>;
 }) {
   if (runs.length === 0) return null;
   return (
@@ -1780,27 +1736,21 @@ function McpRunGroup({
           key={run.key}
           run={run}
           active={active}
-          preset={mcpPresetsByName.get(run.presetName.toLowerCase())}
         />
       ))}
     </ul>
   );
 }
 
-function McpRunRow({ run, active, preset }: { run: McpRunSummary; active: boolean; preset?: McpPresetInfo }) {
+function McpRunRow({ run, active }: { run: McpRunSummary; active: boolean }) {
   const { t } = useTranslation();
-  const [logoIndex, setLogoIndex] = useState(0);
   const failed = run.status === "error";
   const rowActive = active && run.status === "running";
-  const color = failed ? "#DC2626" : preset?.brand_color || "#6D5DF6";
-  const logoUrls = useMemo(() => logoFallbackUrls(preset?.logo_url), [preset?.logo_url]);
-  const logoUrl = logoUrls[logoIndex];
-  const displayName = preset?.display_name || run.displayName;
+  const color = failed ? "#DC2626" : "#6D5DF6";
+  const displayName = run.displayName;
   const label = t(mcpRunLabelKey(run, active), {
     defaultValue: mcpRunLabelDefault(run, active),
   });
-
-  useEffect(() => setLogoIndex(0), [preset?.logo_url]);
 
   return (
     <li
@@ -1815,23 +1765,12 @@ function McpRunRow({ run, active, preset }: { run: McpRunSummary; active: boolea
         )}
         style={{
           borderColor: alphaColor(color, 22),
-          backgroundColor: logoUrl ? "hsl(var(--background))" : color,
+          backgroundColor: color,
           boxShadow: rowActive ? `0 0 0 3px ${alphaColor(color, 9)}` : undefined,
         }}
         aria-hidden
       >
-        {logoUrl ? (
-          <img
-            src={logoUrl}
-            alt=""
-            className="h-[78%] w-[78%] object-contain"
-            onError={() => setLogoIndex((index) => index + 1)}
-          />
-        ) : preset ? (
-          mcpPresetInitials(preset).slice(0, 2)
-        ) : (
-          <Server className="h-3 w-3" aria-hidden />
-        )}
+        <Server className="h-3 w-3" aria-hidden />
       </span>
       <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
         <StreamingLabelSheen active={rowActive} className="shrink-0 font-medium text-muted-foreground/85">

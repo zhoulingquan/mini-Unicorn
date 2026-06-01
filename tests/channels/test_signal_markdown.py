@@ -1,7 +1,7 @@
 """Unit tests for the Signal markdown → plain text + textStyle converter."""
 
-from nanobot.channels.signal import _markdown_to_signal, _partition_styles
-from nanobot.utils.helpers import split_message
+from munchkin.channels.signal import _markdown_to_signal, _partition_styles
+from munchkin.utils.helpers import split_message
 
 
 def _utf16_len(s: str) -> int:

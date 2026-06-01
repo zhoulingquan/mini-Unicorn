@@ -3,8 +3,8 @@ notebook JSON editing, and create-file semantics."""
 
 import pytest
 
-from nanobot.agent.tools.filesystem import EditFileTool, ReadFileTool, WriteFileTool
-from nanobot.agent.tools import file_state
+from munchkin.agent.tools.filesystem import EditFileTool, ReadFileTool, WriteFileTool
+from munchkin.agent.tools import file_state
 
 
 # ---------------------------------------------------------------------------

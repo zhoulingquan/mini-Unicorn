@@ -3,7 +3,7 @@ x-common-config: &common-config
     context: .
     dockerfile: Dockerfile
   volumes:
-    - ~/.nanobot:/home/nanobot/.nanobot
+    - ~/.munchkin:/home/munchkin/.munchkin
   cap_drop:
     - ALL
   cap_add:
@@ -13,13 +13,12 @@ x-common-config: &common-config
     - seccomp=unconfined
 
 services:
-  nanobot-gateway:
-    container_name: nanobot-gateway
+  munchkin-gateway:
+    container_name: munchkin-gateway
     <<: *common-config
     command: ["gateway"]
     restart: unless-stopped
     ports:
-      - 18790:18790
       - 8765:8765
     deploy:
       resources:
@@ -30,11 +29,11 @@ services:
           cpus: "0.25"
           memory: 256M
 
-  nanobot-api:
-    container_name: nanobot-api
+  munchkin-api:
+    container_name: munchkin-api
     <<: *common-config
     command:
-      ["serve", "--host", "0.0.0.0", "-w", "/home/nanobot/.nanobot/api-workspace"]
+      ["serve", "--host", "0.0.0.0", "-w", "/home/munchkin/.munchkin/api-workspace"]
     restart: unless-stopped
     ports:
       - 127.0.0.1:8900:8900
@@ -47,7 +46,7 @@ services:
           cpus: "0.25"
           memory: 256M
 
-  nanobot-cli:
+  munchkin-cli:
     <<: *common-config
     profiles:
       - cli

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from nanobot.config.loader import set_config_path
-from nanobot.utils.artifacts import (
+from munchkin.config.loader import set_config_path
+from munchkin.utils.artifacts import (
     ArtifactError,
     decode_image_data_url,
     store_generated_image_artifact,

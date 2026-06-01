@@ -13,8 +13,8 @@ import time
 
 import pytest
 
-from nanobot.agent.tools.filesystem import EditFileTool, ReadFileTool, _find_match
-from nanobot.agent.tools import file_state
+from munchkin.agent.tools.filesystem import EditFileTool, ReadFileTool, _find_match
+from munchkin.agent.tools import file_state
 
 
 @pytest.fixture(autouse=True)

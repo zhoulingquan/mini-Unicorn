@@ -1,13 +1,13 @@
 {
   "app": {
-    "brand": "nanobot",
+    "brand": "Munchkin",
     "loading": {
-      "connecting": "Connecting to nanobot…",
-      "boot": "Loading nanobot…"
+      "connecting": "Connecting to Munchkin…",
+      "boot": "Loading Munchkin…"
     },
     "error": {
-      "title": "Couldn't reach nanobot",
-      "gatewayHint": "Make sure the gateway is running (`nanobot gateway`) and that this page is open on the same machine."
+      "title": "Couldn't reach Munchkin",
+      "gatewayHint": "Make sure the gateway is running (`munchkin gateway`) and that this page is open on the same machine."
     },
     "auth": {
       "title": "Authentication required",
@@ -23,8 +23,8 @@
     },
     "system": {
       "section": "System",
-      "restartHint": "Restart nanobot to apply runtime changes.",
-      "restart": "Restart nanobot",
+      "restartHint": "Restart Munchkin to apply runtime changes.",
+      "restart": "Restart Munchkin",
       "restarting": "Restarting...",
       "restartEngine": "Restart engine",
       "restartingEngine": "Restarting engine..."
@@ -33,11 +33,11 @@
       "completed": "Restart completed in {{seconds}}s."
     },
     "documentTitle": {
-      "base": "nanobot",
-      "chat": "{{title}} · nanobot"
+      "base": "Munchkin",
+      "chat": "{{title}} · Munchkin"
     },
     "meta": {
-      "description": "nanobot web UI — chat with your nanobot workspace."
+      "description": "Munchkin web UI — chat with your Munchkin workspace."
     }
   },
   "sidebar": {
@@ -69,7 +69,6 @@
       "appearance": "Appearance",
       "models": "Models",
       "providers": "Providers",
-      "image": "Image",
       "browser": "Web",
       "cliApps": "CLI Apps",
       "mcp": "MCP",
@@ -84,8 +83,6 @@
       "status": "Status",
       "localPreferences": "Local preferences",
       "presets": "Presets",
-      "imageGeneration": "Image generation",
-      "imageDefaults": "Defaults",
       "webSearch": "Web search",
       "webBehavior": "Behavior",
       "cliApps": "CLI apps",
@@ -111,7 +108,7 @@
       "language": "Language",
       "provider": "Provider",
       "model": "Model",
-      "restart": "Restart nanobot",
+      "restart": "Restart Munchkin",
       "configPath": "Config path",
       "activePreset": "Active preset",
       "gateway": "Gateway",
@@ -127,15 +124,6 @@
       "maxResults": "Max results",
       "timeout": "Timeout",
       "jinaReader": "Jina reader",
-      "imageGeneration": "Image generation",
-      "imageProvider": "Image provider",
-      "imageProviderStatus": "Provider status",
-      "imageProviderBase": "Provider base",
-      "imageModel": "Image model",
-      "defaultAspectRatio": "Default aspect",
-      "defaultImageSize": "Default size",
-      "maxImagesPerTurn": "Max images per turn",
-      "imageSaveDir": "Save directory",
       "botName": "Bot name",
       "botIcon": "Bot icon",
       "timezone": "Timezone",
@@ -153,9 +141,9 @@
       "theme": "Switch between light and dark appearance.",
       "language": "Choose the language used by the WebUI.",
       "provider": "Select the provider that should serve new model requests.",
-      "model": "Set the default model name used by nanobot.",
+      "model": "Set the default model name used by Munchkin.",
       "configPath": "The gateway configuration file currently in use.",
-      "currentModel": "Choose the model nanobot uses for new replies.",
+      "currentModel": "Choose the model Munchkin uses for new replies.",
       "selectedModelProvider": "Set by the selected model.",
       "selectedModelValue": "Set by the selected model.",
       "selectedPreset": "Named presets are read-only here; edit them in config.json.",
@@ -167,17 +155,10 @@
       "maxResults": "Results returned by each web_search call.",
       "timeout": "Seconds before a search provider request times out.",
       "jinaReader": "Use Jina Reader for web_fetch when available.",
-      "imageGeneration": "Expose generate_image in chats when a configured image provider is available.",
-      "imageProvider": "Choose the registry provider used by generate_image.",
-      "imageProviderStatus": "Image generation reuses provider credentials from Providers.",
-      "imageModel": "Model name sent to the selected image provider.",
-      "defaultAspectRatio": "Used when the prompt does not choose an aspect ratio.",
-      "defaultImageSize": "Size hint sent to providers that support it.",
-      "maxImagesPerTurn": "Upper bound for one generate_image request.",
-      "botName": "Shown wherever nanobot uses a display name.",
+      "botName": "Shown wherever Munchkin uses a display name.",
       "botIcon": "Short emoji or text shown with the bot name.",
       "timezone": "Used for schedules and time-aware replies.",
-      "cliAppsCatalog": "Install only the app-specific CLI adapters nanobot can run locally; native apps stay untouched.",
+      "cliAppsCatalog": "Install only the app-specific CLI adapters Munchkin can run locally; native apps stay untouched.",
       "cliAppsFilter": "Search by app, category, or capability.",
       "localServiceAccess": "Allow Full Access shell commands to reach localhost services.",
       "webuiDefaultAccess": "Used by web chats without a project-specific permission.",
@@ -250,7 +231,7 @@
       "saveCustom": "Save MCP",
       "configImport": "Import mcp.json",
       "importConfig": "Import",
-      "restartRequired": "Restart nanobot to connect updated MCP tools.",
+      "restartRequired": "Restart Munchkin to connect updated MCP tools.",
       "toolsFound": "{{count}} tools",
       "loading": "Loading MCP presets...",
       "empty": "No MCP presets match this filter.",
@@ -303,11 +284,10 @@
       "loadError": "Could not load settings",
       "unsaved": "Unsaved changes.",
       "upToDate": "Up to date.",
-      "savedRestart": "Saved. Restart nanobot to apply.",
+      "savedRestart": "Saved. Restart Munchkin to apply.",
       "restartAfterSaving": "Save changes, then restart when ready.",
       "savedRestartApply": "Saved. Restart when ready.",
-      "imageProviderRestart": "Image provider changes saved. Restart when ready.",
-      "hostRestartAfterSaving": "Save changes and nanobot will restart its engine.",
+      "hostRestartAfterSaving": "Save changes and Munchkin will restart its engine.",
       "hostRestartPending": "Saved. Restarting engine when ready.",
       "hostApiUnavailable": "Host actions are only available inside the native app.",
       "logsOpened": "Opened logs folder.",
@@ -326,7 +306,7 @@
       "exporting": "Exporting..."
     },
     "byok": {
-      "description": "Bring your own provider keys. Nanobot reads these values from the current config and only configured providers can be selected in General.",
+      "description": "Bring your own provider keys. Munchkin reads these values from the current config and only configured providers can be selected in General.",
       "configured": "Configured",
       "notConfigured": "Not configured",
       "configuredSection": "Configured",
@@ -373,7 +353,6 @@
       "configuredCount": "{{count}} configured",
       "totalProviders": "{{count}} available",
       "webSearch": "Web search",
-      "imageGeneration": "Image generation",
       "workspace": "Workspace"
     },
     "providers": {
@@ -381,18 +360,9 @@
       "noMatches": "No providers match this search.",
       "saveProvider": "Save provider"
     },
-    "legal": {
-      "thirdPartyBrands": "Product names, logos, and brands are property of their respective owners. Use is for identification only and does not imply endorsement."
-    },
-    "image": {
-      "selectProvider": "Select provider",
-      "selectAspect": "Select aspect",
-      "selectSize": "Select size",
-      "configureProvider": "Configure provider",
-      "missingCredential": "Configure this provider before enabling image generation."
-    },
+    "legal": {},
     "apps": {
-      "description": "Add app CLIs and MCP services nanobot can use from chat.",
+      "description": "Add app CLIs and MCP services Munchkin can use from chat.",
       "cliLabel": "CLI",
       "mcpLabel": "MCP",
       "filterAll": "All",
@@ -506,38 +476,13 @@
           "title": "More",
           "prompt": "Show me a few useful ways you can help in this workspace."
         }
-      },
-      "imageQuickActions": {
-        "icon": {
-          "title": "Design an app icon",
-          "prompt": "Generate a clean 1:1 app icon for nanobot: friendly robot, simple vector style, soft blue and white palette, no text."
-        },
-        "sticker": {
-          "title": "Make a sticker",
-          "prompt": "Generate a cute sticker-style image of a tiny robot assistant, transparent-looking background, expressive and playful."
-        },
-        "poster": {
-          "title": "Create a poster",
-          "prompt": "Generate a polished poster concept for a personal AI assistant, modern composition, strong visual hierarchy, suitable for a landing page."
-        },
-        "product": {
-          "title": "Product mockup",
-          "prompt": "Generate a clean product mockup image for a conversational AI web app, minimal interface, premium lighting, realistic device frame."
-        },
-        "portrait": {
-          "title": "Stylized portrait",
-          "prompt": "Generate a stylized portrait of a friendly AI companion, soft lighting, detailed but approachable, modern illustration style."
-        },
-        "edit": {
-          "title": "Edit an image",
-          "prompt": "Help me edit an image. Ask me to upload or reference the image first, then generate the edited result."
-        }
       }
     },
     "header": {
       "toggleSidebar": "Toggle sidebar",
       "newChat": "Start a new chat",
       "toggleTheme": "Toggle theme from header",
+      "toggleLanguage": "Toggle language",
       "settings": "Open settings"
     },
     "composer": {
@@ -556,21 +501,6 @@
       "send": "Send message",
       "stop": "Stop response",
       "attachImage": "Attach image",
-      "imageMode": {
-        "label": "Image Generation",
-        "toggle": "Toggle image generation mode",
-        "placeholder": "Describe or edit an image…",
-        "aspectAria": "Image aspect ratio",
-        "aspectLabel": "Image aspect",
-        "aspect": {
-          "auto": "Auto",
-          "1_1": "Square 1:1",
-          "3_4": "Portrait 3:4",
-          "9_16": "Story 9:16",
-          "4_3": "Landscape 4:3",
-          "16_9": "Wide 16:9"
-        }
-      },
       "tools": {
         "search": "Search",
         "reason": "Reason",
@@ -603,7 +533,7 @@
             "description": "Cancel the active agent turn for this chat."
           },
           "restart": {
-            "title": "Restart nanobot",
+            "title": "Restart Munchkin",
             "description": "Restart the bot process in place."
           },
           "status": {
@@ -732,7 +662,7 @@
     },
     "workspaceScopeRejected": {
       "title": "Workspace was not changed",
-      "body": "Nanobot kept the previous workspace because the requested project or access mode was rejected by the gateway."
+      "body": "Munchkin kept the previous workspace because the requested project or access mode was rejected by the gateway."
     }
   },
   "workspace": {

@@ -69,7 +69,7 @@ function makeClient() {
 function wrap(client: ReturnType<typeof makeClient>, children: ReactNode, modelName?: string | null) {
   return (
     <ClientProvider
-      client={client as unknown as import("@/lib/nanobot-client").NanobotClient}
+      client={client as unknown as import("@/lib/munchkin-client").MunchkinClient}
       token="tok"
       modelName={modelName ?? null}
     >
@@ -124,7 +124,7 @@ function modelSettings(model: string, provider: string): SettingsPayload {
       temperature: 0.7,
       reasoning_effort: null,
       timezone: "UTC",
-      bot_name: "nanobot",
+      bot_name: "Munchkin",
       bot_icon: "",
       tool_hint_max_length: 40,
     },
@@ -142,7 +142,7 @@ function modelSettings(model: string, provider: string): SettingsPayload {
     }],
     providers: [
       { name: "deepseek", label: "DeepSeek", configured: true },
-      { name: "openai_codex", label: "OpenAI Codex", configured: true },
+      { name: "opencode", label: "OpenCode Zen", configured: true },
     ],
     web_search: {
       provider: "duckduckgo",
@@ -159,22 +159,11 @@ function modelSettings(model: string, provider: string): SettingsPayload {
       search: { max_results: 5, timeout: 30 },
       fetch: { use_jina_reader: true },
     },
-    image_generation: {
-      enabled: false,
-      provider: "openrouter",
-      provider_configured: false,
-      model: "openai/gpt-5.4-image-2",
-      default_aspect_ratio: "1:1",
-      default_image_size: "1K",
-      max_images_per_turn: 4,
-      save_dir: "generated",
-      providers: [],
-    },
     runtime: {
       config_path: "/tmp/config.json",
       workspace_path: "/tmp/workspace",
       gateway_host: "127.0.0.1",
-      gateway_port: 18790,
+      gateway_port: 8765,
       heartbeat: {
         enabled: true,
         interval_s: 1800,
@@ -260,60 +249,14 @@ describe("ThreadShell", () => {
             session={session("model-logo")}
             title="Model logo"
             onToggleSidebar={() => {}}
-            settingsSnapshot={modelSettings("openai-codex/gpt-5.5", "openai_codex")}
-          />,
-          "openai-codex/gpt-5.5",
-        ),
-      );
-    });
-
-    expect(await screen.findByTestId("composer-model-logo-openai_codex")).toBeInTheDocument();
-  });
-
-  it("only shows image generation controls when the setting is enabled", async () => {
-    const client = makeClient();
-    const disabledSettings = modelSettings("deepseek-v4-pro", "deepseek");
-    const enabledSettings: SettingsPayload = {
-      ...disabledSettings,
-      image_generation: {
-        ...disabledSettings.image_generation,
-        enabled: true,
-        provider_configured: true,
-      },
-    };
-
-    const { rerender } = render(
-      wrap(
-        client,
-        <ThreadShell
-          session={session("image-generation-disabled")}
-          title="Image generation disabled"
-          onToggleSidebar={() => {}}
-          settingsSnapshot={disabledSettings}
+          settingsSnapshot={modelSettings("opencode/big-pickle", "opencode")}
         />,
-        "deepseek-v4-pro",
-      ),
-    );
-
-    await screen.findByLabelText("Message input");
-    expect(screen.queryByRole("button", { name: "Toggle image generation mode" })).not.toBeInTheDocument();
-
-    await act(async () => {
-      rerender(
-        wrap(
-          client,
-          <ThreadShell
-            session={session("image-generation-disabled")}
-            title="Image generation disabled"
-            onToggleSidebar={() => {}}
-            settingsSnapshot={enabledSettings}
-          />,
-          "deepseek-v4-pro",
+        "opencode/big-pickle",
         ),
       );
     });
 
-    expect(screen.getByRole("button", { name: "Toggle image generation mode" })).toBeInTheDocument();
+    expect(await screen.findByTestId("composer-model-logo-opencode")).toBeInTheDocument();
   });
 
   it("restores in-memory messages when switching away and back to a session", async () => {
@@ -417,7 +360,7 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={null}
-            title="nanobot"
+            title="Munchkin"
             onToggleSidebar={() => {}}
             onGoHome={() => {}}
             onNewChat={onNewChat}
@@ -442,7 +385,7 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={null}
-          title="nanobot"
+          title="Munchkin"
           onToggleSidebar={() => {}}
           onGoHome={() => {}}
           onNewChat={onNewChat}
@@ -477,7 +420,7 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={null}
-          title="nanobot"
+          title="Munchkin"
           onToggleSidebar={() => {}}
           onCreateChat={onCreateChat}
         />,
@@ -546,7 +489,7 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={null}
-          title="nanobot"
+          title="Munchkin"
           onToggleSidebar={() => {}}
           onCreateChat={onCreateChat}
         />,
@@ -603,7 +546,7 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={null}
-          title="nanobot"
+          title="Munchkin"
           onToggleSidebar={() => {}}
           onGoHome={() => {}}
           onNewChat={() => {}}
@@ -812,7 +755,7 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={null}
-            title="nanobot"
+            title="Munchkin"
             onToggleSidebar={() => {}}
             onNewChat={() => {}}
           />,
@@ -975,7 +918,7 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={null}
-            title="nanobot"
+            title="Munchkin"
             onToggleSidebar={() => {}}
             onNewChat={() => {}}
           />,
@@ -1043,7 +986,7 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={null}
-          title="nanobot"
+          title="Munchkin"
           onToggleSidebar={() => {}}
           onNewChat={() => {}}
         />,
@@ -1063,39 +1006,6 @@ describe("ThreadShell", () => {
 
     expect(screen.getByRole("listbox", { name: "Slash commands" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /\/history/i })).toBeInTheDocument();
-  });
-
-  it("does not bring back welcome cards when image mode is enabled", async () => {
-    const client = makeClient();
-    const settings = modelSettings("deepseek-v4-pro", "deepseek");
-    render(
-      wrap(
-        client,
-        <ThreadShell
-          session={null}
-          title="nanobot"
-          onToggleSidebar={() => {}}
-          onNewChat={() => {}}
-          settingsSnapshot={{
-            ...settings,
-            image_generation: {
-              ...settings.image_generation,
-              enabled: true,
-              provider_configured: true,
-            },
-          }}
-        />,
-      ),
-    );
-    await act(async () => {});
-
-    expect(screen.queryByText("Design an app icon")).not.toBeInTheDocument();
-    expect(screen.queryByText("Write code")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Toggle image generation mode" }));
-
-    expect(screen.queryByText("Design an app icon")).not.toBeInTheDocument();
-    expect(screen.queryByText("Write code")).not.toBeInTheDocument();
   });
 
   it("surfaces a dismissible banner when the stream reports message_too_big", async () => {

@@ -1,7 +1,6 @@
 import type {
   ChatSummary,
   CliAppsPayload,
-  ImageGenerationSettingsUpdate,
   McpPresetsPayload,
   ModelConfigurationCreate,
   ModelConfigurationUpdate,
@@ -50,7 +49,7 @@ async function request<T>(
     throw new ApiError(
       res.status,
       isHtml
-        ? "Gateway returned WebUI HTML instead of JSON. Restart nanobot gateway and try again."
+        ? "Gateway returned WebUI HTML instead of JSON. Restart Munchkin gateway and try again."
         : "Gateway returned a non-JSON response.",
     );
   }
@@ -69,7 +68,7 @@ function mcpValuesHeader(values: Record<string, unknown>): HeadersInit | undefin
     payload[key] = value;
   });
   if (!Object.keys(payload).length) return undefined;
-  return { "X-Nanobot-MCP-Values": JSON.stringify(payload) };
+  return { "X-Munchkin-MCP-Values": JSON.stringify(payload) };
 }
 
 function splitKey(key: string): { channel: string; chatId: string } {
@@ -404,20 +403,3 @@ export async function updateNetworkSafetySettings(
   );
 }
 
-export async function updateImageGenerationSettings(
-  token: string,
-  update: ImageGenerationSettingsUpdate,
-  base: string = "",
-): Promise<SettingsPayload> {
-  const query = new URLSearchParams();
-  query.set("enabled", String(update.enabled));
-  query.set("provider", update.provider);
-  query.set("model", update.model);
-  query.set("default_aspect_ratio", update.defaultAspectRatio);
-  query.set("default_image_size", update.defaultImageSize);
-  query.set("max_images_per_turn", String(update.maxImagesPerTurn));
-  return request<SettingsPayload>(
-    `${base}/api/settings/image-generation/update?${query}`,
-    token,
-  );
-}

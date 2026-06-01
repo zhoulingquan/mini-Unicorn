@@ -6,10 +6,10 @@ import pytest
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from nanobot.agent.memory import Dream, MemoryStore
-from nanobot.agent.runner import AgentRunResult
-from nanobot.agent.skills import BUILTIN_SKILLS_DIR
-from nanobot.utils.gitstore import LineAge
+from munchkin.agent.memory import Dream, MemoryStore
+from munchkin.agent.runner import AgentRunResult
+from munchkin.agent.skills import BUILTIN_SKILLS_DIR
+from munchkin.utils.gitstore import LineAge
 
 
 @pytest.fixture
@@ -289,7 +289,7 @@ class TestDreamPromptCaps:
         must not explode the Phase 1 prompt — each entry is capped in the
         preview, even though the JSONL record itself stays full-size."""
         # Bypass the append_history cap by writing directly, simulating a
-        # record that was written by an older nanobot build before any caps.
+        # record that was written by an older Munchkin build before any caps.
         store.history_file.write_text(
             json.dumps({
                 "cursor": 1,

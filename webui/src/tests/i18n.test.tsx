@@ -8,7 +8,6 @@ import { resources } from "@/i18n";
 import { LOCALE_STORAGE_KEY, resolveInitialLocale } from "@/i18n/config";
 
 const QUICK_ACTION_KEYS = ["plan", "analyze", "brainstorm", "code", "summarize", "more"];
-const IMAGE_QUICK_ACTION_KEYS = ["icon", "sticker", "poster", "product", "portrait", "edit"];
 const HERO_GREETING_KEYS = ["workOn", "start", "build", "tackle"];
 const SLASH_COMMAND_KEYS = [
   "new",
@@ -28,7 +27,6 @@ const SETTINGS_NAV_KEYS = [
   "overview",
   "appearance",
   "models",
-  "image",
   "browser",
   "apps",
   "runtime",
@@ -62,9 +60,10 @@ function interpolationKeys(value: unknown): string[] {
 }
 
 describe("webui i18n", () => {
-  it("defaults to English until the user chooses another language", () => {
+  it("defaults to navigator language when no stored preference exists", () => {
     localStorage.removeItem(LOCALE_STORAGE_KEY);
-    expect(resolveInitialLocale()).toBe("en");
+    const detected = resolveInitialLocale();
+    expect(["en", "zh-CN"]).toContain(detected);
 
     localStorage.setItem(LOCALE_STORAGE_KEY, "zh-CN");
     expect(resolveInitialLocale()).toBe("zh-CN");
@@ -91,7 +90,7 @@ describe("webui i18n", () => {
     await waitFor(() => {
       expect(document.documentElement.lang).toBe("zh-CN");
     });
-    expect(localStorage.getItem("nanobot.locale")).toBe("zh-CN");
+    expect(localStorage.getItem("munchkin.locale")).toBe("zh-CN");
     expect(screen.getByPlaceholderText("输入消息…")).toBeInTheDocument();
   });
 
@@ -100,10 +99,10 @@ describe("webui i18n", () => {
 
     await act(async () => {
       const { setAppLanguage } = await import("@/i18n");
-      await setAppLanguage("ja");
+      await setAppLanguage("zh-CN");
     });
 
-    expect(screen.getByLabelText("メッセージ入力欄")).toBeInTheDocument();
+    expect(screen.getByLabelText("消息输入框")).toBeInTheDocument();
   });
 
   it("keeps empty landing resources localized for every registered locale", () => {
@@ -117,11 +116,7 @@ describe("webui i18n", () => {
         expect(action.title).toBeTruthy();
         expect(action.prompt).toBeTruthy();
       }
-      for (const key of IMAGE_QUICK_ACTION_KEYS) {
-        const action = empty.imageQuickActions[key as keyof typeof empty.imageQuickActions];
-        expect(action.title).toBeTruthy();
-        expect(action.prompt).toBeTruthy();
-      }
+
     }
   });
 

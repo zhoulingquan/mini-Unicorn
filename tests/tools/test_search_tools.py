@@ -10,12 +10,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from nanobot.agent.loop import AgentLoop
-from nanobot.agent.subagent import SubagentManager, SubagentStatus
-from nanobot.agent.tools.search import FindFilesTool, GrepTool
-from nanobot.agent.tools.web import WebSearchTool
-from nanobot.bus.queue import MessageBus
-from nanobot.config.schema import WebSearchConfig
+from munchkin.agent.loop import AgentLoop
+from munchkin.agent.subagent import SubagentManager, SubagentStatus
+from munchkin.agent.tools.search import FindFilesTool, GrepTool
+from munchkin.agent.tools.web import WebSearchTool
+from munchkin.bus.queue import MessageBus
+from munchkin.config.schema import WebSearchConfig
 
 
 @pytest.mark.asyncio

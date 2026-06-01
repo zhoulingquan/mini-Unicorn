@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from nanobot.agent.tools.context import RequestContext
-from nanobot.agent.tools.cron import CronTool
-from nanobot.agent.tools.registry import ToolRegistry
+from munchkin.agent.tools.context import RequestContext
+from munchkin.agent.tools.cron import CronTool
+from munchkin.agent.tools.registry import ToolRegistry
 
 
 class _SvcStub:

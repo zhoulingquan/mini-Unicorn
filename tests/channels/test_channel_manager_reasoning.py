@@ -21,11 +21,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.channels.manager import ChannelManager
-from nanobot.config.schema import Config
+from munchkin.bus.events import OutboundMessage
+from munchkin.bus.queue import MessageBus
+from munchkin.channels.base import BaseChannel
+from munchkin.channels.manager import ChannelManager
+from munchkin.config.schema import Config
 
 
 class _MockChannel(BaseChannel):

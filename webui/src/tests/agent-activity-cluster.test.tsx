@@ -535,8 +535,8 @@ describe("AgentActivityCluster", () => {
             id: "t-search",
             role: "tool",
             kind: "trace",
-            content: 'web_search({"query":"nanobot architecture"})',
-            traces: ['web_search({"query":"nanobot architecture"})'],
+            content: 'web_search({"query":"munchkin architecture"})',
+            traces: ['web_search({"query":"munchkin architecture"})'],
             createdAt: 1,
           },
           {

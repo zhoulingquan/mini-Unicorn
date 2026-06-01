@@ -8,23 +8,23 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nanobot.config.schema import AgentDefaults
-from nanobot.providers.base import LLMResponse, ToolCallRequest
+from munchkin.config.schema import AgentDefaults
+from munchkin.providers.base import LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 
 def _make_loop(tmp_path):
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.bus.queue import MessageBus
+    from munchkin.agent.loop import AgentLoop
+    from munchkin.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
 
-    with patch("nanobot.agent.loop.ContextBuilder"), \
-         patch("nanobot.agent.loop.SessionManager"), \
-         patch("nanobot.agent.loop.SubagentManager") as MockSubMgr:
+    with patch("munchkin.agent.loop.ContextBuilder"), \
+         patch("munchkin.agent.loop.SessionManager"), \
+         patch("munchkin.agent.loop.SubagentManager") as MockSubMgr:
         MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path)
     return loop
@@ -143,9 +143,9 @@ async def test_loop_retries_think_only_final_response(tmp_path):
 async def test_streamed_flag_not_set_on_llm_error(tmp_path):
     """When LLM errors during a streaming-capable channel interaction,
     _streamed must NOT be set so ChannelManager delivers the error."""
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.bus.events import InboundMessage
-    from nanobot.bus.queue import MessageBus
+    from munchkin.agent.loop import AgentLoop
+    from munchkin.bus.events import InboundMessage
+    from munchkin.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -175,9 +175,9 @@ async def test_streamed_flag_not_set_on_llm_error(tmp_path):
 
 @pytest.mark.asyncio
 async def test_ssrf_soft_block_can_finalize_after_streamed_tool_call(tmp_path):
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.bus.events import InboundMessage
-    from nanobot.bus.queue import MessageBus
+    from munchkin.agent.loop import AgentLoop
+    from munchkin.bus.events import InboundMessage
+    from munchkin.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -220,10 +220,10 @@ async def test_ssrf_soft_block_can_finalize_after_streamed_tool_call(tmp_path):
 
 @pytest.mark.asyncio
 async def test_next_turn_after_llm_error_keeps_turn_boundary(tmp_path):
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.agent.runner import _PERSISTED_MODEL_ERROR_PLACEHOLDER
-    from nanobot.bus.events import InboundMessage
-    from nanobot.bus.queue import MessageBus
+    from munchkin.agent.loop import AgentLoop
+    from munchkin.agent.runner import _PERSISTED_MODEL_ERROR_PLACEHOLDER
+    from munchkin.bus.events import InboundMessage
+    from munchkin.bus.queue import MessageBus
 
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
@@ -269,8 +269,8 @@ async def test_next_turn_after_llm_error_keeps_turn_boundary(tmp_path):
 
 @pytest.mark.asyncio
 async def test_subagent_max_iterations_announces_existing_fallback(tmp_path, monkeypatch):
-    from nanobot.agent.subagent import SubagentManager, SubagentStatus
-    from nanobot.bus.queue import MessageBus
+    from munchkin.agent.subagent import SubagentManager, SubagentStatus
+    from munchkin.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -290,7 +290,7 @@ async def test_subagent_max_iterations_announces_existing_fallback(tmp_path, mon
     async def fake_execute(self, **kwargs):
         return "tool result"
 
-    monkeypatch.setattr("nanobot.agent.tools.filesystem.ListDirTool.execute", fake_execute)
+    monkeypatch.setattr("munchkin.agent.tools.filesystem.ListDirTool.execute", fake_execute)
 
     status = SubagentStatus(task_id="sub-1", label="label", task_description="do task", started_at=time.monotonic())
     await mgr._run_subagent("sub-1", "do task", "label", {"channel": "test", "chat_id": "c1"}, status)

@@ -114,11 +114,7 @@
      tight for Chinese/Japanese/Korean characters. Bump to 1.8 for better
      readability when the browser detects a CJK primary font. */
   :lang(zh),
-  :lang(zh-CN),
-  :lang(zh-TW),
-  :lang(zh-HK),
-  :lang(ja),
-  :lang(ko) {
+  :lang(zh-CN) {
     --cjk-line-height: 1.8;
   }
   :root {

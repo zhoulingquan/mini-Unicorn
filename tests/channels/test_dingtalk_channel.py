@@ -8,7 +8,7 @@ import pytest
 
 # Check optional dingtalk dependencies before running tests
 try:
-    from nanobot.channels import dingtalk
+    from munchkin.channels import dingtalk
     DINGTALK_AVAILABLE = getattr(dingtalk, "DINGTALK_AVAILABLE", False)
 except ImportError:
     DINGTALK_AVAILABLE = False
@@ -16,9 +16,9 @@ except ImportError:
 if not DINGTALK_AVAILABLE:
     pytest.skip("DingTalk dependencies not installed (dingtalk-stream)", allow_module_level=True)
 
-import nanobot.channels.dingtalk as dingtalk_module
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.dingtalk import DingTalkChannel, DingTalkConfig, NanobotDingTalkHandler
+import munchkin.channels.dingtalk as dingtalk_module
+from munchkin.bus.queue import MessageBus
+from munchkin.channels.dingtalk import DingTalkChannel, DingTalkConfig, MunchkinDingTalkHandler
 
 
 class _FakeResponse:
@@ -108,7 +108,7 @@ async def test_group_send_uses_group_messages_api() -> None:
         "token",
         "group:conv123",
         "sampleMarkdown",
-        {"text": "hello", "title": "Nanobot Reply"},
+        {"text": "hello", "title": "Munchkin Reply"},
     )
 
     assert ok is True
@@ -125,7 +125,7 @@ async def test_handler_uses_voice_recognition_text_when_text_is_empty(monkeypatc
         DingTalkConfig(client_id="app", client_secret="secret", allow_from=["user1"]),
         bus,
     )
-    handler = NanobotDingTalkHandler(channel)
+    handler = MunchkinDingTalkHandler(channel)
 
     class _FakeChatbotMessage:
         text = None
@@ -169,7 +169,7 @@ async def test_handler_processes_file_message(monkeypatch) -> None:
         DingTalkConfig(client_id="app", client_secret="secret", allow_from=["user1"]),
         bus,
     )
-    handler = NanobotDingTalkHandler(channel)
+    handler = MunchkinDingTalkHandler(channel)
 
     class _FakeFileChatbotMessage:
         text = None
@@ -186,7 +186,7 @@ async def test_handler_processes_file_message(monkeypatch) -> None:
             return _FakeFileChatbotMessage()
 
     async def fake_download(download_code, filename, sender_id):
-        return f"/tmp/nanobot_dingtalk/{sender_id}/{filename}"
+        return f"/tmp/munchkin_dingtalk/{sender_id}/{filename}"
 
     monkeypatch.setattr(dingtalk_module, "ChatbotMessage", _FakeFileChatbotMessage)
     monkeypatch.setattr(dingtalk_module, "AckMessage", SimpleNamespace(STATUS_OK="OK"))
@@ -207,7 +207,7 @@ async def test_handler_processes_file_message(monkeypatch) -> None:
 
     assert (status, body) == ("OK", "OK")
     assert "[File]" in msg.content
-    assert "/tmp/nanobot_dingtalk/user1/report.xlsx" in msg.content
+    assert "/tmp/munchkin_dingtalk/user1/report.xlsx" in msg.content
 
 
 @pytest.mark.asyncio
@@ -234,7 +234,7 @@ async def test_download_dingtalk_file(tmp_path, monkeypatch) -> None:
 
     # Redirect media dir to tmp_path
     monkeypatch.setattr(
-        "nanobot.config.paths.get_media_dir",
+        "munchkin.config.paths.get_media_dir",
         lambda channel_name=None: tmp_path / channel_name if channel_name else tmp_path,
     )
 
@@ -580,7 +580,7 @@ async def test_send_batch_message_propagates_transport_error() -> None:
             "token",
             "user123",
             "sampleMarkdown",
-            {"text": "hello", "title": "Nanobot Reply"},
+            {"text": "hello", "title": "Munchkin Reply"},
         )
 
     # The POST was attempted exactly once

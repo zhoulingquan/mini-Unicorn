@@ -31,7 +31,7 @@
   </p>
 </div>
 
-🐈 **nanobot** is an open-source and ultra-lightweight AI agent in the spirit of [OpenClaw](https://github.com/openclaw/openclaw), [Claude Code](https://www.anthropic.com/claude-code), and [Codex](https://www.openai.com/codex/). It keeps the core agent loop small and readable while still supporting chat channels, memory, MCP and practical deployment paths, so you can go from local setup to a long-running personal agent with minimal overhead.
+🧙 **Munchkin** is an open-source and ultra-lightweight AI agent in the spirit of [OpenClaw](https://github.com/openclaw/openclaw), [Claude Code](https://www.anthropic.com/claude-code), and [Codex](https://www.openai.com/codex/). It keeps the core agent loop small and readable while still supporting chat channels, memory, MCP and practical deployment paths, so you can go from local setup to a long-running personal agent with minimal overhead.
 
 ## 📢 News
 
@@ -124,28 +124,28 @@
 - **2026-02-21** 🎉 Released **v0.1.4.post1** — new providers, media support across channels, and major stability improvements. See [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post1) for details.
 - **2026-02-20** 🐦 Feishu now receives multimodal files from users. More reliable memory under the hood.
 - **2026-02-19** ✨ Slack now sends files, Discord splits long messages, and subagents work in CLI mode.
-- **2026-02-18** ⚡️ nanobot now supports VolcEngine, MCP custom auth headers, and Anthropic prompt caching.
+- **2026-02-18** ⚡️ Munchkin now supports VolcEngine, MCP custom auth headers, and Anthropic prompt caching.
 - **2026-02-17** 🎉 Released **v0.1.4** — MCP support, progress streaming, new providers, and multiple channel improvements. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4) for details.
-- **2026-02-16** 🦞 nanobot now integrates a [ClawHub](https://clawhub.ai) skill — search and install public agent skills.
-- **2026-02-15** 🔑 nanobot now supports OpenAI Codex provider with OAuth login support.
-- **2026-02-14** 🔌 nanobot now supports MCP! See [MCP section](#mcp-model-context-protocol) for details.
+- **2026-02-16** 🦞 Munchkin now integrates a [ClawHub](https://clawhub.ai) skill — search and install public agent skills.
+- **2026-02-15** 🔑 Munchkin now supports OpenAI Codex provider with OAuth login support.
+- **2026-02-14** 🔌 Munchkin now supports MCP! See [MCP section](#mcp-model-context-protocol) for details.
 - **2026-02-13** 🎉 Released **v0.1.3.post7** — includes security hardening and multiple improvements. **Please upgrade to the latest version to address security issues**. See [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post7) for more details.
 - **2026-02-12** 🧠 Redesigned memory system — Less code, more reliable. Join the [discussion](https://github.com/HKUDS/nanobot/discussions/566) about it!
 - **2026-02-11** ✨ Enhanced CLI experience and added MiniMax support!
 - **2026-02-10** 🎉 Released **v0.1.3.post6** with improvements! Check the updates [notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post6) and our [roadmap](https://github.com/HKUDS/nanobot/discussions/431).
-- **2026-02-09** 💬 Added Slack, Email, and QQ support — nanobot now supports multiple chat platforms!
+- **2026-02-09** 💬 Added Slack, Email, and QQ support — Munchkin now supports multiple chat platforms!
 - **2026-02-08** 🔧 Refactored Providers—adding a new LLM provider now takes just 2 simple steps! Check [here](#providers).
 - **2026-02-07** 🚀 Released **v0.1.3.post5** with Qwen support & several key improvements! Check [here](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post5) for details.
 - **2026-02-06** ✨ Added Moonshot/Kimi provider, Discord integration, and enhanced security hardening!
 - **2026-02-05** ✨ Added Feishu channel, DeepSeek provider, and enhanced scheduled tasks support!
 - **2026-02-04** 🚀 Released **v0.1.3.post4** with multi-provider & Docker support! Check [here](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post4) for details.
 - **2026-02-03** ⚡ Integrated vLLM for local LLM support and improved natural language task scheduling!
-- **2026-02-02** 🎉 nanobot officially launched! Welcome to try 🐈 nanobot!
+- **2026-02-02** 🎉 Munchkin officially launched! Welcome to try 🧙 Munchkin!
 
 </details>
 
 
-## 💡 Key Features of nanobot
+## 💡 Key Features of Munchkin
 
 - **Ultra-lightweight**: stable long-running agent behavior with a small, readable core.
 - **Research-ready**: the codebase is intentionally simple enough to study, modify, and extend.
@@ -170,13 +170,13 @@ pip install -e .
 **Install with `uv`**
 
 ```bash
-uv tool install nanobot-ai
+uv tool install munchkin-ai
 ```
 
 **Install from PyPI**
 
 ```bash
-pip install nanobot-ai
+pip install munchkin-ai
 ```
 
 ## 🚀 Quick Start
@@ -184,10 +184,10 @@ pip install nanobot-ai
 **1. Initialize**
 
 ```bash
-nanobot onboard
+munchkin onboard
 ```
 
-**2. Configure** (`~/.nanobot/config.json`)
+**2. Configure** (`~/.munchkin/config.json`)
 
 Configure these **two parts** in your config (other options have defaults). Add or merge the following blocks into your existing config instead of replacing the whole file.
 
@@ -219,13 +219,13 @@ Configure these **two parts** in your config (other options have defaults). Add 
 **3. Chat**
 
 ```bash
-nanobot agent
+munchkin agent
 ```
 
 
 - Want different LLM providers, web search, MCP, security settings, or more config options? See [Configuration](./docs/configuration.md)
 - Want to run locally? Use [Atomic Chat](./docs/configuration.md#atomic-chat-local), [vLLM](./docs/configuration.md#vllm-local-openai-compatible), [Ollama](./docs/configuration.md#ollama-local), and [others](./docs/configuration.md#local-providers).
-- Want to run nanobot in chat apps like Telegram, Discord, WeChat or Feishu? See [Chat Apps](./docs/chat-apps.md)
+- Want to run Munchkin in chat apps like Telegram, Discord, WeChat or Feishu? See [Chat Apps](./docs/chat-apps.md)
 - Want Docker or Linux service deployment? See [Deployment](./docs/deployment.md)
 
 ## 🌐 WebUI
@@ -233,10 +233,10 @@ nanobot agent
 The WebUI ships **inside the published wheel** — no extra build step. Just enable the WebSocket channel and open it in your browser.
 
 <p align="center">
-  <img src="images/nanobot_webui.png" alt="nanobot webui preview" width="900">
+  <img src="images/nanobot_webui.png" alt="Munchkin webui preview" width="900">
 </p>
 
-**1. Enable the WebSocket channel in `~/.nanobot/config.json`**
+**1. Enable the WebSocket channel in `~/.munchkin/config.json`**
 
 ```json
 { "channels": { "websocket": { "enabled": true } } }
@@ -245,7 +245,7 @@ The WebUI ships **inside the published wheel** — no extra build step. Just ena
 **2. Start the gateway**
 
 ```bash
-nanobot gateway
+munchkin gateway
 ```
 
 **3. Open the WebUI**
@@ -258,10 +258,10 @@ Visit [`http://127.0.0.1:8765`](http://127.0.0.1:8765) in your browser. To open 
 ## 🏗️ Architecture
 
 <p align="center">
-  <img src="images/nanobot_arch.png" alt="nanobot architecture" width="800">
+  <img src="images/nanobot_arch.png" alt="Munchkin architecture" width="800">
 </p>
 
-🐈 nanobot stays lightweight by centering everything around a small agent loop: messages come in from chat apps, the LLM decides when tools are needed, and memory or skills are pulled in only as context instead of becoming a heavy orchestration layer. That keeps the core path readable and easy to extend, while still letting you add channels, tools, memory, and deployment options without turning the system into a monolith.
+🧙 Munchkin stays lightweight by centering everything around a small agent loop: messages come in from chat apps, the LLM decides when tools are needed, and memory or skills are pulled in only as context instead of becoming a heavy orchestration layer. That keeps the core path readable and easy to extend, while still letting you add channels, tools, memory, and deployment options without turning the system into a monolith.
 
 ## ✨ Features
 
@@ -290,10 +290,10 @@ Visit [`http://127.0.0.1:8765`](http://127.0.0.1:8765) in your browser. To open 
 
 Browse the [repo docs](./docs/README.md) for the latest features and GitHub development version, or visit [nanobot.wiki](https://nanobot.wiki/docs/latest/getting-started/nanobot-overview) for the stable release documentation.
 
-- Talk to your nanobot with familiar chat apps: [Chat Apps](./docs/chat-apps.md)
+- Talk to your Munchkin with familiar chat apps: [Chat Apps](./docs/chat-apps.md)
 - Configure providers, web search, MCP, and runtime behavior: [Configuration](./docs/configuration.md)
-- Integrate nanobot with local tools and automations: [OpenAI-Compatible API](./docs/openai-api.md) · [Python SDK](./docs/python-sdk.md)
-- Run nanobot with Docker or as a Linux service: [Deployment](./docs/deployment.md)
+- Integrate Munchkin with local tools and automations: [OpenAI-Compatible API](./docs/openai-api.md) · [Python SDK](./docs/python-sdk.md)
+- Run Munchkin with Docker or as a Linux service: [Deployment](./docs/deployment.md)
 
 ## 🤝 Contribute & Roadmap
 
@@ -340,6 +340,6 @@ This project was started by [Xubin Ren](https://github.com/re-bin) as a personal
 </div>
 
 <p align="center">
-  <em> Thanks for visiting ✨ nanobot!</em><br><br>
+  <em> Thanks for visiting ✨ Munchkin!</em><br><br>
   <img src="https://visitor-badge.laobi.icu/badge?page_id=HKUDS.nanobot&style=for-the-badge&color=00d4ff" alt="Views">
 </p>

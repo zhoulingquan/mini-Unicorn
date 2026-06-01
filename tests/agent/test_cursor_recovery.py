@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from nanobot.agent.memory import MemoryStore
+from munchkin.agent.memory import MemoryStore
 
 
 @pytest.fixture

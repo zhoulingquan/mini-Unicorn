@@ -1,8 +1,8 @@
-# Contributing to nanobot
+# Contributing to Munchkin
 
 Thank you for being here.
 
-nanobot is built with a simple belief: good tools should feel calm, clear, and humane.
+Munchkin is built with a simple belief: good tools should feel calm, clear, and humane.
 We care deeply about useful features, but we also believe in achieving more with less:
 solutions should be powerful without becoming heavy, and ambitious without becoming
 needlessly complicated.
@@ -58,7 +58,7 @@ git pull --ff-only upstream main
 git switch -c your-topic-branch
 ```
 
-Use your primary HKUDS/nanobot remote in place of `upstream` if your checkout
+Use your primary HKUDS/Munchkin remote in place of `upstream` if your checkout
 uses a different remote name.
 
 Keep unrelated local changes out of the topic branch. If your checkout already has
@@ -94,7 +94,7 @@ Keep setup boring and reliable. The goal is to get you into the code quickly:
 ```bash
 # Clone the repository
 git clone https://github.com/HKUDS/nanobot.git
-cd nanobot
+cd Munchkin
 
 # Install with dev dependencies
 pip install -e ".[dev]"
@@ -103,10 +103,10 @@ pip install -e ".[dev]"
 pytest
 
 # Lint code
-ruff check nanobot/
+ruff check munchkin/
 
 # Format code — optional. The existing tree predates `ruff format`,
-# so running it across `nanobot/` produces a large unrelated diff
+# so running it across `Munchkin/` produces a large unrelated diff
 # (E501 is ignored, so many existing lines exceed the 100-char setting).
 # Format only files you've actually touched, not the whole package.
 ruff format <files-you-changed>
@@ -119,7 +119,7 @@ and agree that it will be licensed under the project's MIT License.
 
 ## Code Style
 
-We care about more than passing lint. We want nanobot to stay small, calm, and readable.
+We care about more than passing lint. We want Munchkin to stay small, calm, and readable.
 
 When contributing, please aim for code that feels:
 
@@ -163,4 +163,4 @@ Please feel free to open an [issue](https://github.com/HKUDS/nanobot/issues), jo
 - [Feishu/WeChat](./COMMUNICATION.md)
 - Email: Xubin Ren (@Re-bin) — <xubinrencs@gmail.com>
 
-Thank you for spending your time and care on nanobot. We would love for more people to participate in this community, and we genuinely welcome contributions of all sizes.
+Thank you for spending your time and care on Munchkin. We would love for more people to participate in this community, and we genuinely welcome contributions of all sizes.

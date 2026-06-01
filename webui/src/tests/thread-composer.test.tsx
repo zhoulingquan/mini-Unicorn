@@ -115,7 +115,7 @@ const ORIGINAL_INNER_HEIGHT = window.innerHeight;
 
 afterEach(() => {
   vi.restoreAllMocks();
-  Reflect.deleteProperty(window, "nanobotHost");
+  Reflect.deleteProperty(window, "munchkinHost");
   window.localStorage.clear();
   Object.defineProperty(window, "innerHeight", {
     value: ORIGINAL_INNER_HEIGHT,
@@ -146,13 +146,13 @@ describe("ThreadComposer", () => {
     render(
       <ThreadComposer
         onSend={vi.fn()}
-        modelLabel="claude-opus-4-5"
+        modelLabel="deepseek-chat"
         placeholder="Ask anything..."
         variant="hero"
       />,
     );
 
-    expect(screen.getByText("claude-opus-4-5")).toBeInTheDocument();
+    expect(screen.getByText("deepseek-chat")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Search" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reason" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Deep research" })).not.toBeInTheDocument();
@@ -168,14 +168,14 @@ describe("ThreadComposer", () => {
       <ThreadComposer
         onSend={vi.fn()}
         modelLabel="gpt-4o"
-        modelProvider="openai"
-        modelProviderLabel="OpenAI"
+        modelProvider="deepseek"
+        modelProviderLabel="DeepSeek"
         placeholder="Type your message..."
       />,
     );
 
     expect(screen.getByText("gpt-4o")).toBeInTheDocument();
-    expect(screen.getByTestId("composer-model-logo-openai")).toBeInTheDocument();
+    expect(screen.getByTestId("composer-model-logo-deepseek")).toBeInTheDocument();
     const input = screen.getByPlaceholderText("Type your message...");
     expect(input.className).toContain("min-h-[50px]");
     expect(input.parentElement?.parentElement?.className).toContain("max-w-[49.5rem]");
@@ -218,7 +218,7 @@ describe("ThreadComposer", () => {
   it("keeps project selection as a compact composer dropdown", async () => {
     const onWorkspaceScopeChange = vi.fn();
     const defaultScope = {
-      project_path: "/Users/test/.nanobot/workspace",
+      project_path: "/Users/test/.munchkin/workspace",
       project_name: "workspace",
       access_mode: "restricted" as const,
       restrict_to_workspace: true,
@@ -280,12 +280,12 @@ describe("ThreadComposer", () => {
     const onWorkspaceScopeChange = vi.fn();
     const pickFolder = vi.fn().mockResolvedValue("/Users/test/native-project");
     const defaultScope = {
-      project_path: "/Users/test/.nanobot/workspace",
+      project_path: "/Users/test/.munchkin/workspace",
       project_name: "workspace",
       access_mode: "full" as const,
       restrict_to_workspace: false,
     };
-    Object.defineProperty(window, "nanobotHost", {
+    Object.defineProperty(window, "munchkinHost", {
       configurable: true,
       value: {
         getRuntimeInfo: vi.fn(),
@@ -322,7 +322,7 @@ describe("ThreadComposer", () => {
 
   it("uses the web path menu when no native host picker is available", async () => {
     const defaultScope = {
-      project_path: "/Users/test/.nanobot/workspace",
+      project_path: "/Users/test/.munchkin/workspace",
       project_name: "workspace",
       access_mode: "full" as const,
       restrict_to_workspace: false,
@@ -467,11 +467,11 @@ describe("ThreadComposer", () => {
 
     expect(onStop).toHaveBeenCalledTimes(1);
     expect(input).toHaveValue("");
-    expect(window.localStorage.getItem("nanobot.webui.slashCommandRecents")).toBeNull();
+    expect(window.localStorage.getItem("munchkin.webui.slashCommandRecents")).toBeNull();
   });
 
   it("orders recent slash commands first for the blank slash menu", () => {
-    window.localStorage.setItem("nanobot.webui.slashCommandRecents", JSON.stringify(["/history"]));
+    window.localStorage.setItem("munchkin.webui.slashCommandRecents", JSON.stringify(["/history"]));
     render(
       <ThreadComposer
         onSend={vi.fn()}
@@ -802,29 +802,6 @@ describe("ThreadComposer", () => {
     expect(screen.queryByRole("listbox", { name: "Slash commands" })).not.toBeInTheDocument();
   });
 
-  it("sends image generation mode with automatic aspect ratio", () => {
-    const onSend = vi.fn();
-    render(
-      <ThreadComposer
-        onSend={onSend}
-        placeholder="Type your message..."
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Toggle image generation mode" }));
-    expect(screen.getByPlaceholderText("Describe or edit an image…")).toBeInTheDocument();
-
-    const input = screen.getByLabelText("Message input");
-    fireEvent.change(input, { target: { value: "Draw a friendly robot" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-
-    expect(onSend).toHaveBeenCalledWith(
-      "Draw a friendly robot",
-      undefined,
-      { imageGeneration: { enabled: true, aspect_ratio: null } },
-    );
-  });
-
   it("shows a stop button while streaming", () => {
     const onStop = vi.fn();
     render(
@@ -840,77 +817,5 @@ describe("ThreadComposer", () => {
 
     expect(onStop).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: "Send message" })).not.toBeInTheDocument();
-  });
-
-  it("lets users select a concrete image aspect ratio", () => {
-    const onSend = vi.fn();
-    render(
-      <ThreadComposer
-        onSend={onSend}
-        placeholder="Type your message..."
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Toggle image generation mode" }));
-    fireEvent.click(screen.getByRole("button", { name: "Image aspect ratio" }));
-    expect(screen.getByRole("listbox", { name: "Image aspect ratio" }).className).toContain(
-      "bottom-full",
-    );
-    fireEvent.mouseDown(screen.getByRole("option", { name: "Wide 16:9" }));
-
-    const input = screen.getByLabelText("Message input");
-    fireEvent.change(input, { target: { value: "Draw a banner" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-
-    expect(onSend).toHaveBeenCalledWith(
-      "Draw a banner",
-      undefined,
-      { imageGeneration: { enabled: true, aspect_ratio: "16:9" } },
-    );
-  });
-
-  it("opens the hero image aspect menu downward", () => {
-    render(
-      <ThreadComposer
-        onSend={vi.fn()}
-        placeholder="Ask anything..."
-        variant="hero"
-        imageMode
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Image aspect ratio" }));
-
-    expect(screen.getByRole("listbox", { name: "Image aspect ratio" }).className).toContain(
-      "top-full",
-    );
-  });
-
-  it("dismisses the image aspect menu on outside click, escape, and wheel", () => {
-    render(
-      <div>
-        <button type="button">outside</button>
-        <ThreadComposer
-          onSend={vi.fn()}
-          placeholder="Type your message..."
-          imageMode
-        />
-      </div>,
-    );
-
-    const aspectButton = screen.getByRole("button", { name: "Image aspect ratio" });
-    fireEvent.click(aspectButton);
-    expect(screen.getByRole("listbox", { name: "Image aspect ratio" })).toBeInTheDocument();
-
-    fireEvent.pointerDown(screen.getByRole("button", { name: "outside" }));
-    expect(screen.queryByRole("listbox", { name: "Image aspect ratio" })).not.toBeInTheDocument();
-
-    fireEvent.click(aspectButton);
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("listbox", { name: "Image aspect ratio" })).not.toBeInTheDocument();
-
-    fireEvent.click(aspectButton);
-    fireEvent.wheel(screen.getByRole("listbox", { name: "Image aspect ratio" }), { deltaY: 120 });
-    expect(screen.queryByRole("listbox", { name: "Image aspect ratio" })).not.toBeInTheDocument();
   });
 });

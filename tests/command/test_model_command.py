@@ -3,18 +3,18 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from nanobot.agent.loop import AgentLoop
-from nanobot.bus.events import InboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.command.builtin import (
+from munchkin.agent.loop import AgentLoop
+from munchkin.bus.events import InboundMessage
+from munchkin.bus.queue import MessageBus
+from munchkin.command.builtin import (
     build_help_text,
     builtin_command_palette,
     cmd_goal,
     cmd_model,
     register_builtin_commands,
 )
-from nanobot.command.router import CommandContext, CommandRouter
-from nanobot.config.schema import ModelPresetConfig
+from munchkin.command.router import CommandContext, CommandRouter
+from munchkin.config.schema import ModelPresetConfig
 
 
 def _provider(default_model: str, max_tokens: int = 123) -> MagicMock:

@@ -295,25 +295,6 @@ export interface SettingsPayload {
       use_jina_reader: boolean;
     };
   };
-  image_generation: {
-    enabled: boolean;
-    provider: string;
-    provider_configured: boolean;
-    model: string;
-    default_aspect_ratio: string;
-    default_image_size: string;
-    max_images_per_turn: number;
-    save_dir: string;
-    providers: Array<{
-      name: string;
-      label: string;
-      configured: boolean;
-      auth_type?: "api_key" | "oauth";
-      api_key_hint?: string | null;
-      api_base?: string | null;
-      default_api_base?: string | null;
-    }>;
-  };
   runtime: {
     config_path: string;
     workspace_path: string;
@@ -560,15 +541,6 @@ export interface NetworkSafetySettingsUpdate {
   webuiDefaultAccessMode: WebuiDefaultAccessMode;
 }
 
-export interface ImageGenerationSettingsUpdate {
-  enabled: boolean;
-  provider: string;
-  model: string;
-  defaultAspectRatio: string;
-  defaultImageSize: string;
-  maxImagesPerTurn: number;
-}
-
 export interface SlashCommand {
   command: string;
   title: string;
@@ -678,11 +650,6 @@ export interface OutboundMedia {
   name?: string;
 }
 
-export interface OutboundImageGeneration {
-  enabled: true;
-  aspect_ratio?: string | null;
-}
-
 export interface OutboundCliAppMention {
   name: string;
   display_name?: string;
@@ -721,7 +688,6 @@ export type Outbound =
       chat_id: string;
       content: string;
       media?: OutboundMedia[];
-      image_generation?: OutboundImageGeneration;
       cli_apps?: OutboundCliAppMention[];
       mcp_presets?: OutboundMcpPresetMention[];
       workspace_scope?: WorkspaceScopePayload;

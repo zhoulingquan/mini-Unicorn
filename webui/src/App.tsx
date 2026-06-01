@@ -15,14 +15,19 @@ import { useSidebarState } from "@/hooks/useSidebarState";
 import { ThemeProvider, useTheme } from "@/hooks/useTheme";
 import { cn } from "@/lib/utils";
 import {
-  clearSavedSecret,
+  supportedLocales,
+  persistLocale,
+  applyDocumentLocale,
+  type SupportedLocale,
+} from "@/i18n/config";
+import {
   deriveWsUrl,
   fetchBootstrap,
   loadSavedSecret,
   saveSecret,
 } from "@/lib/bootstrap";
 import { deriveTitle } from "@/lib/format";
-import { NanobotClient } from "@/lib/nanobot-client";
+import { MunchkinClient } from "@/lib/munchkin-client";
 import { ClientProvider, useClient } from "@/providers/ClientProvider";
 import type {
   ChatSummary,
@@ -46,21 +51,21 @@ type BootState =
   | { status: "auth"; failed?: boolean }
   | {
       status: "ready";
-      client: NanobotClient;
+      client: MunchkinClient;
       token: string;
       tokenExpiresAt: number;
       modelName: string | null;
       runtimeSurface: RuntimeSurface;
     };
 
-const SIDEBAR_STORAGE_KEY = "nanobot-webui.sidebar";
-const COMPLETED_RUNS_STORAGE_KEY = "nanobot-webui.sidebar.completed-runs.v1";
-const RESTART_STARTED_KEY = "nanobot-webui.restartStartedAt";
+const SIDEBAR_STORAGE_KEY = "munchkin-webui.sidebar";
+const COMPLETED_RUNS_STORAGE_KEY = "munchkin-webui.sidebar.completed-runs.v1";
+const RESTART_STARTED_KEY = "munchkin-webui.restartStartedAt";
 const SIDEBAR_WIDTH = 272;
 const SIDEBAR_RAIL_WIDTH = 56;
 const TOKEN_REFRESH_MARGIN_MS = 30_000;
 const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
-type ShellView = "chat" | "settings" | "apps";
+type ShellView = "chat" | "settings";
 
 function bootstrapTokenExpiresAt(expiresInSeconds: number): number {
   return Date.now() + Math.max(0, expiresInSeconds) * 1000;
@@ -177,14 +182,17 @@ function HostChrome({
   onToggleSidebar,
   theme,
   onToggleTheme,
+  onToggleLanguage,
   showThemeButton = true,
 }: {
   onToggleSidebar?: () => void;
   theme: "light" | "dark";
   onToggleTheme: () => void;
+  onToggleLanguage: () => void;
   showThemeButton?: boolean;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const isEn = (i18n.resolvedLanguage ?? i18n.language) === "en";
 
   return (
     <header className="host-drag-region pointer-events-none absolute inset-x-0 top-0 z-40 flex h-11 items-start justify-between bg-transparent px-3 pt-2 text-foreground/90">
@@ -202,24 +210,45 @@ function HostChrome({
           </Button>
         ) : null}
       </div>
-      {showThemeButton ? (
+      <div className="flex items-center -space-x-1">
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          aria-label={t("thread.header.toggleTheme")}
-          onClick={onToggleTheme}
-          className="host-no-drag pointer-events-auto h-8 w-8 rounded-full text-muted-foreground/85 hover:bg-accent/40 hover:text-foreground"
+          aria-label={t("thread.header.toggleLanguage")}
+          onClick={onToggleLanguage}
+          className="host-no-drag pointer-events-auto h-8 w-8 rounded-full hover:bg-accent/40 hover:text-foreground"
         >
-          {theme === "dark" ? (
-            <Sun className="h-4 w-4" />
-          ) : (
-            <Moon className="h-4 w-4" />
-          )}
+          <span className="flex items-baseline gap-[1px] text-[10px] leading-none tracking-tight">
+            <span className={cn(
+              "font-semibold text-foreground",
+              !isEn && "font-normal text-muted-foreground/45",
+            )}>A</span>
+            <span className={cn(
+              "font-semibold text-foreground",
+              isEn && "font-normal text-muted-foreground/45",
+            )}>文</span>
+          </span>
         </Button>
-      ) : (
-        <div aria-hidden className="h-8 w-8" />
-      )}
+        {showThemeButton ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={t("thread.header.toggleTheme")}
+            onClick={onToggleTheme}
+            className="host-no-drag pointer-events-auto h-8 w-8 rounded-full text-muted-foreground/85 hover:bg-accent/40 hover:text-foreground"
+          >
+            {theme === "dark" ? (
+              <Sun className="h-4 w-4" />
+            ) : (
+              <Moon className="h-4 w-4" />
+            )}
+          </Button>
+        ) : (
+          <div aria-hidden className="h-8 w-8" />
+        )}
+      </div>
     </header>
   );
 }
@@ -241,7 +270,7 @@ export default function App() {
           const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
           const runtimeSurface = toRuntimeSurface(boot.runtime_surface);
           const runtimeHost = createRuntimeHost(runtimeSurface, boot.runtime_capabilities);
-          const client = new NanobotClient({
+          const client = new MunchkinClient({
             url,
             socketFactory: runtimeHost.socketFactory,
             onReauth: async () => {
@@ -380,14 +409,6 @@ export default function App() {
     );
   };
 
-  const handleLogout = () => {
-    if (state.status === "ready") {
-      state.client.close();
-    }
-    clearSavedSecret();
-    setState({ status: "auth" });
-  };
-
   return (
     <ClientProvider
       client={state.client}
@@ -397,7 +418,6 @@ export default function App() {
       <Shell
         runtimeSurface={state.runtimeSurface}
         onModelNameChange={handleModelNameChange}
-        onLogout={handleLogout}
       />
     </ClientProvider>
   );
@@ -406,15 +426,23 @@ export default function App() {
 function Shell({
   runtimeSurface,
   onModelNameChange,
-  onLogout,
 }: {
   runtimeSurface: RuntimeSurface;
   onModelNameChange: (modelName: string | null) => void;
-  onLogout: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const { client, token } = useClient();
   const { theme, toggle } = useTheme();
+
+  const toggleLanguage = useCallback(() => {
+    const current = i18n.resolvedLanguage ?? i18n.language;
+    const codes = supportedLocales.map((l) => l.code);
+    const idx = codes.indexOf(current as SupportedLocale);
+    const next = codes[(idx + 1) % codes.length] ?? codes[0];
+    void i18n.changeLanguage(next);
+    persistLocale(next as SupportedLocale);
+    applyDocumentLocale(next as SupportedLocale);
+  }, [i18n]);
   const { sessions, loading, refresh, createChat, deleteChat } = useSessions();
   const { state: sidebarState, update: updateSidebarState } =
     useSidebarState(sessions, !loading);
@@ -870,13 +898,6 @@ function Shell({
     setMobileSidebarOpen(false);
   }, []);
 
-  const onOpenApps = useCallback(() => {
-    setSessionSearchOpen(false);
-    setSettingsInitialSection("apps");
-    setView("apps");
-    setMobileSidebarOpen(false);
-  }, []);
-
   const onBackToChat = useCallback(() => {
     setView("chat");
     setMobileSidebarOpen(false);
@@ -995,12 +1016,6 @@ function Shell({
       });
       return;
     }
-    if (view === "apps") {
-      document.title = t("app.documentTitle.chat", {
-        title: t("settings.nav.apps", { defaultValue: "Apps" }),
-      });
-      return;
-    }
     document.title = activeSession
       ? t("app.documentTitle.chat", { title: headerTitle })
       : t("app.documentTitle.base");
@@ -1021,9 +1036,7 @@ function Shell({
     onRequestRenameProject,
     onNewChatInProject,
     onOpenSettings,
-    onOpenApps,
     onOpenSearch: onOpenSessionSearch,
-    activeUtility: view === "apps" ? "apps" as const : null,
     onToggleArchived,
     pinnedKeys: sidebarState.pinned_keys,
     archivedKeys: sidebarState.archived_keys,
@@ -1056,6 +1069,7 @@ function Shell({
             onToggleSidebar={showMainSidebar ? toggleSidebar : undefined}
             theme={theme}
             onToggleTheme={toggle}
+            onToggleLanguage={toggleLanguage}
             showThemeButton={view !== "chat"}
           />
         ) : null}
@@ -1145,6 +1159,7 @@ function Shell({
                 onTurnEnd={onTurnEnd}
                 theme={theme}
                 onToggleTheme={toggle}
+                onToggleLanguage={toggleLanguage}
                 hideSidebarToggleForHostChrome
                 hideHeader={false}
                 workspaceScope={activeWorkspaceScope}
@@ -1167,7 +1182,6 @@ function Shell({
                   onModelNameChange={onModelNameChange}
                   onSettingsChange={setSettingsSnapshot}
                   onWorkspaceSettingsChange={refreshWorkspaces}
-                  onLogout={onLogout}
                   onRestart={onRestart}
                   isRestarting={isRestarting}
                   hostChromeInset={showHostChrome}

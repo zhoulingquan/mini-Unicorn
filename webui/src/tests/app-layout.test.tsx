@@ -26,9 +26,9 @@ function jsonResponse(body: unknown): Response {
 function baseSettingsPayload() {
   return {
     agent: {
-      model: "openai/gpt-4o",
+      model: "deepseek/deepseek-chat",
       provider: "auto",
-      resolved_provider: "openai",
+      resolved_provider: "deepseek",
       has_api_key: true,
       model_preset: "default",
       max_tokens: 8192,
@@ -36,7 +36,7 @@ function baseSettingsPayload() {
       temperature: 0.1,
       reasoning_effort: null,
       timezone: "UTC",
-      bot_name: "nanobot",
+      bot_name: "Munchkin",
       bot_icon: "nb",
       tool_hint_max_length: 40,
     },
@@ -45,7 +45,7 @@ function baseSettingsPayload() {
       label: "Default",
       active: true,
       is_default: true,
-      model: "openai/gpt-4o",
+      model: "deepseek/deepseek-chat",
       provider: "auto",
       max_tokens: 8192,
       context_window_tokens: 65536,
@@ -68,22 +68,11 @@ function baseSettingsPayload() {
       search: { max_results: 5, timeout: 30 },
       fetch: { use_jina_reader: true },
     },
-    image_generation: {
-      enabled: false,
-      provider: "openrouter",
-      provider_configured: false,
-      model: "openai/gpt-5.4-image-2",
-      default_aspect_ratio: "1:1",
-      default_image_size: "1K",
-      max_images_per_turn: 4,
-      save_dir: "generated",
-      providers: [],
-    },
     runtime: {
       config_path: "/tmp/config.json",
       workspace_path: "/tmp/workspace",
       gateway_host: "127.0.0.1",
-      gateway_port: 18790,
+      gateway_port: 8765,
       heartbeat: {
         enabled: true,
         interval_s: 1800,
@@ -159,7 +148,7 @@ vi.mock("@/lib/bootstrap", () => ({
   clearSavedSecret: vi.fn(),
 }));
 
-vi.mock("@/lib/nanobot-client", () => {
+vi.mock("@/lib/munchkin-client", () => {
   class MockClient {
     status = "idle" as const;
     defaultChatId: string | null = null;
@@ -182,7 +171,7 @@ vi.mock("@/lib/nanobot-client", () => {
     updateUrl = updateUrlSpy;
   }
 
-  return { NanobotClient: MockClient };
+  return { MunchkinClient: MockClient };
 });
 
 import { deriveWsUrl, fetchBootstrap } from "@/lib/bootstrap";
@@ -199,7 +188,7 @@ describe("App layout", () => {
     toggleThemeSpy.mockReset();
     attachSpy.mockReset();
     runStatusHandlers.clear();
-    localStorage.removeItem("nanobot-webui.sidebar.completed-runs.v1");
+    localStorage.removeItem("munchkin-webui.sidebar.completed-runs.v1");
     vi.mocked(fetchBootstrap).mockReset().mockResolvedValue({
       token: "tok",
       ws_path: "/",
@@ -437,7 +426,7 @@ describe("App layout", () => {
         chatId: "new",
         createdAt: "2026-04-15T12:00:00Z",
         updatedAt: "2026-04-15T12:00:00Z",
-        preview: "hi nanobot",
+        preview: "hi Munchkin",
       },
       {
         key: "websocket:alpha",
@@ -561,7 +550,7 @@ describe("App layout", () => {
       },
     ];
     localStorage.setItem(
-      "nanobot-webui.sidebar.completed-runs.v1",
+      "munchkin-webui.sidebar.completed-runs.v1",
       JSON.stringify(["chat-b"]),
     );
 
@@ -596,9 +585,9 @@ describe("App layout", () => {
             status: 200,
             json: async () => ({
               agent: {
-                model: "openai/gpt-4o",
+                model: "deepseek/deepseek-chat",
                 provider: "auto",
-                resolved_provider: "openai",
+                resolved_provider: "deepseek",
                 has_api_key: true,
                 model_preset: "default",
                 max_tokens: 8192,
@@ -606,7 +595,7 @@ describe("App layout", () => {
                 temperature: 0.1,
                 reasoning_effort: null,
                 timezone: "UTC",
-                bot_name: "nanobot",
+                bot_name: "Munchkin",
                 bot_icon: "nb",
                 tool_hint_max_length: 40,
               },
@@ -616,7 +605,7 @@ describe("App layout", () => {
                   label: "Default",
                   active: true,
                   is_default: true,
-                  model: "openai/gpt-4o",
+                  model: "deepseek/deepseek-chat",
                   provider: "auto",
                   max_tokens: 8192,
                   context_window_tokens: 65536,
@@ -624,81 +613,31 @@ describe("App layout", () => {
                   reasoning_effort: null,
                 },
                 {
-                  name: "deep",
-                  label: "deep",
+                  name: "zen",
+                  label: "zen",
                   active: false,
                   is_default: false,
-                  model: "anthropic/claude-opus-4-5",
-                  provider: "anthropic",
+                  model: "opencode/big-pickle",
+                  provider: "opencode",
                   max_tokens: 8192,
-                  context_window_tokens: 200000,
+                  context_window_tokens: 65536,
                   temperature: 0.1,
-                  reasoning_effort: "high",
+                  reasoning_effort: null,
                 },
               ],
               providers: [
                 {
-                  name: "openai",
-                  label: "OpenAI",
+                  name: "deepseek",
+                  label: "DeepSeek",
                   configured: true,
-                  api_key_hint: "open••••-key",
+                  api_key_hint: "sk-••••test",
                 },
                 {
-                  name: "openrouter",
-                  label: "OpenRouter",
+                  name: "opencode",
+                  label: "OpenCode Zen",
                   configured: false,
                   api_key_required: true,
-                  default_api_base: "https://openrouter.ai/api/v1",
-                },
-                {
-                  name: "ant_ling",
-                  label: "Ant Ling",
-                  configured: false,
-                  api_key_required: true,
-                  default_api_base: "https://api.ant-ling.com/v1",
-                },
-                {
-                  name: "azure_openai",
-                  label: "Azure OpenAI",
-                  configured: false,
-                  api_key_required: true,
-                },
-                {
-                  name: "huggingface",
-                  label: "Hugging Face",
-                  configured: false,
-                  api_key_required: true,
-                },
-                {
-                  name: "siliconflow",
-                  label: "SiliconFlow",
-                  configured: false,
-                  api_key_required: true,
-                },
-                {
-                  name: "volcengine",
-                  label: "VolcEngine",
-                  configured: false,
-                  api_key_required: true,
-                },
-                {
-                  name: "byteplus",
-                  label: "BytePlus",
-                  configured: false,
-                  api_key_required: true,
-                },
-                {
-                  name: "qianfan",
-                  label: "Qianfan",
-                  configured: false,
-                  api_key_required: true,
-                },
-                {
-                  name: "atomic_chat",
-                  label: "Atomic Chat",
-                  configured: false,
-                  api_key_required: false,
-                  default_api_base: "http://localhost:1337/v1",
+                  default_api_base: "https://opencode.ai/zen/v1",
                 },
               ],
               web_search: {
@@ -720,39 +659,11 @@ describe("App layout", () => {
                 search: { max_results: 5, timeout: 30 },
                 fetch: { use_jina_reader: true },
               },
-              image_generation: {
-                enabled: false,
-                provider: "openrouter",
-                provider_configured: true,
-                model: "openai/gpt-5.4-image-2",
-                default_aspect_ratio: "1:1",
-                default_image_size: "1K",
-                max_images_per_turn: 4,
-                save_dir: "generated",
-                providers: [
-                  {
-                    name: "openrouter",
-                    label: "OpenRouter",
-                    configured: true,
-                    api_key_hint: "sk-o••••test",
-                    api_base: "https://openrouter.ai/api/v1",
-                    default_api_base: "https://openrouter.ai/api/v1",
-                  },
-                  {
-                    name: "gemini",
-                    label: "Gemini",
-                    configured: false,
-                    api_key_hint: null,
-                    api_base: null,
-                    default_api_base: "https://generativelanguage.googleapis.com/v1beta/openai/",
-                  },
-                ],
-              },
               runtime: {
                 config_path: "/tmp/config.json",
                 workspace_path: "/tmp/workspace",
                 gateway_host: "127.0.0.1",
-                gateway_port: 18790,
+                gateway_port: 8765,
                 heartbeat: {
                   enabled: true,
                   interval_s: 1800,
@@ -795,13 +706,13 @@ describe("App layout", () => {
     fireEvent.click(within(sidebar).getByRole("button", { name: "Settings" }));
 
     expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
-    expect(document.title).toBe("Settings · nanobot");
-    expect(screen.getByTestId("overview-nanobot-logo")).toBeInTheDocument();
-    expect(screen.getByTestId("overview-logo-openai")).toBeInTheDocument();
+    expect(document.title).toBe("Settings · Munchkin");
+    expect(screen.getByTestId("overview-munchkin-logo")).toBeInTheDocument();
+    expect(screen.getByTestId("overview-logo-deepseek")).toBeInTheDocument();
     expect(screen.getByTestId("overview-logo-brave")).toBeInTheDocument();
-    expect(screen.getByTestId("overview-logo-openrouter")).toBeInTheDocument();
-    expect(screen.queryByTestId("overview-logo-nanobot-gateway")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("overview-logo-nanobot-workspace")).not.toBeInTheDocument();
+    expect(screen.getByTestId("overview-logo-opencode")).toBeInTheDocument();
+    expect(screen.queryByTestId("overview-logo-munchkin-gateway")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("overview-logo-munchkin-workspace")).not.toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Sidebar navigation" })).not.toBeInTheDocument();
     const settingsNav = screen.getByRole("navigation", { name: "Settings sections" });
     expect(settingsNav.className).toContain("overflow-x-auto");
@@ -810,9 +721,9 @@ describe("App layout", () => {
       "aria-current",
       "page",
     );
-    expect(within(settingsNav).getByRole("button", { name: "Models" })).toBeInTheDocument();
+    expect(within(settingsNav).getByRole("button", { name: /Models/ })).toBeInTheDocument();
     expect(within(settingsNav).queryByRole("button", { name: "Providers" })).not.toBeInTheDocument();
-    expect(within(settingsNav).getByRole("button", { name: "Image" })).toBeInTheDocument();
+    expect(within(settingsNav).queryByRole("button", { name: "Image" })).not.toBeInTheDocument();
     expect(within(settingsNav).getByRole("button", { name: "Web" })).toBeInTheDocument();
     expect(within(settingsNav).queryByRole("button", { name: "Apps" })).not.toBeInTheDocument();
     expect(within(settingsNav).getByRole("button", { name: "Security" })).toBeInTheDocument();
@@ -824,56 +735,48 @@ describe("App layout", () => {
     expect(screen.queryByText("AI")).not.toBeInTheDocument();
     expect(screen.getByText("Current model")).toBeInTheDocument();
     expect(screen.queryByText("Presets")).not.toBeInTheDocument();
-    fireEvent.pointerDown(screen.getByRole("button", { name: /openai\/gpt-4o/ }));
+    fireEvent.pointerDown(screen.getByRole("button", { name: /deepseek\/deepseek-chat/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Add configuration" }));
     const modelDialog = screen.getByRole("dialog", { name: "New model configuration" });
     expect(within(modelDialog).getByText("Save a provider and model as a one-click option.")).toBeInTheDocument();
     fireEvent.change(within(modelDialog).getByPlaceholderText("Fast writing"), {
       target: { value: "Fast writing" },
     });
-    fireEvent.change(within(modelDialog).getByPlaceholderText("openai/gpt-4.1"), {
-      target: { value: "openai/gpt-4.1-mini" },
+    fireEvent.change(within(modelDialog).getByPlaceholderText("deepseek/deepseek-chat"), {
+      target: { value: "opencode/big-pickle" },
     });
-    expect(within(modelDialog).getByRole("button", { name: /OpenAI/ })).toBeInTheDocument();
+    expect(within(modelDialog).getByRole("button", { name: /OpenCode Zen/ })).toBeInTheDocument();
     expect(within(modelDialog).getByRole("button", { name: "Save" })).toBeEnabled();
     fireEvent.click(within(modelDialog).getByRole("button", { name: "Cancel" }));
-    const modelInput = screen.getByDisplayValue("openai/gpt-4o");
+    const modelInput = screen.getByDisplayValue("deepseek/deepseek-chat");
     expect(modelInput).toBeInTheDocument();
     fireEvent.pointerDown(screen.getByRole("button", { name: /Auto/ }));
-    expect(screen.getAllByTestId("provider-picker-logo-openai").length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId("provider-picker-logo-deepseek").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("menuitem", { name: /Auto/ }));
-    fireEvent.change(modelInput, { target: { value: "openai/gpt-4o-mini" } });
+    fireEvent.change(modelInput, { target: { value: "deepseek/deepseek-reasoner" } });
     expect(screen.getByText("Unsaved changes.").parentElement?.className).toContain(
       "text-blue-600",
     );
-    fireEvent.change(modelInput, { target: { value: "openai/gpt-4o" } });
-    expect(screen.getByText("OpenRouter")).toBeInTheDocument();
-    expect(screen.getByText("Ant Ling")).toBeInTheDocument();
-    expect(screen.getByTestId("provider-logo-openai")).toBeInTheDocument();
+    fireEvent.change(modelInput, { target: { value: "deepseek/deepseek-chat" } });
+    expect(screen.getByText("OpenCode Zen")).toBeInTheDocument();
+    expect(screen.getByTestId("provider-logo-deepseek")).toBeInTheDocument();
     expect(screen.getByText(/Product names, logos, and brands/)).toBeInTheDocument();
     expect(screen.getAllByText("Not configured").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByText("OpenAI"));
+    fireEvent.click(screen.getByText("DeepSeek"));
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     fireEvent.change(screen.getByPlaceholderText("Leave blank to keep the current key"), {
-      target: { value: "unsaved-openai-key" },
+      target: { value: "unsaved-deepseek-key" },
     });
-    fireEvent.click(screen.getByText("OpenRouter"));
-    fireEvent.click(screen.getByText("OpenAI"));
-    expect(screen.getByText("open••••-key")).toBeInTheDocument();
-    expect(screen.queryByDisplayValue("unsaved-openai-key")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText("Ant Ling"));
-    expect(screen.getByDisplayValue("https://api.ant-ling.com/v1")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Atomic Chat"));
-    expect(screen.getByDisplayValue("http://localhost:1337/v1")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("OpenCode Zen"));
+    fireEvent.click(screen.getByText("DeepSeek"));
+    expect(screen.getByText("sk-••••test")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("unsaved-deepseek-key")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("OpenCode Zen"));
+    expect(screen.getByDisplayValue("https://opencode.ai/zen/v1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save provider" })).toBeEnabled();
 
-    fireEvent.click(within(settingsNav).getByRole("button", { name: "Image" }));
-    expect(screen.getByRole("heading", { name: "Image" })).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Image generation" })).toBeInTheDocument();
-    expect(screen.getByText("Provider status")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("openai/gpt-5.4-image-2")).toBeInTheDocument();
-    expect(screen.getByText("Save directory")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.click(within(settingsNav).getByRole("button", { name: /Models/ }));
+    expect(screen.getByRole("heading", { name: /Models/ })).toBeInTheDocument();
 
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Web" }));
     expect(screen.getByText("Search provider")).toBeInTheDocument();
@@ -943,7 +846,7 @@ describe("App layout", () => {
       "aria-current",
       "page",
     );
-    expect(document.title).toBe("Apps · nanobot");
+    expect(document.title).toBe("Apps · Munchkin");
   });
 
   it("returns from settings to the blank start page when no session was active", async () => {
@@ -974,9 +877,9 @@ describe("App layout", () => {
             status: 200,
             json: async () => ({
               agent: {
-                model: "openai/gpt-4o",
-                provider: "openai",
-                resolved_provider: "openai",
+                model: "deepseek/deepseek-chat",
+                provider: "deepseek",
+                resolved_provider: "deepseek",
                 has_api_key: true,
                 model_preset: "default",
                 max_tokens: 8192,
@@ -984,7 +887,7 @@ describe("App layout", () => {
                 temperature: 0.1,
                 reasoning_effort: null,
                 timezone: "UTC",
-                bot_name: "nanobot",
+                bot_name: "Munchkin",
                 bot_icon: "nb",
                 tool_hint_max_length: 40,
               },
@@ -994,15 +897,15 @@ describe("App layout", () => {
                   label: "Default",
                   active: true,
                   is_default: true,
-                  model: "openai/gpt-4o",
-                  provider: "openai",
+                  model: "deepseek/deepseek-chat",
+                  provider: "deepseek",
                   max_tokens: 8192,
                   context_window_tokens: 65536,
                   temperature: 0.1,
                   reasoning_effort: null,
                 },
               ],
-              providers: [{ name: "openai", label: "OpenAI", configured: true }],
+              providers: [{ name: "deepseek", label: "DeepSeek", configured: true }],
               web_search: {
                 provider: "duckduckgo",
                 api_key_hint: null,
@@ -1021,31 +924,11 @@ describe("App layout", () => {
                 search: { max_results: 5, timeout: 30 },
                 fetch: { use_jina_reader: true },
               },
-              image_generation: {
-                enabled: false,
-                provider: "openrouter",
-                provider_configured: false,
-                model: "openai/gpt-5.4-image-2",
-                default_aspect_ratio: "1:1",
-                default_image_size: "1K",
-                max_images_per_turn: 4,
-                save_dir: "generated",
-                providers: [
-                  {
-                    name: "openrouter",
-                    label: "OpenRouter",
-                    configured: false,
-                    api_key_hint: null,
-                    api_base: null,
-                    default_api_base: "https://openrouter.ai/api/v1",
-                  },
-                ],
-              },
               runtime: {
                 config_path: "/tmp/config.json",
                 workspace_path: "/tmp/workspace",
                 gateway_host: "127.0.0.1",
-                gateway_port: 18790,
+                gateway_port: 8765,
                 heartbeat: {
                   enabled: true,
                   interval_s: 1800,
@@ -1083,13 +966,13 @@ describe("App layout", () => {
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
     fireEvent.click(within(sidebar).getByRole("button", { name: "New chat" }));
-    await waitFor(() => expect(document.title).toBe("nanobot"));
+    await waitFor(() => expect(document.title).toBe("Munchkin"));
 
     fireEvent.click(within(sidebar).getByRole("button", { name: "Settings" }));
     expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
 
-    await waitFor(() => expect(document.title).toBe("nanobot"));
+    await waitFor(() => expect(document.title).toBe("Munchkin"));
     expect(screen.getByText(HERO_GREETING_PATTERN)).toBeInTheDocument();
   });
 

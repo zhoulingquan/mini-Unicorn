@@ -10,19 +10,10 @@ import {
 
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
 import {
-  CliAppMentionToken,
-  McpPresetMentionToken,
-  cliAppInitials,
-  mcpPresetInitials,
-  splitCapabilityMentionSegments,
-  type CapabilityMentionSegment,
-} from "@/components/CliAppMentionText";
-import {
   Activity,
   ArrowUp,
   BookOpen,
   Brain,
-  Check,
   ChevronDown,
   ChevronUp,
   CircleHelp,
@@ -54,20 +45,15 @@ import {
   MAX_IMAGES_PER_MESSAGE,
 } from "@/hooks/useAttachedImages";
 import { useClipboardAndDrop } from "@/hooks/useClipboardAndDrop";
-import type { SendImage, SendOptions } from "@/hooks/useNanobotStream";
+import type { SendImage, SendOptions } from "@/hooks/useMunchkinStream";
 import type {
-  CliAppInfo,
   GoalStateWsPayload,
-  McpPresetInfo,
-  OutboundCliAppMention,
-  OutboundMcpPresetMention,
   SlashCommand,
   WorkspaceScopePayload,
   WorkspacesPayload,
 } from "@/lib/types";
 import {
   inferProviderFromModelName,
-  logoFallbackUrls,
   providerBrand,
 } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
@@ -92,11 +78,6 @@ interface ThreadComposerProps {
   modelProviderLabel?: string | null;
   variant?: "thread" | "hero";
   slashCommands?: SlashCommand[];
-  cliApps?: CliAppInfo[];
-  mcpPresets?: McpPresetInfo[];
-  imageGenerationEnabled?: boolean;
-  imageMode?: boolean;
-  onImageModeChange?: (enabled: boolean) => void;
   onStop?: () => void;
   /** Unix seconds from server; turn elapsed timer above input while set. */
   runStartedAt?: number | null;
@@ -124,14 +105,11 @@ const COMMAND_ICONS: Record<string, LucideIcon> = {
   "undo-2": Undo2,
 };
 
-type ImageAspectRatio = "auto" | "1:1" | "3:4" | "9:16" | "4:3" | "16:9";
-
-const IMAGE_ASPECT_RATIOS: ImageAspectRatio[] = ["auto", "1:1", "3:4", "9:16", "4:3", "16:9"];
 const SLASH_PALETTE_GAP_PX = 8;
 const SLASH_PALETTE_MAX_HEIGHT_PX = 288;
 const SLASH_PALETTE_MIN_HEIGHT_PX = 144;
 const SLASH_PALETTE_CHROME_PX = 12;
-const SLASH_RECENTS_STORAGE_KEY = "nanobot.webui.slashCommandRecents";
+const SLASH_RECENTS_STORAGE_KEY = "munchkin.webui.slashCommandRecents";
 const SLASH_RECENTS_LIMIT = 5;
 
 type SlashPalettePlacement = "above" | "below";
@@ -140,16 +118,6 @@ interface SlashPaletteLayout {
   placement: SlashPalettePlacement;
   maxHeight: number;
 }
-
-interface CliAppMentionQuery {
-  query: string;
-  start: number;
-  end: number;
-}
-
-type MentionCandidate =
-  | { kind: "cli"; name: string; app: CliAppInfo }
-  | { kind: "mcp"; name: string; preset: McpPresetInfo };
 
 interface SlashPaletteCommand extends SlashCommand {
   detail: string;
@@ -183,20 +151,6 @@ function storeSlashRecents(commands: string[]): void {
     );
   } catch {
     // localStorage may be unavailable in private contexts; command insertion still works.
-  }
-}
-
-function scrollNearestOverflowParent(target: EventTarget | null, deltaY: number) {
-  if (!(target instanceof Element) || deltaY === 0) return;
-  let el: HTMLElement | null = target.parentElement;
-  while (el) {
-    const style = window.getComputedStyle(el);
-    const canScroll = /(auto|scroll)/.test(style.overflowY) && el.scrollHeight > el.clientHeight;
-    if (canScroll) {
-      el.scrollTop += deltaY;
-      return;
-    }
-    el = el.parentElement;
   }
 }
 
@@ -249,30 +203,6 @@ function buildGoalMarkdownBody(summary: string, objective: string): string {
   const o = objective.trim();
   if (s && o) return `${s}\n\n---\n\n${o}`;
   return o || s;
-}
-
-function cliAppMentionPayload(app: CliAppInfo): OutboundCliAppMention {
-  return {
-    name: app.name,
-    display_name: app.display_name,
-    category: app.category,
-    entry_point: app.entry_point,
-    logo_url: app.logo_url ?? null,
-    brand_color: app.brand_color ?? null,
-  };
-}
-
-function mcpPresetMentionPayload(preset: McpPresetInfo): OutboundMcpPresetMention {
-  return {
-    name: preset.name,
-    display_name: preset.display_name,
-    category: preset.category,
-    transport: preset.transport,
-    status: preset.status,
-    configured: preset.configured,
-    logo_url: preset.logo_url ?? null,
-    brand_color: preset.brand_color ?? null,
-  };
 }
 
 function RunElapsedStrip({
@@ -380,10 +310,10 @@ function RunElapsedStrip({
       {goalPanelOpen && canExpandGoal && markdownBody ? (
         <div
           ref={panelRef}
-          id="nanobot-goal-panel-root"
+          id="munchkin-goal-panel-root"
           role="dialog"
           aria-modal="false"
-          aria-labelledby="nanobot-goal-panel-title"
+          aria-labelledby="munchkin-goal-panel-title"
           tabIndex={-1}
           className={cn(
             "absolute bottom-[calc(100%+8px)] left-3 right-3 z-[50] flex max-w-none flex-col overflow-hidden",
@@ -394,7 +324,7 @@ function RunElapsedStrip({
         >
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-black/[0.06] px-3 py-2 dark:border-white/[0.08]">
             <h2
-              id="nanobot-goal-panel-title"
+              id="munchkin-goal-panel-title"
               className="min-w-0 truncate text-[13px] font-semibold tracking-tight text-foreground"
             >
               {t("thread.composer.goalStateSheetTitle")}
@@ -413,7 +343,7 @@ function RunElapsedStrip({
             </button>
           </div>
           <div
-            id="nanobot-goal-panel-scroll"
+            id="munchkin-goal-panel-scroll"
             className="min-h-0 flex-1 overflow-y-auto scrollbar-thin px-3 pb-3 pt-2"
           >
             <MarkdownText className="max-w-none text-[13.5px] leading-relaxed text-foreground/90">
@@ -455,7 +385,7 @@ function RunElapsedStrip({
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             )}
             aria-expanded={goalPanelOpen}
-            aria-controls={goalPanelOpen ? "nanobot-goal-panel-root" : undefined}
+            aria-controls={goalPanelOpen ? "munchkin-goal-panel-root" : undefined}
             aria-label={t("thread.composer.goalStateExpandAria")}
             title={t("thread.composer.goalStateExpandAria")}
             onClick={() => setGoalPanelOpen((o) => !o)}
@@ -482,11 +412,6 @@ export function ThreadComposer({
   modelProviderLabel = null,
   variant = "thread",
   slashCommands = [],
-  cliApps = [],
-  mcpPresets = [],
-  imageGenerationEnabled = true,
-  imageMode: controlledImageMode,
-  onImageModeChange,
   onStop,
   runStartedAt = null,
   goalState,
@@ -502,17 +427,10 @@ export function ThreadComposer({
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
-  const [cliAppMenuDismissed, setCliAppMenuDismissed] = useState(false);
-  const [selectedCliAppIndex, setSelectedCliAppIndex] = useState(0);
-  const [cursorPosition, setCursorPosition] = useState(0);
-  const [uncontrolledImageMode, setUncontrolledImageMode] = useState(false);
-  const [imageAspectRatio, setImageAspectRatio] = useState<ImageAspectRatio>("auto");
-  const [aspectMenuOpen, setAspectMenuOpen] = useState(false);
   const [recentSlashCommands, setRecentSlashCommands] = useState<string[]>(() => readSlashRecents());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const aspectControlRef = useRef<HTMLDivElement>(null);
   const chipRefs = useRef(new Map<string, HTMLButtonElement>());
   const isHero = variant === "hero";
   const showProjectPicker =
@@ -520,29 +438,10 @@ export function ThreadComposer({
     && !!workspaceDefaultScope
     && !!onWorkspaceScopeChange
     && workspaceControls?.can_change_project !== false;
-  const requestedImageMode = controlledImageMode ?? uncontrolledImageMode;
-  const imageMode = imageGenerationEnabled && requestedImageMode;
-  const setImageMode = useCallback(
-    (enabled: boolean) => {
-      if (controlledImageMode === undefined) {
-        setUncontrolledImageMode(enabled);
-      }
-      onImageModeChange?.(enabled);
-    },
-    [controlledImageMode, onImageModeChange],
-  );
-
-  useEffect(() => {
-    if (imageGenerationEnabled || !requestedImageMode) return;
-    setImageMode(false);
-    setAspectMenuOpen(false);
-  }, [imageGenerationEnabled, requestedImageMode, setImageMode]);
 
   const resolvedPlaceholder = isStreaming
     ? t("thread.composer.placeholderStreaming")
-    : imageMode
-      ? t("thread.composer.imageMode.placeholder")
-      : placeholder ?? t("thread.composer.placeholderThread");
+    : placeholder ?? t("thread.composer.placeholderThread");
 
   const { images, enqueue, remove, clear, encoding, full } =
     useAttachedImages();
@@ -689,76 +588,7 @@ export function ThreadComposer({
   }, [goalState?.active, isStreaming, modelLabel, recentSlashCommands, slashQuery, t, visibleSlashCommands]);
 
   const showSlashMenu = filteredSlashCommands.length > 0;
-  const cliAppMention = useMemo<CliAppMentionQuery | null>(() => {
-    if (disabled || cliAppMenuDismissed) return null;
-    const caret = Math.min(Math.max(cursorPosition, 0), value.length);
-    const beforeCaret = value.slice(0, caret);
-    const match = /(?:^|\s)@([a-z0-9_-]*)$/i.exec(beforeCaret);
-    if (!match) return null;
-    const query = match[1].toLowerCase();
-    return {
-      query,
-      start: caret - query.length - 1,
-      end: caret,
-    };
-  }, [cliAppMenuDismissed, cursorPosition, disabled, value]);
-
-  const filteredMentionCandidates = useMemo<MentionCandidate[]>(() => {
-    if (!cliAppMention) return [];
-    const cliCandidates: MentionCandidate[] = cliApps
-      .filter((app) => app.installed)
-      .filter((app) => {
-        const haystack = [
-          app.name,
-          app.display_name,
-          app.category,
-          app.description,
-          app.entry_point,
-        ].join(" ").toLowerCase();
-        return haystack.includes(cliAppMention.query);
-      })
-      .map((app) => ({ kind: "cli", name: app.name, app }));
-    const mcpCandidates: MentionCandidate[] = mcpPresets
-      .filter((preset) => preset.installed && preset.configured)
-      .filter((preset) => {
-        const haystack = [
-          preset.name,
-          preset.display_name,
-          preset.category,
-          preset.description,
-          preset.transport,
-        ].join(" ").toLowerCase();
-        return haystack.includes(cliAppMention.query);
-      })
-      .map((preset) => ({ kind: "mcp", name: preset.name, preset }));
-    return [...cliCandidates, ...mcpCandidates].slice(0, 8);
-  }, [cliAppMention, cliApps, mcpPresets]);
-
-  const showCliAppMenu = filteredMentionCandidates.length > 0;
-  const showAnyPalette = showSlashMenu || showCliAppMenu;
-  const mentionSegments = useMemo(
-    () => splitCapabilityMentionSegments(value, cliApps, mcpPresets),
-    [cliApps, mcpPresets, value],
-  );
-  const hasMentionDecorations = mentionSegments.some(
-    (segment) => segment.kind === "cli" || segment.kind === "mcp",
-  );
-  const activeCliMentionApps = useMemo(() => {
-    const seen = new Set<string>();
-    return mentionSegments.flatMap((segment) => {
-      if (segment.kind !== "cli" || seen.has(segment.app.name)) return [];
-      seen.add(segment.app.name);
-      return [segment.app];
-    });
-  }, [mentionSegments]);
-  const activeMcpPresetMentions = useMemo(() => {
-    const seen = new Set<string>();
-    return mentionSegments.flatMap((segment) => {
-      if (segment.kind !== "mcp" || seen.has(segment.preset.name)) return [];
-      seen.add(segment.preset.name);
-      return [segment.preset];
-    });
-  }, [mentionSegments]);
+  const showAnyPalette = showSlashMenu;
   const [slashPaletteLayout, setSlashPaletteLayout] = useState<SlashPaletteLayout>({
     placement: "above",
     maxHeight: SLASH_PALETTE_MAX_HEIGHT_PX,
@@ -769,20 +599,10 @@ export function ThreadComposer({
   }, [slashQuery]);
 
   useEffect(() => {
-    setSelectedCliAppIndex(0);
-  }, [cliAppMention?.query]);
-
-  useEffect(() => {
     if (selectedCommandIndex >= filteredSlashCommands.length) {
       setSelectedCommandIndex(0);
     }
   }, [filteredSlashCommands.length, selectedCommandIndex]);
-
-  useEffect(() => {
-    if (selectedCliAppIndex >= filteredMentionCandidates.length) {
-      setSelectedCliAppIndex(0);
-    }
-  }, [filteredMentionCandidates.length, selectedCliAppIndex]);
 
   useEffect(() => {
     if (!showAnyPalette) return;
@@ -791,7 +611,6 @@ export function ThreadComposer({
       const target = event.target;
       if (target instanceof Node && formRef.current?.contains(target)) return;
       setSlashMenuDismissed(true);
-      setCliAppMenuDismissed(true);
     };
 
     document.addEventListener("pointerdown", dismissOnPointerDown, true);
@@ -833,39 +652,7 @@ export function ThreadComposer({
       window.removeEventListener("resize", updateLayout);
       document.removeEventListener("scroll", updateLayout, true);
     };
-  }, [filteredMentionCandidates.length, filteredSlashCommands.length, showAnyPalette]);
-
-  useEffect(() => {
-    if (!aspectMenuOpen) return;
-
-    const closeOnPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Node && aspectControlRef.current?.contains(target)) return;
-      setAspectMenuOpen(false);
-    };
-    const closeOnKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setAspectMenuOpen(false);
-        textareaRef.current?.focus();
-      }
-    };
-    const closeOnScroll = () => setAspectMenuOpen(false);
-    const closeOnWheel = (event: WheelEvent) => {
-      setAspectMenuOpen(false);
-      scrollNearestOverflowParent(event.target, event.deltaY);
-    };
-
-    document.addEventListener("pointerdown", closeOnPointerDown, true);
-    document.addEventListener("keydown", closeOnKeyDown);
-    document.addEventListener("scroll", closeOnScroll, true);
-    document.addEventListener("wheel", closeOnWheel, { capture: true, passive: true });
-    return () => {
-      document.removeEventListener("pointerdown", closeOnPointerDown, true);
-      document.removeEventListener("keydown", closeOnKeyDown);
-      document.removeEventListener("scroll", closeOnScroll, true);
-      document.removeEventListener("wheel", closeOnWheel, true);
-    };
-  }, [aspectMenuOpen]);
+  }, [filteredSlashCommands.length, showAnyPalette]);
 
   const resizeTextarea = useCallback(() => {
     requestAnimationFrame(() => {
@@ -883,7 +670,6 @@ export function ThreadComposer({
         onStop();
         setValue("");
         setSlashMenuDismissed(true);
-        setCliAppMenuDismissed(false);
         setInlineError(null);
         resizeTextarea();
         return;
@@ -898,34 +684,10 @@ export function ThreadComposer({
 
       setValue(command.argHint ? `${command.command} ` : command.command);
       setSlashMenuDismissed(true);
-      setCliAppMenuDismissed(false);
       setInlineError(null);
       resizeTextarea();
     },
     [isStreaming, onStop, recentSlashCommands, resizeTextarea],
-  );
-
-  const chooseMentionCandidate = useCallback(
-    (candidate: MentionCandidate) => {
-      if (!cliAppMention) return;
-      const suffix = value.slice(cliAppMention.end);
-      const mention = `@${candidate.name}${suffix.startsWith(" ") ? "" : " "}`;
-      const next = `${value.slice(0, cliAppMention.start)}${mention}${suffix}`;
-      const nextCursor = cliAppMention.start + mention.length;
-      setValue(next);
-      setCursorPosition(nextCursor);
-      setCliAppMenuDismissed(true);
-      setSlashMenuDismissed(false);
-      setInlineError(null);
-      resizeTextarea();
-      requestAnimationFrame(() => {
-        const el = textareaRef.current;
-        if (!el) return;
-        el.focus();
-        el.setSelectionRange(nextCursor, nextCursor);
-      });
-    },
-    [cliAppMention, resizeTextarea, value],
   );
 
   const submit = useCallback(() => {
@@ -945,40 +707,15 @@ export function ThreadComposer({
             preview: { url: img.dataUrl, name: img.file.name },
           }))
         : undefined;
-    const attachedCliApps = activeCliMentionApps.map(cliAppMentionPayload);
-    const attachedMcpPresets = activeMcpPresetMentions.map(mcpPresetMentionPayload);
-    const options: SendOptions | undefined =
-      imageMode || attachedCliApps.length > 0 || attachedMcpPresets.length > 0
-        ? {
-            ...(imageMode
-              ? {
-                  imageGeneration: {
-                    enabled: true,
-                    aspect_ratio: imageAspectRatio === "auto" ? null : imageAspectRatio,
-                  },
-                }
-              : {}),
-            ...(attachedCliApps.length > 0 ? { cliApps: attachedCliApps } : {}),
-            ...(attachedMcpPresets.length > 0 ? { mcpPresets: attachedMcpPresets } : {}),
-          }
-        : undefined;
-    onSend(trimmed, payload, options);
+    onSend(trimmed, payload);
     setValue("");
     setInlineError(null);
-    // Bubble owns the data URL copy; safe to revoke every staged blob
-    // preview here without affecting the rendered message.
     clear();
     setSlashMenuDismissed(false);
-    setCliAppMenuDismissed(false);
-    setCursorPosition(0);
     resizeTextarea();
   }, [
-    activeCliMentionApps,
-    activeMcpPresetMentions,
     canSend,
     clear,
-    imageAspectRatio,
-    imageMode,
     onSend,
     readyImages,
     resizeTextarea,
@@ -986,30 +723,6 @@ export function ThreadComposer({
   ]);
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    if (showCliAppMenu) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setSelectedCliAppIndex((idx) => (idx + 1) % filteredMentionCandidates.length);
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setSelectedCliAppIndex(
-          (idx) => (idx - 1 + filteredMentionCandidates.length) % filteredMentionCandidates.length,
-        );
-        return;
-      }
-      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
-        e.preventDefault();
-        chooseMentionCandidate(filteredMentionCandidates[selectedCliAppIndex]);
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setCliAppMenuDismissed(true);
-        return;
-      }
-    }
     if (showSlashMenu) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -1120,16 +833,6 @@ export function ThreadComposer({
           onChoose={chooseSlashCommand}
         />
       ) : null}
-      {showCliAppMenu ? (
-        <CliAppMentionPalette
-          candidates={filteredMentionCandidates}
-          selectedIndex={selectedCliAppIndex}
-          layout={slashPaletteLayout}
-          isHero={isHero}
-          onHover={setSelectedCliAppIndex}
-          onChoose={chooseMentionCandidate}
-        />
-      ) : null}
       <div
         className={cn(
           "group/composer relative mx-auto flex w-full flex-col overflow-visible transition-all duration-200",
@@ -1176,27 +879,15 @@ export function ThreadComposer({
           <RunElapsedStrip startedAt={runStartedAt} goalState={goalState} />
         ) : null}
         <div className="relative">
-          {hasMentionDecorations ? (
-            <ComposerCliMentionOverlay
-              segments={mentionSegments}
-              isHero={isHero}
-              className={inputTextClasses}
-            />
-          ) : null}
           <textarea
             ref={textareaRef}
             value={value}
             onChange={(e) => {
               setValue(e.target.value);
               setSlashMenuDismissed(false);
-              setCliAppMenuDismissed(false);
-              setCursorPosition(e.target.selectionStart ?? e.target.value.length);
             }}
             onInput={onInput}
             onKeyDown={onKeyDown}
-            onKeyUp={(e) => setCursorPosition(e.currentTarget.selectionStart ?? e.currentTarget.value.length)}
-            onSelect={(e) => setCursorPosition(e.currentTarget.selectionStart ?? e.currentTarget.value.length)}
-            onClick={(e) => setCursorPosition(e.currentTarget.selectionStart ?? e.currentTarget.value.length)}
             onPaste={onPaste}
             rows={1}
             placeholder={resolvedPlaceholder}
@@ -1207,7 +898,6 @@ export function ThreadComposer({
               "relative z-10 caret-foreground placeholder:text-muted-foreground/70",
               "focus:outline-none focus-visible:outline-none",
               "disabled:cursor-not-allowed",
-              hasMentionDecorations && "text-transparent selection:bg-primary/20",
             )}
           />
         </div>
@@ -1261,61 +951,6 @@ export function ThreadComposer({
                 isHero={isHero}
                 onChange={onWorkspaceScopeChange}
               />
-            ) : null}
-            {imageGenerationEnabled ? (
-              <div ref={aspectControlRef} className="relative flex items-center gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={disabled}
-                  aria-pressed={imageMode}
-                  aria-label={t("thread.composer.imageMode.toggle")}
-                  onClick={() => {
-                    setImageMode(!imageMode);
-                    setAspectMenuOpen(false);
-                    textareaRef.current?.focus();
-                  }}
-                  className={cn(
-                    "max-w-[11rem] rounded-full border border-border/55 px-2.5 font-medium shadow-[0_2px_8px_rgba(15,23,42,0.04)]",
-                    isHero ? "h-8 text-[11.5px]" : "h-9 text-[12px]",
-                    imageMode
-                      ? "border-primary/30 bg-primary/10 text-primary hover:bg-primary/12"
-                      : "bg-card text-muted-foreground hover:bg-card hover:text-foreground",
-                  )}
-                >
-                  <ImageIcon className={cn("mr-1.5", isHero ? "h-3.5 w-3.5" : "h-3.5 w-3.5")} />
-                  <span className="truncate">{t("thread.composer.imageMode.label")}</span>
-                </Button>
-                {imageMode ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={disabled}
-                  aria-haspopup="listbox"
-                  aria-expanded={aspectMenuOpen}
-                  aria-label={t("thread.composer.imageMode.aspectAria")}
-                  onClick={() => setAspectMenuOpen((open) => !open)}
-                  className={cn(
-                    "rounded-full border border-border/55 bg-card px-2.5 font-medium text-foreground/80 shadow-[0_2px_8px_rgba(15,23,42,0.04)] hover:bg-card",
-                    isHero ? "h-8 text-[11.5px]" : "h-9 text-[12px]",
-                  )}
-                >
-                  <span>{t(`thread.composer.imageMode.aspect.${imageAspectRatio.replace(":", "_")}`)}</span>
-                  <ChevronDown className={cn("ml-1.5", isHero ? "h-3.5 w-3.5" : "h-3 w-3")} />
-                </Button>
-                ) : null}
-                {imageMode && aspectMenuOpen ? (
-                  <ImageAspectMenu
-                    selected={imageAspectRatio}
-                    isHero={isHero}
-                    onSelect={(ratio) => {
-                      setImageAspectRatio(ratio);
-                      setAspectMenuOpen(false);
-                      textareaRef.current?.focus();
-                    }}
-                  />
-                ) : null}
-              </div>
             ) : null}
           </div>
           <div className={cn("flex shrink-0 items-center", isHero ? "gap-1.5" : "gap-2")}>
@@ -1435,49 +1070,6 @@ function ComposerModelBadge({
   );
 }
 
-function ComposerCliMentionOverlay({
-  segments,
-  isHero,
-  className,
-}: {
-  segments: CapabilityMentionSegment[];
-  isHero: boolean;
-  className: string;
-}) {
-  return (
-    <div
-      aria-hidden
-      className={cn(
-        className,
-        "pointer-events-none absolute inset-0 z-0 overflow-hidden whitespace-pre-wrap break-words text-foreground",
-      )}
-    >
-      {segments.map((segment, index) => {
-        if (segment.kind === "text") {
-          return <span key={`text-${index}`}>{segment.text}</span>;
-        }
-        if (segment.kind === "cli") return (
-          <CliAppMentionToken
-            key={`cli-${segment.app.name}-${index}`}
-            app={segment.app}
-            label={segment.text}
-            variant="composer"
-            isHero={isHero}
-          />
-        );
-        return (
-          <McpPresetMentionToken
-            key={`mcp-${segment.preset.name}-${index}`}
-            preset={segment.preset}
-            label={segment.text}
-            variant="composer"
-            isHero={isHero}
-          />
-        );
-      })}
-    </div>
-  );
-}
 interface SlashCommandPaletteProps {
   commands: SlashPaletteCommand[];
   selectedIndex: number;
@@ -1485,15 +1077,6 @@ interface SlashCommandPaletteProps {
   isHero: boolean;
   onHover: (index: number) => void;
   onChoose: (command: SlashPaletteCommand) => void;
-}
-
-interface CliAppMentionPaletteProps {
-  candidates: MentionCandidate[];
-  selectedIndex: number;
-  layout: SlashPaletteLayout;
-  isHero: boolean;
-  onHover: (index: number) => void;
-  onChoose: (candidate: MentionCandidate) => void;
 }
 
 function useSelectedOptionScroll(selectedIndex: number) {
@@ -1511,195 +1094,6 @@ function useSelectedOptionScroll(selectedIndex: number) {
   }, [selectedIndex]);
 
   return containerRef;
-}
-
-function ImageAspectMenu({
-  selected,
-  isHero,
-  onSelect,
-}: {
-  selected: ImageAspectRatio;
-  isHero: boolean;
-  onSelect: (ratio: ImageAspectRatio) => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <div
-      role="listbox"
-      aria-label={t("thread.composer.imageMode.aspectAria")}
-      className={cn(
-        "absolute left-0 z-30 w-44 overflow-hidden rounded-[16px] border",
-        isHero ? "top-full mt-2" : "bottom-full mb-2",
-        "border-border/65 bg-popover p-1.5 text-popover-foreground shadow-[0_16px_45px_rgba(15,23,42,0.16)]",
-        "dark:border-white/10 dark:shadow-[0_18px_45px_rgba(0,0,0,0.42)]",
-        isHero ? "text-[12px]" : "text-[11.5px]",
-      )}
-    >
-      <div className="px-2 pb-1 pt-1 font-medium text-muted-foreground/70">
-        {t("thread.composer.imageMode.aspectLabel")}
-      </div>
-      {IMAGE_ASPECT_RATIOS.map((ratio) => {
-        const label = t(`thread.composer.imageMode.aspect.${ratio.replace(":", "_")}`);
-        return (
-          <button
-            key={ratio}
-            type="button"
-            role="option"
-            aria-selected={selected === ratio}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              onSelect(ratio);
-            }}
-            className={cn(
-              "flex w-full items-center justify-between rounded-[11px] px-2.5 py-2 text-left transition-colors",
-              selected === ratio
-                ? "bg-primary/10 text-foreground"
-                : "text-foreground/86 hover:bg-accent/55",
-            )}
-          >
-            <span>{label}</span>
-            {selected === ratio ? <Check className="h-3.5 w-3.5 text-primary" /> : null}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function CliAppMentionPalette({
-  candidates,
-  selectedIndex,
-  layout,
-  isHero,
-  onHover,
-  onChoose,
-}: CliAppMentionPaletteProps) {
-  const { t } = useTranslation();
-  const listMaxHeight = Math.max(
-    0,
-    layout.maxHeight - SLASH_PALETTE_CHROME_PX,
-  );
-  const listRef = useSelectedOptionScroll(selectedIndex);
-  return (
-    <div
-      role="listbox"
-      aria-label={t("thread.composer.mentions.ariaLabel")}
-      style={{ maxHeight: layout.maxHeight }}
-      className={cn(
-        "absolute left-1/2 z-30 w-[calc(100%-0.5rem)] -translate-x-1/2 overflow-hidden rounded-[22px] border",
-        layout.placement === "above" ? "bottom-full mb-2" : "top-full mt-2",
-        "border-border/70 bg-popover p-2 text-popover-foreground shadow-[0_20px_60px_rgba(15,23,42,0.12)]",
-        "dark:border-white/10 dark:shadow-[0_24px_60px_rgba(0,0,0,0.42)]",
-        isHero ? "max-w-[58rem]" : "max-w-[49.5rem]",
-      )}
-    >
-      <div className="px-2 pb-1.5 pt-0.5 text-[13px] font-semibold text-muted-foreground/78">
-        {t("thread.composer.mentions.label")}
-      </div>
-      <div ref={listRef} className="overflow-y-auto" style={{ maxHeight: listMaxHeight }}>
-        {candidates.map((candidate, index) => {
-          const selected = index === selectedIndex;
-          const name = candidate.name;
-          const displayName = candidate.kind === "cli"
-            ? candidate.app.display_name
-            : candidate.preset.display_name;
-          const typeLabel = candidate.kind === "cli"
-            ? t("thread.composer.mentions.cliBadge")
-            : t("thread.composer.mentions.mcpBadge");
-          const ariaDescription = candidate.kind === "cli"
-            ? t("thread.composer.mentions.cliDescription", { name })
-            : t("thread.composer.mentions.mcpDescription", { name });
-          return (
-            <button
-              key={`${candidate.kind}-${name}`}
-              type="button"
-              role="option"
-              data-palette-index={index}
-              aria-selected={selected}
-              aria-label={`${displayName} @${name} ${ariaDescription} ${typeLabel}`}
-              onMouseEnter={() => onHover(index)}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onChoose(candidate);
-              }}
-              className={cn(
-                "flex h-10 w-full items-center gap-2.5 rounded-[13px] px-2.5 text-left transition-colors",
-                selected
-                  ? "bg-foreground/[0.055] text-foreground"
-                  : "text-foreground/90 hover:bg-foreground/[0.04]",
-              )}
-            >
-              <MentionCandidateLogo candidate={candidate} selected={selected} />
-              <span className="flex min-w-0 flex-1 items-baseline gap-2">
-                <span className="shrink-0 text-[15px] font-medium tracking-normal text-foreground">
-                  {displayName}
-                </span>
-                <span className="truncate text-[15px] font-normal tracking-normal text-muted-foreground/72">
-                  @{name}
-                </span>
-              </span>
-              <span
-                className={cn(
-                  "ml-2 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold tracking-normal",
-                  candidate.kind === "cli"
-                    ? "bg-orange-500/10 text-orange-600 dark:text-orange-300"
-                    : "bg-sky-500/10 text-sky-600 dark:text-sky-300",
-                )}
-              >
-                {typeLabel}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function MentionCandidateLogo({
-  candidate,
-  selected,
-}: {
-  candidate: MentionCandidate;
-  selected: boolean;
-}) {
-  const [logoIndex, setLogoIndex] = useState(0);
-  const color = (candidate.kind === "cli"
-    ? candidate.app.brand_color
-    : candidate.preset.brand_color) || "hsl(var(--primary))";
-  const rawLogoUrl = candidate.kind === "cli" ? candidate.app.logo_url : candidate.preset.logo_url;
-  const logoUrls = useMemo(() => logoFallbackUrls(rawLogoUrl), [rawLogoUrl]);
-  const logoUrl = logoUrls[logoIndex];
-
-  useEffect(() => setLogoIndex(0), [rawLogoUrl]);
-
-  if (logoUrl) {
-    return (
-      <span
-        className={cn(
-          "flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-[5px]",
-          selected ? "bg-background/55" : "bg-transparent",
-        )}
-      >
-        <img
-          src={logoUrl}
-          alt=""
-          className="h-5 w-5 object-contain"
-          onError={() => setLogoIndex((index) => index + 1)}
-        />
-      </span>
-    );
-  }
-  return (
-    <span
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-[7.5px] font-semibold text-white"
-      style={{ backgroundColor: color }}
-    >
-      {candidate.kind === "cli"
-        ? cliAppInitials(candidate.app)
-        : mcpPresetInitials(candidate.preset)}
-    </span>
-  );
 }
 
 function SlashCommandPalette({

@@ -28,16 +28,15 @@ describe("provider brand logos", () => {
     ]);
   });
 
-  it("keeps Zhipu on the current Z.ai brand domain", () => {
-    expect(providerBrand("zhipu")?.logoUrls[0]).toBe("https://z-cdn.chatglm.cn/z-ai/static/logo.svg");
-    expect(providerBrand("zhipu")?.logoUrls).toContain("https://www.google.com/s2/favicons?domain=z.ai&sz=64");
-    expect(providerBrand("zhipu")?.logoUrls).toContain("https://z.ai/favicon.ico");
-    expect(providerBrand("zhipu")?.initials).toBe("Z");
+  it("keeps DeepSeek on its brand domain", () => {
+    expect(providerBrand("deepseek")?.logoUrls[0]).toBe("https://deepseek.com/favicon.ico");
+    expect(providerBrand("deepseek")?.logoUrls).toContain("https://www.google.com/s2/favicons?domain=deepseek.com&sz=64");
+    expect(providerBrand("deepseek")?.initials).toBe("DS");
   });
 
-  it("uses official first-party assets for LongCat and Xiaomi MIMO", () => {
-    expect(providerBrand("longcat")?.logoUrls[0]).toBe("https://www.longcatai.org/favicon.svg");
-    expect(providerBrand("xiaomi_mimo")?.logoUrls[0]).toBe("https://mimo.xiaomi.com/mimo-v2-pro/assets/logo.svg");
-    expect(providerBrand("mimo")?.logoUrls[0]).toBe("https://mimo.xiaomi.com/mimo-v2-pro/assets/logo.svg");
+  it("uses official first-party assets for OpenCode", () => {
+    expect(providerBrand("opencode")?.logoUrls[0]).toBe("https://opencode.ai/favicon.ico");
+    expect(providerBrand("opencode")?.logoUrls).toContain("https://www.google.com/s2/favicons?domain=opencode.ai&sz=64");
+    expect(providerBrand("opencode")?.initials).toBe("OC");
   });
 });

@@ -5,24 +5,12 @@ import { ThreadComposer } from "@/components/thread/ThreadComposer";
 import { ThreadHeader } from "@/components/thread/ThreadHeader";
 import { StreamErrorNotice } from "@/components/thread/StreamErrorNotice";
 import { ThreadViewport } from "@/components/thread/ThreadViewport";
-import { useNanobotStream, type SendImage, type SendOptions } from "@/hooks/useNanobotStream";
+import { useMunchkinStream, type SendImage, type SendOptions } from "@/hooks/useMunchkinStream";
 import { useSessionHistory } from "@/hooks/useSessions";
-import { fetchCliApps, fetchMcpPresets, fetchSettings, listSlashCommands } from "@/lib/api";
-import {
-  CLI_APPS_CHANGED_EVENT,
-  installedCliAppsFromPayload,
-  isCliAppsPayload,
-} from "@/lib/cli-app-events";
-import {
-  MCP_PRESETS_CHANGED_EVENT,
-  installedMcpPresetsFromPayload,
-  isMcpPresetsPayload,
-} from "@/lib/mcp-preset-events";
+import { fetchSettings, listSlashCommands } from "@/lib/api";
 import { inferProviderFromModelName, providerDisplayLabel } from "@/lib/provider-brand";
 import type {
   ChatSummary,
-  CliAppInfo,
-  McpPresetInfo,
   SettingsPayload,
   SlashCommand,
   UIMessage,
@@ -31,6 +19,7 @@ import type {
 } from "@/lib/types";
 import { normalizeLegacyLongTaskMessages } from "@/lib/thread-display-compat";
 import { scrubSubagentUiMessages } from "@/lib/subagent-channel-display";
+import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
 
 function projectWebuiThreadMessages(messages: UIMessage[]): UIMessage[] {
@@ -61,6 +50,7 @@ interface ThreadShellProps {
   onTurnEnd?: () => void;
   theme?: "light" | "dark";
   onToggleTheme?: () => void;
+  onToggleLanguage?: () => void;
   hideSidebarToggleForHostChrome?: boolean;
   hideHeader?: boolean;
   workspaceScope?: WorkspaceScopePayload | null;
@@ -141,6 +131,7 @@ export function ThreadShell({
   onTurnEnd,
   theme = "light",
   onToggleTheme = () => {},
+  onToggleLanguage = () => {},
   hideSidebarToggleForHostChrome = false,
   hideHeader = false,
   workspaceScope = null,
@@ -164,10 +155,7 @@ export function ThreadShell({
   const { client, modelName, token } = useClient();
   const [booting, setBooting] = useState(false);
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
-  const [cliApps, setCliApps] = useState<CliAppInfo[]>([]);
-  const [mcpPresets, setMcpPresets] = useState<McpPresetInfo[]>([]);
   const [settings, setSettings] = useState<SettingsPayload | null>(settingsSnapshot);
-  const [heroImageMode, setHeroImageMode] = useState(false);
   const [heroGreetingKey, setHeroGreetingKey] = useState(randomHeroGreetingKey);
   const [scrollToBottomSignal, setScrollToBottomSignal] = useState(0);
   const pendingFirstRef = useRef<PendingFirstMessage | null>(null);
@@ -197,7 +185,7 @@ export function ThreadShell({
     setMessages,
     streamError,
     dismissStreamError,
-  } = useNanobotStream(chatId, initial, hasPendingToolCalls, handleTurnEnd);
+  } = useMunchkinStream(chatId, initial, hasPendingToolCalls, handleTurnEnd);
 
   useEffect(() => {
     if (chatId && historyKey) sessionKeyByChatIdRef.current.set(chatId, historyKey);
@@ -211,7 +199,6 @@ export function ThreadShell({
     () => toModelBadgeInfo(modelName, settings),
     [modelName, settings],
   );
-  const imageGenerationEnabled = settings?.image_generation.enabled === true;
 
   useEffect(() => {
     if (showHeroComposer && !wasShowingHeroComposerRef.current) {
@@ -331,7 +318,7 @@ export function ThreadShell({
     }
   }, [chatId, messages]);
 
-  // Persist thread to in-memory cache after paint so ``useNanobotStream``'s chat switch
+  // Persist thread to in-memory cache after paint so ``useMunchkinStream``'s chat switch
   // ``useEffect`` reset has flushed; ``skipLayoutCacheRef`` drops the first run that still
   // sees the *previous* chat's ``messages`` (avoids stale rows leaking across sessions).
   useEffect(() => {
@@ -372,94 +359,6 @@ export function ThreadShell({
       cancelled = true;
     };
   }, [token]);
-
-  const refreshCliApps = useCallback(async () => {
-    try {
-      const payload = await fetchCliApps(token);
-      setCliApps(installedCliAppsFromPayload(payload));
-    } catch {
-      setCliApps([]);
-    }
-  }, [token]);
-
-  const refreshMcpPresets = useCallback(async () => {
-    try {
-      const payload = await fetchMcpPresets(token);
-      setMcpPresets(installedMcpPresetsFromPayload(payload));
-    } catch {
-      setMcpPresets([]);
-    }
-  }, [token]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const payload = await fetchCliApps(token);
-        if (!cancelled) setCliApps(installedCliAppsFromPayload(payload));
-      } catch {
-        if (!cancelled) setCliApps([]);
-      }
-    };
-    load();
-
-    const refreshOnFocus = () => {
-      if (document.visibilityState === "hidden") return;
-      void refreshCliApps();
-    };
-    window.addEventListener("focus", refreshOnFocus);
-    document.addEventListener("visibilitychange", refreshOnFocus);
-    const refreshOnCliAppsChanged = (event: Event) => {
-      const payload = (event as CustomEvent<unknown>).detail;
-      if (isCliAppsPayload(payload)) {
-        setCliApps(installedCliAppsFromPayload(payload));
-        return;
-      }
-      void refreshCliApps();
-    };
-    window.addEventListener(CLI_APPS_CHANGED_EVENT, refreshOnCliAppsChanged);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("focus", refreshOnFocus);
-      document.removeEventListener("visibilitychange", refreshOnFocus);
-      window.removeEventListener(CLI_APPS_CHANGED_EVENT, refreshOnCliAppsChanged);
-    };
-  }, [refreshCliApps, token]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const payload = await fetchMcpPresets(token);
-        if (!cancelled) setMcpPresets(installedMcpPresetsFromPayload(payload));
-      } catch {
-        if (!cancelled) setMcpPresets([]);
-      }
-    };
-    load();
-
-    const refreshOnFocus = () => {
-      if (document.visibilityState === "hidden") return;
-      void refreshMcpPresets();
-    };
-    window.addEventListener("focus", refreshOnFocus);
-    document.addEventListener("visibilitychange", refreshOnFocus);
-    const refreshOnMcpPresetsChanged = (event: Event) => {
-      const payload = (event as CustomEvent<unknown>).detail;
-      if (isMcpPresetsPayload(payload)) {
-        setMcpPresets(installedMcpPresetsFromPayload(payload));
-        return;
-      }
-      void refreshMcpPresets();
-    };
-    window.addEventListener(MCP_PRESETS_CHANGED_EVENT, refreshOnMcpPresetsChanged);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("focus", refreshOnFocus);
-      document.removeEventListener("visibilitychange", refreshOnFocus);
-      window.removeEventListener(MCP_PRESETS_CHANGED_EVENT, refreshOnMcpPresetsChanged);
-    };
-  }, [refreshMcpPresets, token]);
 
   const handleWelcomeSend = useCallback(
     async (content: string, images?: SendImage[], options?: SendOptions) => {
@@ -506,11 +405,6 @@ export function ThreadShell({
           modelProviderLabel={modelBadge.providerLabel}
           variant={showHeroComposer ? "hero" : "thread"}
           slashCommands={slashCommands}
-          cliApps={cliApps}
-          mcpPresets={mcpPresets}
-          imageGenerationEnabled={imageGenerationEnabled}
-          imageMode={showHeroComposer ? heroImageMode : undefined}
-          onImageModeChange={showHeroComposer ? setHeroImageMode : undefined}
           onStop={stop}
           runStartedAt={runStartedAt}
           goalState={goalState}
@@ -536,11 +430,6 @@ export function ThreadShell({
           modelProviderLabel={modelBadge.providerLabel}
           variant="hero"
           slashCommands={slashCommands}
-          cliApps={cliApps}
-          mcpPresets={mcpPresets}
-          imageGenerationEnabled={imageGenerationEnabled}
-          imageMode={heroImageMode}
-          onImageModeChange={setHeroImageMode}
           runStartedAt={runStartedAt}
           goalState={goalState}
           workspaceScope={workspaceScope}
@@ -563,6 +452,46 @@ export function ThreadShell({
       <h1 className="text-balance text-[40px] font-normal leading-tight tracking-[-0.045em] text-foreground sm:text-[48px]">
         {t(heroGreetingKey)}
       </h1>
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
+        {slashCommands
+          .filter((cmd) => cmd.command !== "/stop")
+          .slice(0, 4)
+          .map((cmd) => {
+            const cmdKey = cmd.command.replace(/^\//, "").replace(/-/g, "_");
+            const title = t(`thread.composer.slash.commands.${cmdKey}.title`, {
+              defaultValue: cmd.title,
+            });
+            return (
+              <button
+                key={cmd.command}
+                type="button"
+                onClick={() => {
+                  if (booting || !onCreateChat) return;
+                  setBooting(true);
+                  pendingFirstRef.current = {
+                    content: cmd.argHint ? `${cmd.command} ` : cmd.command,
+                    options: withWorkspaceScope(),
+                  };
+                  void onCreateChat(workspaceScope).then((newId) => {
+                    if (!newId) {
+                      pendingFirstRef.current = null;
+                      setBooting(false);
+                    }
+                  });
+                }}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-card/80 px-3.5 py-2",
+                  "text-[13px] font-medium text-muted-foreground shadow-[0_2px_8px_rgba(15,23,42,0.04)]",
+                  "transition-all hover:border-border hover:bg-card hover:text-foreground hover:shadow-[0_4px_16px_rgba(15,23,42,0.08)]",
+                  "active:scale-[0.97]",
+                )}
+              >
+                <span className="font-mono text-[11px] text-muted-foreground/60">{cmd.command}</span>
+                <span>{title}</span>
+              </button>
+            );
+          })}
+      </div>
     </div>
   );
 
@@ -574,8 +503,11 @@ export function ThreadShell({
           onToggleSidebar={onToggleSidebar}
           theme={theme}
           onToggleTheme={onToggleTheme}
+          onToggleLanguage={onToggleLanguage}
           hideSidebarToggleForHostChrome={hideSidebarToggleForHostChrome}
           minimal={!session && !loading}
+          modelLabel={modelBadge.label}
+          modelProvider={modelBadge.provider}
         />
       ) : null}
       <ThreadViewport
@@ -586,8 +518,6 @@ export function ThreadShell({
         scrollToBottomSignal={scrollToBottomSignal}
         conversationKey={historyKey}
         showScrollToBottomButton={!!session}
-        cliApps={cliApps}
-        mcpPresets={mcpPresets}
       />
     </section>
   );

@@ -16,9 +16,9 @@ function jsonResponse(body: unknown): Response {
 function settingsPayload(): SettingsPayload {
   return {
     agent: {
-      model: "openai/gpt-4o",
+      model: "deepseek/deepseek-chat",
       provider: "auto",
-      resolved_provider: "openai",
+      resolved_provider: "deepseek",
       has_api_key: true,
       model_preset: "default",
       max_tokens: 8192,
@@ -26,7 +26,7 @@ function settingsPayload(): SettingsPayload {
       temperature: 0.1,
       reasoning_effort: null,
       timezone: "UTC",
-      bot_name: "nanobot",
+      bot_name: "Munchkin",
       bot_icon: "nb",
       tool_hint_max_length: 40,
     },
@@ -35,7 +35,7 @@ function settingsPayload(): SettingsPayload {
       label: "Default",
       active: true,
       is_default: true,
-      model: "openai/gpt-4o",
+      model: "deepseek/deepseek-chat",
       provider: "auto",
       max_tokens: 8192,
       context_window_tokens: 65536,
@@ -58,22 +58,11 @@ function settingsPayload(): SettingsPayload {
       search: { max_results: 5, timeout: 30 },
       fetch: { use_jina_reader: true },
     },
-    image_generation: {
-      enabled: false,
-      provider: "openrouter",
-      provider_configured: false,
-      model: "openai/gpt-5.4-image-2",
-      default_aspect_ratio: "1:1",
-      default_image_size: "1K",
-      max_images_per_turn: 4,
-      save_dir: "generated",
-      providers: [],
-    },
     runtime: {
       config_path: "/tmp/config.json",
       workspace_path: "/tmp/workspace",
       gateway_host: "127.0.0.1",
-      gateway_port: 18790,
+      gateway_port: 8765,
       heartbeat: {
         enabled: true,
         interval_s: 1800,
