@@ -134,7 +134,7 @@ type RestartAwarePayload = {
 type ProviderApiType = "auto" | "chat_completions" | "responses";
 type ProviderForm = { apiKey: string; apiBase: string; apiType: ProviderApiType };
 
-const NANOBOT_ICON_SRC = "/brand/nanobot_icon.png";
+const MUNCHKIN_ICON_SRC = "/brand/munchkin_icon.png";
 const CONTEXT_WINDOW_TOKEN_OPTIONS = [65_536, 262_144] as const;
 
 const FALLBACK_TIMEZONES = [
@@ -161,7 +161,7 @@ const FALLBACK_TIMEZONES = [
   "Pacific/Auckland",
 ];
 
-const LOCAL_PREFS_STORAGE_KEY = "nanobot-webui.settings-preferences";
+const LOCAL_PREFS_STORAGE_KEY = "munchkin-webui.settings-preferences";
 
 const DEFAULT_LOCAL_PREFS: LocalPreferences = {
   density: "comfortable",
@@ -300,7 +300,7 @@ export function SettingsView({
     presetLabel: "Default",
     contextWindowTokens: 65_536,
     timezone: "UTC",
-    botName: "nanobot",
+    botName: "Munchkin",
     botIcon: "",
     toolHintMaxLength: 40,
   });
@@ -1123,9 +1123,9 @@ function OverviewSettings({
         <div className="overflow-hidden rounded-[22px] border border-border/45 bg-card/86 shadow-[0_18px_65px_rgba(15,23,42,0.075)] backdrop-blur-xl dark:border-white/10 dark:shadow-[0_18px_65px_rgba(0,0,0,0.24)]">
           <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-3">
-              <NanobotBrandLogo size="lg" testId="overview-nanobot-logo" />
+              <MunchkinBrandLogo size="lg" testId="overview-munchkin-logo" />
               <div className="min-w-0">
-                <div className="text-[12px] font-medium text-muted-foreground">nanobot</div>
+                <div className="text-[12px] font-medium text-muted-foreground">Munchkin</div>
                 <div className="mt-0.5 truncate text-[18px] font-semibold leading-6 text-foreground">
                   {settings.agent.model}
                 </div>
@@ -1501,7 +1501,7 @@ function ModelsSettings({
         <SettingsGroup>
           <SettingsRow
             title={tx("settings.rows.currentModel", "Current model")}
-            description={tx("settings.help.currentModel", "Choose the model nanobot uses for new replies.")}
+            description={tx("settings.help.currentModel", "Choose the model Munchkin uses for new replies.")}
           >
             <ModelPresetPicker
               presets={settings.model_presets}
@@ -2261,7 +2261,7 @@ function RuntimeSettings({
       <section>
         <SettingsSectionTitle>{tx("settings.sections.identity", "Identity")}</SettingsSectionTitle>
         <SettingsGroup>
-          <SettingsRow title={tx("settings.rows.botName", "Bot name")} description={tx("settings.help.botName", "Shown wherever nanobot uses a display name.")}>
+          <SettingsRow title={tx("settings.rows.botName", "Bot name")} description={tx("settings.help.botName", "Shown wherever Munchkin uses a display name.")}>
             <Input
               value={form.botName}
               onChange={(event) => setForm((prev) => ({ ...prev, botName: event.target.value }))}
@@ -2287,7 +2287,7 @@ function RuntimeSettings({
             pendingRestart={requiresRestartPending}
             dirtyMessage={
               isNativeHost
-                ? tx("settings.status.hostRestartAfterSaving", "Save changes and nanobot will restart its engine.")
+                ? tx("settings.status.hostRestartAfterSaving", "Save changes and Munchkin will restart its engine.")
                 : tx("settings.status.restartAfterSaving", "Save changes, then restart when ready.")
             }
             pendingMessage={
@@ -2979,7 +2979,7 @@ function ProviderIcon({
   );
 }
 
-function NanobotBrandLogo({
+function MunchkinBrandLogo({
   size = "sm",
   testId,
 }: {
@@ -2996,7 +2996,7 @@ function NanobotBrandLogo({
       aria-hidden
     >
       <img
-        src={NANOBOT_ICON_SRC}
+        src={MUNCHKIN_ICON_SRC}
         alt=""
         className={cn("select-none object-contain", size === "lg" ? "h-10 w-10" : "h-7 w-7")}
         draggable={false}

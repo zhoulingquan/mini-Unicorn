@@ -30,7 +30,7 @@ async def test_web_search_tool_refreshes_dynamic_config_loader(monkeypatch) -> N
 
     monkeypatch.setattr(WebSearchTool, "_search_duckduckgo", fake_duckduckgo)
 
-    assert await tool.execute("nanobot") == "duckduckgo:nanobot:3"
+    assert await tool.execute("munchkin") == "duckduckgo:munchkin:3"
 
 
 @pytest.mark.asyncio

@@ -6,7 +6,8 @@
 .env
 .web
 .orion
-nanobot-desktop/
+munchkin-desktop/
+munchkin-workspace/
 desktop/
 
 # Claude / AI assistant artifacts

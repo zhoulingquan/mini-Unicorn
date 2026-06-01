@@ -93,8 +93,8 @@ Keep setup boring and reliable. The goal is to get you into the code quickly:
 
 ```bash
 # Clone the repository
-git clone https://github.com/HKUDS/nanobot.git
-cd Munchkin
+git clone https://github.com/HKUDS/munchkin.git
+cd munchkin
 
 # Install with dev dependencies
 pip install -e ".[dev]"
@@ -157,7 +157,7 @@ explicitly in the PR description so it can be discussed before merge.
 
 If you have questions, ideas, or half-formed insights, you are warmly welcome here.
 
-Please feel free to open an [issue](https://github.com/HKUDS/nanobot/issues), join the community, or simply reach out:
+Please feel free to open an [issue](https://github.com/HKUDS/munchkin/issues), join the community, or simply reach out:
 
 - [Discord](https://discord.gg/MnCvHqpUGB)
 - [Feishu/WeChat](./COMMUNICATION.md)

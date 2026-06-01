@@ -272,7 +272,7 @@ Before deploying Munchkin:
 
 For the latest security updates and announcements, check:
 - GitHub Security Advisories: https://github.com/HKUDS/munchkin/security/advisories
-- Release Notes: https://github.com/HKUDS/nanobot/releases
+- Release Notes: https://github.com/HKUDS/munchkin/releases
 
 ## License
 

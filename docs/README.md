@@ -1,6 +1,6 @@
 # Munchkin Docs
 
-For the latest documentation, visit [nanobot.wiki](https://nanobot.wiki/docs/latest/getting-started/nanobot-overview).
+For the latest documentation, visit [munchkin.wiki](https://munchkin.wiki/docs/latest/getting-started/munchkin-overview).
 
 The pages in this directory track the current repository and may move faster than the published website.
 

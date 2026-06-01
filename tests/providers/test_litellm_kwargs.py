@@ -476,7 +476,7 @@ async def test_openrouter_sets_default_attribution_headers() -> None:
         await provider._ensure_client()
 
     headers = mock_client_cls.call_args.kwargs["default_headers"]
-    assert headers["HTTP-Referer"] == "https://github.com/HKUDS/nanobot"
+    assert headers["HTTP-Referer"] == "https://github.com/HKUDS/munchkin"
     assert headers["X-OpenRouter-Title"] == "Munchkin"
     assert headers["X-OpenRouter-Categories"] == "cli-agent,personal-agent"
     assert "x-session-affinity" in headers
@@ -490,7 +490,7 @@ async def test_openrouter_user_headers_override_default_attribution() -> None:
             api_base="https://openrouter.ai/api/v1",
             default_model="anthropic/claude-sonnet-4-5",
             extra_headers={
-                "HTTP-Referer": "https://nanobot.ai",
+                "HTTP-Referer": "https://munchkin.ai",
                 "X-OpenRouter-Title": "Munchkin Pro",
                 "X-Custom-App": "enabled",
             },
@@ -499,7 +499,7 @@ async def test_openrouter_user_headers_override_default_attribution() -> None:
         await provider._ensure_client()
 
     headers = mock_client_cls.call_args.kwargs["default_headers"]
-    assert headers["HTTP-Referer"] == "https://nanobot.ai"
+    assert headers["HTTP-Referer"] == "https://munchkin.ai"
     assert headers["X-OpenRouter-Title"] == "Munchkin Pro"
     assert headers["X-OpenRouter-Categories"] == "cli-agent,personal-agent"
     assert headers["X-Custom-App"] == "enabled"

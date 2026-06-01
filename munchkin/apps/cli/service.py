@@ -25,8 +25,8 @@ from munchkin.security.workspace_policy import is_path_within
 CLI_ANYTHING_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/registry.json"
 CLI_ANYTHING_PUBLIC_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/public_registry.json"
 CLI_ANYTHING_RAW_BASE = "https://raw.githubusercontent.com/HKUDS/CLI-Anything/main"
-MUNCHKIN_EXTENSION_REGISTRY_URL = "https://raw.githubusercontent.com/Re-bin/nanobot-extension/main/registry.json"
-MUNCHKIN_EXTENSION_RAW_BASE = "https://raw.githubusercontent.com/Re-bin/nanobot-extension/main"
+MUNCHKIN_EXTENSION_REGISTRY_URL = "https://raw.githubusercontent.com/Re-bin/munchkin-extension/main/registry.json"
+MUNCHKIN_EXTENSION_RAW_BASE = "https://raw.githubusercontent.com/Re-bin/munchkin-extension/main"
 _CATALOG_SOURCES = (
     ("harness", CLI_ANYTHING_REGISTRY_URL, CLI_ANYTHING_RAW_BASE, True),
     ("public", CLI_ANYTHING_PUBLIC_REGISTRY_URL, CLI_ANYTHING_RAW_BASE, True),
@@ -484,11 +484,11 @@ class CliAppManager:
     def _manifest_source(self, app: dict[str, Any]) -> str:
         source = str(app.get("_source") or "harness")
         if source == "extensions":
-            return "nanobot-extension"
+            return "munchkin-extension"
         return f"cli-anything:{source}"
 
     def _trust_registry(self, app: dict[str, Any]) -> str:
-        return "nanobot-extension" if str(app.get("_source") or "") == "extensions" else "cli-anything"
+        return "munchkin-extension" if str(app.get("_source") or "") == "extensions" else "cli-anything"
 
     def get_app(self, name: str, *, force_refresh: bool = False) -> dict[str, Any]:
         wanted = name.lower()

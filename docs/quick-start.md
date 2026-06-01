@@ -10,7 +10,7 @@
 **Install from source** (latest features, experimental changes may land here first; recommended for development)
 
 ```bash
-git clone https://github.com/HKUDS/nanobot.git
+git clone https://github.com/HKUDS/munchkin.git
 cd Munchkin
 pip install -e .
 ```

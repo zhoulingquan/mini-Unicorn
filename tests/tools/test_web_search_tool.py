@@ -55,13 +55,13 @@ async def test_brave_search(monkeypatch):
         assert kw["headers"]["X-Subscription-Token"] == "brave-key"
         assert kw["headers"]["User-Agent"] == "munchkin-search-test"
         return _response(json={
-            "web": {"results": [{"title": "NanoBot", "url": "https://example.com", "description": "AI assistant"}]}
+            "web": {"results": [{"title": "Munchkin", "url": "https://example.com", "description": "AI assistant"}]}
         })
 
     monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
     tool = _tool(provider="brave", api_key="brave-key", user_agent="munchkin-search-test")
-    result = await tool.execute(query="nanobot", count=1)
-    assert "NanoBot" in result
+    result = await tool.execute(query="munchkin", count=1)
+    assert "Munchkin" in result
     assert "https://example.com" in result
 
 
@@ -85,7 +85,7 @@ async def test_brave_search_retries_rate_limit_once(monkeypatch):
     monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
 
     tool = _tool(provider="brave", api_key="brave-key")
-    result = await tool.execute(query="nanobot", count=1)
+    result = await tool.execute(query="munchkin", count=1)
 
     assert calls["n"] == 2
     assert "Recovered" in result
@@ -107,7 +107,7 @@ async def test_brave_search_returns_clear_rate_limit_after_retries(monkeypatch):
     monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
 
     tool = _tool(provider="brave", api_key="brave-key")
-    result = await tool.execute(query="nanobot", count=1)
+    result = await tool.execute(query="munchkin", count=1)
 
     assert calls["n"] == 2
     assert "Brave search rate limited" in result
