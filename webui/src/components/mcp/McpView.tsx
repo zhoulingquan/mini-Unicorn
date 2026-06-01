@@ -29,7 +29,6 @@ import {
   saveCustomMcpServer,
 } from "@/lib/api";
 import {
-  installedMcpPresetsFromPayload,
   isMcpPresetsPayload,
   MCP_PRESETS_CHANGED_EVENT,
 } from "@/lib/mcp-preset-events";
@@ -202,8 +201,9 @@ export function McpView({ onBack, onOpenSettings, token }: McpViewProps) {
     }
   };
 
-  const servers = payload?.presets ?? [];
-  const installed = installedMcpPresetsFromPayload(payload ?? { presets: [], installed_count: 0 });
+  const allServers = payload?.presets ?? [];
+  const servers = allServers.filter((s) => s.source !== "preset");
+  const installed = servers.filter((s) => s.status === "configured");
 
   return (
     <div className="flex h-full flex-col bg-background">
