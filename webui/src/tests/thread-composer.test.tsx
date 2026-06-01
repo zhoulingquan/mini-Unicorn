@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
-import type { CliAppInfo, McpPresetInfo, SlashCommand } from "@/lib/types";
+import type { SlashCommand } from "@/lib/types";
 
 const COMMANDS: SlashCommand[] = [
   {
@@ -20,97 +20,6 @@ const COMMANDS: SlashCommand[] = [
   },
 ];
 
-const CLI_APPS: CliAppInfo[] = [
-  {
-    name: "gimp",
-    display_name: "GIMP",
-    category: "image",
-    description: "Image editing",
-    requires: "",
-    source: "harness",
-    entry_point: "cli-anything-gimp",
-    install_supported: true,
-    installed: true,
-    available: true,
-    status: "installed",
-    logo_url: "https://example.invalid/gimp.svg",
-    brand_color: "#5C5543",
-    skill_installed: true,
-  },
-  {
-    name: "blender",
-    display_name: "Blender",
-    category: "3d",
-    description: "3D creation",
-    requires: "",
-    source: "harness",
-    entry_point: "cli-anything-blender",
-    install_supported: true,
-    installed: true,
-    available: true,
-    status: "installed",
-    logo_url: null,
-    brand_color: "#E87D0D",
-    skill_installed: true,
-  },
-  {
-    name: "krita",
-    display_name: "Krita",
-    category: "image",
-    description: "Painting",
-    requires: "",
-    source: "harness",
-    entry_point: "cli-anything-krita",
-    install_supported: true,
-    installed: false,
-    available: false,
-    status: "not_installed",
-    logo_url: null,
-    brand_color: "#3BABFF",
-    skill_installed: false,
-  },
-];
-
-const MCP_PRESETS: McpPresetInfo[] = [
-  {
-    name: "browserbase",
-    display_name: "Browserbase",
-    category: "browser",
-    description: "Cloud browser automation",
-    docs_url: "https://docs.browserbase.com",
-    transport: "streamableHttp",
-    requires: "Browserbase API key",
-    note: "",
-    install_supported: true,
-    installed: true,
-    configured: true,
-    available: true,
-    status: "configured",
-    logo_url: "https://example.invalid/browserbase.svg",
-    brand_color: "#111827",
-    required_fields: [],
-    connection_summary: "https://mcp.browserbase.com/mcp",
-  },
-  {
-    name: "figma",
-    display_name: "Figma",
-    category: "design",
-    description: "Design context",
-    docs_url: "https://figma.com",
-    transport: "streamableHttp",
-    requires: "Figma local app",
-    note: "",
-    install_supported: true,
-    installed: true,
-    configured: false,
-    available: false,
-    status: "missing_credentials",
-    logo_url: null,
-    brand_color: "#F24E1E",
-    required_fields: [],
-    connection_summary: "",
-  },
-];
 const ORIGINAL_INNER_HEIGHT = window.innerHeight;
 
 afterEach(() => {
@@ -533,7 +442,6 @@ describe("ThreadComposer", () => {
       <ThreadComposer
         onSend={onSend}
         placeholder="Type your message..."
-        cliApps={CLI_APPS}
       />,
     );
 
@@ -585,22 +493,6 @@ describe("ThreadComposer", () => {
         <ThreadComposer
           onSend={vi.fn()}
           placeholder="Type your message..."
-          cliApps={Array.from({ length: 8 }, (_, index) => ({
-            name: `app-${index}`,
-            display_name: `App ${index}`,
-            category: "test",
-            description: "Test app",
-            requires: "",
-            source: "harness",
-            entry_point: `app-${index}`,
-            install_supported: true,
-            installed: true,
-            available: true,
-            status: "installed",
-            logo_url: null,
-            brand_color: "#111827",
-            skill_installed: true,
-          }))}
         />,
       );
 
@@ -626,7 +518,6 @@ describe("ThreadComposer", () => {
       <ThreadComposer
         onSend={vi.fn()}
         placeholder="Type your message..."
-        cliApps={CLI_APPS}
       />,
     );
 
@@ -647,8 +538,6 @@ describe("ThreadComposer", () => {
       <ThreadComposer
         onSend={onSend}
         placeholder="Type your message..."
-        cliApps={CLI_APPS}
-        mcpPresets={MCP_PRESETS}
       />,
     );
 
@@ -686,8 +575,6 @@ describe("ThreadComposer", () => {
       <ThreadComposer
         onSend={vi.fn()}
         placeholder="Type your message..."
-        cliApps={CLI_APPS}
-        mcpPresets={MCP_PRESETS}
       />,
     );
 
@@ -709,7 +596,6 @@ describe("ThreadComposer", () => {
       <ThreadComposer
         onSend={vi.fn()}
         placeholder="Type your message..."
-        cliApps={CLI_APPS}
       />,
     );
 
@@ -728,7 +614,6 @@ describe("ThreadComposer", () => {
       <ThreadComposer
         onSend={vi.fn()}
         placeholder="Type your message..."
-        cliApps={CLI_APPS}
       />,
     );
 

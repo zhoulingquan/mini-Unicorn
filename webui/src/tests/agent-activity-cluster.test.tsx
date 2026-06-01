@@ -2,44 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentActivityCluster } from "@/components/thread/AgentActivityCluster";
-import type { CliAppInfo, McpPresetInfo, UIMessage } from "@/lib/types";
-
-const BLENDER_CLI_APP: CliAppInfo = {
-  name: "blender",
-  display_name: "Blender",
-  category: "3d",
-  description: "3D creation",
-  requires: "",
-  source: "harness",
-  entry_point: "cli-anything-blender",
-  install_supported: true,
-  installed: true,
-  available: true,
-  status: "installed",
-  logo_url: "https://example.invalid/blender.svg",
-  brand_color: "#E87D0D",
-  skill_installed: true,
-};
-
-const BROWSERBASE_MCP: McpPresetInfo = {
-  name: "browserbase",
-  display_name: "Browserbase",
-  category: "browser",
-  description: "Cloud browser automation",
-  docs_url: "https://docs.browserbase.com",
-  transport: "streamableHttp",
-  requires: "Browserbase API key",
-  note: "",
-  install_supported: true,
-  installed: true,
-  configured: true,
-  available: true,
-  status: "configured",
-  logo_url: "https://example.invalid/browserbase.svg",
-  brand_color: "#111827",
-  required_fields: [],
-  connection_summary: "https://mcp.browserbase.com/mcp",
-};
+import type { UIMessage } from "@/lib/types";
 
 function activityMessages(extraReasoning = "", extraTool?: UIMessage): UIMessage[] {
   const rows: UIMessage[] = [
@@ -513,7 +476,6 @@ describe("AgentActivityCluster", () => {
         }]}
         isTurnStreaming
         hasBodyBelow={false}
-        cliApps={[BLENDER_CLI_APP]}
       />,
     );
 
@@ -564,7 +526,6 @@ describe("AgentActivityCluster", () => {
         ]}
         isTurnStreaming
         hasBodyBelow={false}
-        cliApps={[BLENDER_CLI_APP]}
       />,
     );
 
@@ -633,7 +594,6 @@ describe("AgentActivityCluster", () => {
         }]}
         isTurnStreaming
         hasBodyBelow={false}
-        mcpPresets={[BROWSERBASE_MCP]}
       />,
     );
 

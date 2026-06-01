@@ -110,7 +110,7 @@ const installedAnyGen = {
 
 function renderSettingsView(
   options: {
-    initialSection?: "apps" | "advanced" | "models";
+    initialSection?: "advanced" | "models";
     onSettingsChange?: (payload: SettingsPayload) => void;
   } = {},
 ) {
@@ -118,7 +118,7 @@ function renderSettingsView(
     <ClientProvider client={{} as never} token="tok">
       <SettingsView
         theme="light"
-        initialSection={options.initialSection ?? "apps"}
+        initialSection={options.initialSection ?? "advanced"}
         onToggleTheme={() => {}}
         onBackToChat={() => {}}
         onModelNameChange={() => {}}

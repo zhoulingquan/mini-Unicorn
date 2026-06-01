@@ -2,64 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest";
 
 import { MessageBubble } from "@/components/MessageBubble";
-import type { CliAppInfo, McpPresetInfo, UIMessage } from "@/lib/types";
-
-const CLI_APPS: CliAppInfo[] = [
-  {
-    name: "zoom",
-    display_name: "Zoom",
-    category: "productivity",
-    description: "Meetings",
-    requires: "",
-    source: "harness",
-    entry_point: "cli-anything-zoom",
-    install_supported: true,
-    installed: true,
-    available: true,
-    status: "installed",
-    logo_url: "https://example.invalid/zoom.svg",
-    brand_color: "#0B5CFF",
-    skill_installed: true,
-  },
-  {
-    name: "krita",
-    display_name: "Krita",
-    category: "image",
-    description: "Painting",
-    requires: "",
-    source: "harness",
-    entry_point: "cli-anything-krita",
-    install_supported: true,
-    installed: false,
-    available: false,
-    status: "not_installed",
-    logo_url: null,
-    brand_color: "#3BABFF",
-    skill_installed: false,
-  },
-];
-
-const MCP_PRESETS: McpPresetInfo[] = [
-  {
-    name: "browserbase",
-    display_name: "Browserbase",
-    category: "browser",
-    description: "Cloud browser automation",
-    docs_url: "https://docs.browserbase.com",
-    transport: "streamableHttp",
-    requires: "Browserbase API key",
-    note: "",
-    install_supported: true,
-    installed: true,
-    configured: true,
-    available: true,
-    status: "configured",
-    logo_url: "https://example.invalid/browserbase.svg",
-    brand_color: "#111827",
-    required_fields: [],
-    connection_summary: "https://mcp.browserbase.com/mcp",
-  },
-];
+import type { UIMessage } from "@/lib/types";
 
 describe("MessageBubble", () => {
   it("renders user messages as right-aligned pills", () => {
@@ -87,7 +30,7 @@ describe("MessageBubble", () => {
       createdAt: Date.now(),
     };
 
-    render(<MessageBubble message={message} cliApps={CLI_APPS} />);
+    render(<MessageBubble message={message} />);
 
     const token = screen.getByTestId("message-cli-mention-zoom");
     expect(token).toHaveTextContent("@zoom");
@@ -117,7 +60,7 @@ describe("MessageBubble", () => {
       }],
     };
 
-    render(<MessageBubble message={message} cliApps={[]} />);
+    render(<MessageBubble message={message} />);
 
     const token = screen.getByTestId("message-cli-mention-drawio");
     expect(token).toHaveTextContent("@drawio");
@@ -135,7 +78,7 @@ describe("MessageBubble", () => {
       createdAt: Date.now(),
     };
 
-    render(<MessageBubble message={message} mcpPresets={MCP_PRESETS} />);
+    render(<MessageBubble message={message} />);
 
     const token = screen.getByTestId("message-mcp-mention-browserbase");
     expect(token).toHaveTextContent("@browserbase");
