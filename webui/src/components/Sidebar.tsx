@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import {
   Archive,
   Menu,
+  PlugZap,
   Search,
   Settings,
   SquarePen,
@@ -32,6 +33,7 @@ interface SidebarProps {
   onRequestRenameProject: (projectKey: string, label: string) => void;
   onNewChatInProject: (projectPath: string, projectName: string) => void;
   onOpenSettings: () => void;
+  onOpenMcp: () => void;
   onOpenSearch: () => void;
   onToggleArchived: () => void;
   onCollapse: () => void;
@@ -182,6 +184,12 @@ export function Sidebar(props: SidebarProps) {
           collapsed && "w-14 flex-col px-0",
         )}
       >
+        <SidebarActionButton
+          collapsed={collapsed}
+          label={t("sidebar.mcp")}
+          onClick={props.onOpenMcp}
+          icon={<PlugZap className="h-4 w-4" />}
+        />
         <SidebarActionButton
           collapsed={collapsed}
           label={t("sidebar.settings")}

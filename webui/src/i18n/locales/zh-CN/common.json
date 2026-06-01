@@ -50,6 +50,7 @@
     "noSearchResults": "没有匹配的会话。",
     "recent": "最近对话",
     "settings": "设置",
+    "mcp": "MCP",
     "language": {
       "label": "语言",
       "ariaLabel": "切换语言"
@@ -256,7 +257,21 @@
       "toolScope": "工具",
       "allTools": "全部",
       "noTools": "不暴露",
-      "testForTools": "运行测试后，可以查看并选择单个工具。"
+      "testForTools": "运行测试后，可以查看并选择单个工具。",
+      "title": "MCP 服务",
+      "connected": "已连接",
+      "available": "可用",
+      "connect": "连接",
+      "disconnect": "断开",
+      "tools": "个工具",
+      "retry": "重试",
+      "advancedSettings": "高级设置",
+      "status": {
+        "connected": "已连接",
+        "missingCredentials": "需要密钥",
+        "missingDependency": "需要依赖",
+        "notInstalled": "未启用"
+      }
     },
     "values": {
       "light": "浅色",

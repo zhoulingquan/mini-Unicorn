@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { DeleteConfirm } from "@/components/DeleteConfirm";
 import { RenameChatDialog } from "@/components/RenameChatDialog";
 import { Sidebar } from "@/components/Sidebar";
+import { McpView } from "@/components/mcp/McpView";
 import { SessionSearchDialog } from "@/components/SessionSearchDialog";
 import { SettingsView, type SettingsSectionKey } from "@/components/settings/SettingsView";
 import { ThreadShell } from "@/components/thread/ThreadShell";
@@ -65,7 +66,7 @@ const SIDEBAR_WIDTH = 272;
 const SIDEBAR_RAIL_WIDTH = 56;
 const TOKEN_REFRESH_MARGIN_MS = 30_000;
 const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
-type ShellView = "chat" | "settings";
+type ShellView = "chat" | "settings" | "mcp";
 
 function bootstrapTokenExpiresAt(expiresInSeconds: number): number {
   return Date.now() + Math.max(0, expiresInSeconds) * 1000;
@@ -891,6 +892,11 @@ function Shell({
     [onSelectChat],
   );
 
+  const onOpenMcp = useCallback(() => {
+    setView("mcp");
+    setMobileSidebarOpen(false);
+  }, []);
+
   const onOpenSettings = useCallback((section: SettingsSectionKey = "overview") => {
     setSessionSearchOpen(false);
     setSettingsInitialSection(section);
@@ -1036,6 +1042,7 @@ function Shell({
     onRequestRenameProject,
     onNewChatInProject,
     onOpenSettings,
+    onOpenMcp,
     onOpenSearch: onOpenSessionSearch,
     onToggleArchived,
     pinnedKeys: sidebarState.pinned_keys,
@@ -1054,7 +1061,7 @@ function Shell({
     settingsSnapshot?.surface ?? settingsSnapshot?.runtime_surface ?? runtimeSurface;
   const isNativeHostSetupSurface = effectiveRuntimeSurface === "native";
   const showHostChrome = isNativeHostSetupSurface;
-  const showMainSidebar = view !== "settings";
+  const showMainSidebar = view !== "settings" && view !== "mcp";
 
   return (
     <ThemeProvider theme={theme}>
@@ -1171,7 +1178,7 @@ function Shell({
                 settingsSnapshot={settingsSnapshot}
               />
             </div>
-            {view !== "chat" && (
+            {view === "settings" && (
               <div className="absolute inset-0 flex flex-col">
                 <SettingsView
                   theme={theme}
@@ -1185,6 +1192,15 @@ function Shell({
                   onRestart={onRestart}
                   isRestarting={isRestarting}
                   hostChromeInset={showHostChrome}
+                />
+              </div>
+            )}
+            {view === "mcp" && (
+              <div className="absolute inset-0 flex flex-col">
+                <McpView
+                  onBack={onBackToChat}
+                  onOpenSettings={() => onOpenSettings("advanced")}
+                  token={token}
                 />
               </div>
             )}

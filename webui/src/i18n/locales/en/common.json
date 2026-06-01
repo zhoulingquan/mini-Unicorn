@@ -50,6 +50,7 @@
     "noSearchResults": "No matching chats.",
     "recent": "Recent",
     "settings": "Settings",
+    "mcp": "MCP",
     "language": {
       "label": "Language",
       "ariaLabel": "Change language"
@@ -256,7 +257,21 @@
       "toolScope": "Tools",
       "allTools": "All",
       "noTools": "None",
-      "testForTools": "Run Test to inspect and choose individual tools."
+      "testForTools": "Run Test to inspect and choose individual tools.",
+      "title": "MCP Services",
+      "connected": "Connected",
+      "available": "Available",
+      "connect": "Connect",
+      "disconnect": "Disconnect",
+      "tools": "tools",
+      "retry": "Retry",
+      "advancedSettings": "Advanced settings",
+      "status": {
+        "connected": "Connected",
+        "missingCredentials": "Needs key",
+        "missingDependency": "Needs dependency",
+        "notInstalled": "Not enabled"
+      }
     },
     "values": {
       "light": "Light",
