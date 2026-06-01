@@ -266,6 +266,30 @@
       "tools": "tools",
       "retry": "Retry",
       "advancedSettings": "Advanced settings",
+      "addServer": "Add MCP Server",
+      "form": {
+        "name": "Server name",
+        "namePlaceholder": "my-mcp-server",
+        "transport": "Transport",
+        "command": "Command",
+        "args": "Arguments (JSON array)",
+        "env": "Environment variables (JSON object)",
+        "cwd": "Working directory",
+        "url": "Server URL",
+        "headers": "Headers (JSON object)",
+        "toolTimeout": "Tool timeout (seconds)",
+        "enabledTools": "Enabled tools",
+        "save": "Save",
+        "cancel": "Cancel"
+      },
+      "validation": {
+        "nameRequired": "Server name is required",
+        "commandRequired": "Command is required for stdio transport",
+        "urlRequired": "URL is required for HTTP transport",
+        "invalidJsonArgs": "Arguments must be a valid JSON array",
+        "invalidJsonEnv": "Environment variables must be a valid JSON object",
+        "invalidJsonHeaders": "Headers must be a valid JSON object"
+      },
       "status": {
         "connected": "Connected",
         "missingCredentials": "Needs key",
