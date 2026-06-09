@@ -877,8 +877,8 @@ def _run_gateway(
         provider_snapshot = build_provider_snapshot(config)
     except ValueError as exc:
         console.print(f"[yellow]Warning: {exc}[/yellow]")
-        console.print("[dim]The gateway will start, but chat will not work until an API key is configured in Settings → BYOK.[/dim]")
-        raise typer.Exit(1) from exc
+        console.print("[dim]Chat will not work until an API key is configured in Settings → BYOK.[/dim]")
+        provider_snapshot = None
     session_manager = SessionManager(config.workspace_path)
 
     # Preserve existing single-workspace installs, but keep custom workspaces clean.
@@ -892,9 +892,9 @@ def _run_gateway(
     # Create agent with cron service
     agent = AgentLoop.from_config(
         config, bus,
-        provider=provider_snapshot.provider,
-        model=provider_snapshot.model,
-        context_window_tokens=provider_snapshot.context_window_tokens,
+        provider=provider_snapshot.provider if provider_snapshot else None,
+        model=provider_snapshot.model if provider_snapshot else None,
+        context_window_tokens=provider_snapshot.context_window_tokens if provider_snapshot else None,
         cron_service=cron,
         session_manager=session_manager,
         provider_snapshot_loader=load_provider_snapshot,
@@ -903,7 +903,7 @@ def _run_gateway(
             model,
             preset,
         ),
-        provider_signature=provider_snapshot.signature,
+        provider_signature=provider_snapshot.signature if provider_snapshot else None,
     )
 
     from munchkin.agent.loop import UNIFIED_SESSION_KEY

@@ -342,17 +342,31 @@ class Config(BaseSettings):
             return kw in model_lower or kw.replace("-", "_") in model_normalized
 
         # Match by keyword (order follows PROVIDERS registry)
+        # First pass: prefer providers with API keys (exact match)
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)
             if p and any(_kw_matches(kw) for kw in spec.keywords):
                 if spec.is_local or spec.is_direct or p.api_key:
                     return p, spec.name
 
+        # Second pass: keyword match even without API key (deferred config)
+        for spec in PROVIDERS:
+            p = getattr(self.providers, spec.name, None)
+            if p and any(_kw_matches(kw) for kw in spec.keywords):
+                return p, spec.name
+
         # Fallback: gateways first, then others (follows registry order)
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)
             if p and p.api_key:
                 return p, spec.name
+
+        # Final fallback: return first configured provider even without key
+        for spec in PROVIDERS:
+            p = getattr(self.providers, spec.name, None)
+            if p:
+                return p, spec.name
+
         return None, None
 
     def get_provider(

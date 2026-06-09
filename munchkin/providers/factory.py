@@ -44,13 +44,7 @@ def _make_provider_core(
 
     needs_key = not (p and p.api_key)
     exempt = spec and (spec.is_local or spec.is_direct)
-    if needs_key and not exempt:
-        from loguru import logger
-        logger.warning(
-            "No API key configured for provider '{}'. "
-            "Configure one in the WebUI (Settings → BYOK) and restart.",
-            provider_name,
-        )
+    # API key may be configured later via WebUI (Settings → BYOK); no warning at startup.
 
     # Only openai_compat backend (DeepSeek + custom)
     from munchkin.providers.openai_compat_provider import OpenAICompatProvider
