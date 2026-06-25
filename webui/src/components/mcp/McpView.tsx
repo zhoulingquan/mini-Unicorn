@@ -10,7 +10,10 @@ import {
   PlugZap,
   RefreshCw,
   Trash2,
+  Upload,
+  Wrench,
   X,
+  Zap,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -27,19 +30,20 @@ import {
   fetchMcpPresets,
   runMcpPresetAction,
   saveCustomMcpServer,
+  importMcpConfig,
+  updateMcpServerTools,
 } from "@/lib/api";
 import {
   isMcpPresetsPayload,
   MCP_PRESETS_CHANGED_EVENT,
 } from "@/lib/mcp-preset-events";
-import type { McpPresetInfo, McpPresetsPayload } from "@/lib/types";
+import type { McpPresetField, McpPresetInfo, McpPresetsPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type TransportType = "stdio" | "sse" | "streamableHttp";
 
 interface McpViewProps {
   onBack: () => void;
-  onOpenSettings: () => void;
   token: string;
 }
 
@@ -69,6 +73,8 @@ const EMPTY_FORM: CustomServerForm = {
   enabled_tools: "*",
 };
 
+type TFunc = (key: string, options?: Record<string, unknown>) => string;
+
 function statusIcon(status: McpPresetInfo["status"]) {
   switch (status) {
     case "configured":
@@ -81,7 +87,7 @@ function statusIcon(status: McpPresetInfo["status"]) {
   }
 }
 
-export function McpView({ onBack, onOpenSettings, token }: McpViewProps) {
+export function McpView({ onBack, token }: McpViewProps) {
   const { t } = useTranslation();
   const [payload, setPayload] = useState<McpPresetsPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -91,6 +97,34 @@ export function McpView({ onBack, onOpenSettings, token }: McpViewProps) {
   const [form, setForm] = useState<CustomServerForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Import modal state
+  const [showImport, setShowImport] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  // Active tab: "all" | "connected"
+  const [activeTab, setActiveTab] = useState<"all" | "connected">("all");
+
+  // Preset inline form state
+  const [expandedPreset, setExpandedPreset] = useState<string | null>(null);
+  const [presetFormValues, setPresetFormValues] = useState<
+    Record<string, Record<string, string>>
+  >({});
+  const [enablingPreset, setEnablingPreset] = useState<string | null>(null);
+  const [presetError, setPresetError] = useState<string | null>(null);
+
+  // Per-server state
+  const [testing, setTesting] = useState<Record<string, boolean>>({});
+  const [testResults, setTestResults] = useState<
+    Record<string, { ok: boolean; message: string; toolCount?: number }>
+  >({});
+  const [showTools, setShowTools] = useState<Record<string, boolean>>({});
+  const [enabledToolsCache, setEnabledToolsCache] = useState<
+    Record<string, string[]>
+  >({});
+  const [savingTools, setSavingTools] = useState<Record<string, boolean>>({});
 
   const loadPresets = async () => {
     setLoading(true);
@@ -127,6 +161,53 @@ export function McpView({ onBack, onOpenSettings, token }: McpViewProps) {
       // ignore
     } finally {
       setActing(null);
+    }
+  };
+
+  const handleEnablePreset = async (server: McpPresetInfo) => {
+    const fields = server.required_fields ?? [];
+    if (fields.length > 0 && expandedPreset !== server.name) {
+      setExpandedPreset(server.name);
+      setPresetError(null);
+      if (!presetFormValues[server.name]) {
+        const init: Record<string, string> = {};
+        fields.forEach((f) => (init[f.name] = ""));
+        setPresetFormValues((prev) => ({ ...prev, [server.name]: init }));
+      }
+      return;
+    }
+
+    const values: Record<string, string> = {};
+    if (fields.length > 0) {
+      const formVals = presetFormValues[server.name] ?? {};
+      const missing = fields.find(
+        (f) => f.required && !(formVals[f.name] ?? "").trim(),
+      );
+      if (missing) {
+        setPresetError(t("mcp.presetFields"));
+        return;
+      }
+      fields.forEach((f) => {
+        const v = (formVals[f.name] ?? "").trim();
+        if (v) values[f.name] = v;
+      });
+    }
+
+    setEnablingPreset(server.name);
+    setPresetError(null);
+    try {
+      const updated = await runMcpPresetAction(token, "enable", server.name, values);
+      setPayload(updated);
+      setExpandedPreset(null);
+      setPresetFormValues((prev) => {
+        const next = { ...prev };
+        delete next[server.name];
+        return next;
+      });
+    } catch (e) {
+      setPresetError((e as Error).message);
+    } finally {
+      setEnablingPreset(null);
     }
   };
 
@@ -201,9 +282,122 @@ export function McpView({ onBack, onOpenSettings, token }: McpViewProps) {
     }
   };
 
+  const handleImport = async () => {
+    if (!importText.trim()) {
+      setImportError(t("mcp.validation.invalidJsonHeaders"));
+      return;
+    }
+    setImporting(true);
+    setImportError(null);
+    try {
+      const updated = await importMcpConfig(token, importText);
+      setPayload(updated);
+      setShowImport(false);
+      setImportText("");
+    } catch (e) {
+      setImportError((e as Error).message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleTest = async (name: string) => {
+    setTesting((prev) => ({ ...prev, [name]: true }));
+    setTestResults((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+    try {
+      const updated = await runMcpPresetAction(token, "test", name, {});
+      setPayload(updated);
+      const server = updated.presets.find((s) => s.name === name);
+      if (server) {
+        if (server.status === "configured" && server.tool_count != null) {
+          setTestResults((prev) => ({
+            ...prev,
+            [name]: {
+              ok: true,
+              message: t("mcp.testSuccess", { count: server.tool_count }),
+              toolCount: server.tool_count,
+            },
+          }));
+        } else if (server.status === "configured") {
+          setTestResults((prev) => ({
+            ...prev,
+            [name]: { ok: true, message: t("mcp.testOk") },
+          }));
+        } else {
+          setTestResults((prev) => ({
+            ...prev,
+            [name]: {
+              ok: false,
+              message: server.error || t("mcp.testFailed"),
+            },
+          }));
+        }
+      }
+    } catch (e) {
+      setTestResults((prev) => ({
+        ...prev,
+        [name]: { ok: false, message: (e as Error).message },
+      }));
+    } finally {
+      setTesting((prev) => ({ ...prev, [name]: false }));
+    }
+  };
+
+  const toggleToolsPanel = (server: McpPresetInfo) => {
+    const name = server.name;
+    setShowTools((prev) => ({ ...prev, [name]: !prev[name] }));
+    if (!enabledToolsCache[name]) {
+      const current =
+        server.enabled_tools && server.enabled_tools.length > 0
+          ? server.enabled_tools.includes("*") && (server.tool_names?.length ?? 0) > 0
+            ? [...(server.tool_names ?? [])]
+            : [...server.enabled_tools]
+          : [];
+      setEnabledToolsCache((prev) => ({ ...prev, [name]: current }));
+    }
+  };
+
+  const handleToggleTool = (name: string, tool: string) => {
+    setEnabledToolsCache((prev) => {
+      const current = prev[name] ?? [];
+      const next = current.includes(tool)
+        ? current.filter((item) => item !== tool)
+        : [...current, tool];
+      return { ...prev, [name]: next };
+    });
+  };
+
+  const handleSelectAllTools = (name: string, tools: string[]) => {
+    setEnabledToolsCache((prev) => ({ ...prev, [name]: [...tools] }));
+  };
+
+  const handleClearTools = (name: string) => {
+    setEnabledToolsCache((prev) => ({ ...prev, [name]: [] }));
+  };
+
+  const handleSaveTools = async (name: string) => {
+    const tools = enabledToolsCache[name] ?? [];
+    setSavingTools((prev) => ({ ...prev, [name]: true }));
+    try {
+      const updated = await updateMcpServerTools(token, name, tools);
+      setPayload(updated);
+      setShowTools((prev) => ({ ...prev, [name]: false }));
+    } catch {
+      // ignore
+    } finally {
+      setSavingTools((prev) => ({ ...prev, [name]: false }));
+    }
+  };
+
   const allServers = payload?.presets ?? [];
-  const servers = allServers.filter((s) => s.source !== "preset");
-  const installed = servers.filter((s) => s.status === "configured");
+  const connectedServers = allServers.filter(
+    (s) => s.installed || s.status === "configured",
+  );
+  const installed = connectedServers.filter((s) => s.status === "configured");
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -242,45 +436,155 @@ export function McpView({ onBack, onOpenSettings, token }: McpViewProps) {
             </Button>
           </div>
         ) : (
-          <>
-            {servers.length > 0 && (
-              <section className="mb-4">
-                <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  {t("mcp.connected")} ({installed.length})
-                </h2>
-                <div className="space-y-1.5">
-                  {servers.map((server) => (
-                    <ServerCard
-                      key={server.name}
-                      server={server}
-                      acting={acting}
-                      onRemove={handleRemove}
-                      t={t}
-                    />
-                  ))}
-                </div>
-              </section>
+          <div className="flex h-full flex-col">
+            {/* Tab switcher */}
+            <div className="mb-3 flex w-fit items-center gap-0.5 rounded-md bg-muted/40 p-0.5">
+              <button
+                type="button"
+                onClick={() => setActiveTab("all")}
+                className={cn(
+                  "rounded px-2.5 py-1 text-[11px] font-medium transition-colors",
+                  activeTab === "all"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground/70 hover:text-foreground",
+                )}
+              >
+                {t("mcp.allServices")}
+                <span className="ml-1 text-[10px] text-muted-foreground/50">
+                  ({allServers.length})
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("connected")}
+                className={cn(
+                  "rounded px-2.5 py-1 text-[11px] font-medium transition-colors",
+                  activeTab === "connected"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground/70 hover:text-foreground",
+                )}
+              >
+                {t("mcp.connected")}
+                <span className="ml-1 text-[10px] text-muted-foreground/50">
+                  ({connectedServers.length})
+                </span>
+              </button>
+            </div>
+
+            {/* All services tab */}
+            {activeTab === "all" && (
+              <div className="space-y-2">
+                {allServers.length === 0 ? (
+                  <p className="py-8 text-center text-[11px] text-muted-foreground/50">
+                    {t("mcp.noPresets")}
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {allServers.map((server) => {
+                      const isConnected = server.installed || server.status === "configured";
+                      return isConnected ? (
+                        <ServerCard
+                          key={server.name}
+                          server={server}
+                          acting={acting}
+                          testing={testing[server.name] ?? false}
+                          testResult={testResults[server.name]}
+                          showTools={showTools[server.name] ?? false}
+                          enabledToolsCache={enabledToolsCache[server.name] ?? null}
+                          savingTools={savingTools[server.name] ?? false}
+                          onRemove={handleRemove}
+                          onTest={() => handleTest(server.name)}
+                          onToggleTools={() => toggleToolsPanel(server)}
+                          onToggleTool={(tool) => handleToggleTool(server.name, tool)}
+                          onSelectAll={() =>
+                            handleSelectAllTools(
+                              server.name,
+                              server.tool_names ?? [],
+                            )
+                          }
+                          onClear={() => handleClearTools(server.name)}
+                          onSaveTools={() => handleSaveTools(server.name)}
+                          t={t as TFunc}
+                        />
+                      ) : (
+                        <PresetCard
+                          key={server.name}
+                          server={server}
+                          expanded={expandedPreset === server.name}
+                          formValues={presetFormValues[server.name] ?? {}}
+                          enabling={enablingPreset === server.name}
+                          error={expandedPreset === server.name ? presetError : null}
+                          onEnable={() => handleEnablePreset(server)}
+                          onFieldChange={(field, value) =>
+                            setPresetFormValues((prev) => ({
+                              ...prev,
+                              [server.name]: {
+                                ...(prev[server.name] ?? {}),
+                                [field]: value,
+                              },
+                            }))
+                          }
+                          onCancel={() => {
+                            setExpandedPreset(null);
+                            setPresetError(null);
+                            setPresetFormValues((prev) => {
+                              const next = { ...prev };
+                              delete next[server.name];
+                              return next;
+                            });
+                          }}
+                          t={t as TFunc}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             )}
 
-            {servers.length === 0 && !showForm && (
-              <section className="mb-4">
-                <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  {t("mcp.connected")} (0)
-                </h2>
-                <div className="space-y-1.5">
-                  <PlaceholderCard label="stdio" />
-                  <PlaceholderCard label="sse" />
-                  <PlaceholderCard label="streamableHttp" />
-                </div>
-                <p className="mt-3 text-center text-[11px] text-muted-foreground/50">
-                  {t("mcp.empty")}
-                </p>
-              </section>
+            {/* Connected services tab */}
+            {activeTab === "connected" && (
+              <div className="space-y-2">
+                {connectedServers.length === 0 ? (
+                  <p className="py-8 text-center text-[11px] text-muted-foreground/50">
+                    {t("mcp.empty")}
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {connectedServers.map((server) => (
+                      <ServerCard
+                        key={server.name}
+                        server={server}
+                        acting={acting}
+                        testing={testing[server.name] ?? false}
+                        testResult={testResults[server.name]}
+                        showTools={showTools[server.name] ?? false}
+                        enabledToolsCache={enabledToolsCache[server.name] ?? null}
+                        savingTools={savingTools[server.name] ?? false}
+                        onRemove={handleRemove}
+                        onTest={() => handleTest(server.name)}
+                        onToggleTools={() => toggleToolsPanel(server)}
+                        onToggleTool={(tool) => handleToggleTool(server.name, tool)}
+                        onSelectAll={() =>
+                          handleSelectAllTools(
+                            server.name,
+                            server.tool_names ?? [],
+                          )
+                        }
+                        onClear={() => handleClearTools(server.name)}
+                        onSaveTools={() => handleSaveTools(server.name)}
+                        t={t as TFunc}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
 
-            {showForm ? (
-              <section>
-                <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+            {/* Add custom server form */}
+            {showForm && (
+              <section className="mt-3">
+                <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                   {t("mcp.addServer")}
                 </h2>
                 <div className="space-y-3 rounded-xl border border-border/50 bg-background p-3">
@@ -305,14 +609,14 @@ export function McpView({ onBack, onOpenSettings, token }: McpViewProps) {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent className="min-w-[160px]">
-                        {(["stdio", "sse", "streamableHttp"] as TransportType[]).map((t) => (
+                        {(["stdio", "sse", "streamableHttp"] as TransportType[]).map((tp) => (
                           <DropdownMenuItem
-                            key={t}
-                            onClick={() => setForm((f) => ({ ...f, transport: t }))}
+                            key={tp}
+                            onClick={() => setForm((f) => ({ ...f, transport: tp }))}
                             className="text-[12.5px]"
                           >
-                            {t}
-                            {form.transport === t && <Check className="ml-auto h-3 w-3" />}
+                            {tp}
+                            {form.transport === tp && <Check className="ml-auto h-3 w-3" />}
                           </DropdownMenuItem>
                         ))}
                       </DropdownMenuContent>
@@ -399,20 +703,11 @@ export function McpView({ onBack, onOpenSettings, token }: McpViewProps) {
                     <p className="text-[11px] text-destructive">{formError}</p>
                   )}
 
-                  <div className="flex items-center gap-2 pt-1">
-                    <Button
-                      size="sm"
-                      className="h-7 text-[11px]"
-                      disabled={saving}
-                      onClick={handleSaveCustom}
-                    >
-                      {saving ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
-                      {t("mcp.form.save")}
-                    </Button>
+                  <div className="flex items-center justify-end gap-2 pt-1">
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 text-[11px]"
+                      className="h-7 px-3 text-[11px]"
                       onClick={() => {
                         setShowForm(false);
                         setForm(EMPTY_FORM);
@@ -421,11 +716,20 @@ export function McpView({ onBack, onOpenSettings, token }: McpViewProps) {
                     >
                       {t("mcp.form.cancel")}
                     </Button>
+                    <Button
+                      size="sm"
+                      className="h-7 gap-1 px-3 text-[11px]"
+                      disabled={saving}
+                      onClick={handleSaveCustom}
+                    >
+                      {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                      {t("mcp.form.save")}
+                    </Button>
                   </div>
                 </div>
               </section>
-            ) : null}
-          </>
+            )}
+          </div>
         )}
       </div>
 
@@ -434,28 +738,210 @@ export function McpView({ onBack, onOpenSettings, token }: McpViewProps) {
           <span className="text-[11px] text-muted-foreground/70">
             {installed.length} {t("mcp.connected").toLowerCase()}
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <Button
-              variant="link"
-              className="h-auto p-0 text-[11px] text-muted-foreground/70"
-              onClick={onOpenSettings}
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 px-2.5 text-[11px] text-muted-foreground/70 hover:text-foreground"
+              onClick={() => {
+                setShowImport(true);
+                setImportError(null);
+                setImportText("");
+              }}
             >
-              {t("mcp.advancedSettings")}
+              <Upload className="h-3 w-3" />
+              {t("mcp.importConfig")}
             </Button>
-            {!showForm && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 gap-1 px-2 text-[11px] text-emerald-600 hover:text-emerald-700"
-                onClick={() => setShowForm(true)}
-              >
-                <Plus className="h-3 w-3" />
-                {t("mcp.addServer")}
-              </Button>
-            )}
+            <span className="text-muted-foreground/30">·</span>
+            <Button
+              size="sm"
+              className="h-7 gap-1 px-2.5 text-[11px]"
+              onClick={() => setShowForm(true)}
+            >
+              <Plus className="h-3 w-3" />
+              {t("mcp.addServer")}
+            </Button>
           </div>
         </div>
       </div>
+
+      {/* Import config modal */}
+      {showImport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-xl border border-border/60 bg-background p-4 shadow-lg">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold">{t("mcp.importConfig")}</h3>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => setShowImport(false)}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            <Textarea
+              placeholder={t("mcp.importPlaceholder")}
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              className="min-h-[160px] text-[12px] font-mono"
+            />
+            {importError && (
+              <p className="mt-2 text-[11px] text-destructive">{importError}</p>
+            )}
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-3 text-[11px]"
+                onClick={() => {
+                  setShowImport(false);
+                  setImportText("");
+                  setImportError(null);
+                }}
+              >
+                {t("mcp.form.cancel")}
+              </Button>
+              <Button
+                size="sm"
+                className="h-7 gap-1 px-3 text-[11px]"
+                disabled={importing || !importText.trim()}
+                onClick={handleImport}
+              >
+                {importing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                {t("mcp.import")}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PresetCard({
+  server,
+  expanded,
+  formValues,
+  enabling,
+  error,
+  onEnable,
+  onFieldChange,
+  onCancel,
+  t,
+}: {
+  server: McpPresetInfo;
+  expanded: boolean;
+  formValues: Record<string, string>;
+  enabling: boolean;
+  error: string | null;
+  onEnable: () => void;
+  onFieldChange: (field: string, value: string) => void;
+  onCancel: () => void;
+  t: TFunc;
+}) {
+  const isConfigured = server.status === "configured";
+  const fields = server.required_fields ?? [];
+  const needsFields = fields.length > 0;
+
+  return (
+    <div
+      className={cn(
+        "flex flex-col rounded-lg border px-2.5 py-2 transition-colors",
+        isConfigured
+          ? "border-emerald-500/30 bg-emerald-500/[0.04]"
+          : "border-border/50 bg-background",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <div
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white"
+          style={{ backgroundColor: server.brand_color || "#6b7280" }}
+        >
+          {server.display_name.charAt(0).toUpperCase()}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1">
+            <span className="truncate text-[11.5px] font-medium leading-tight">
+              {server.display_name}
+            </span>
+            {statusIcon(server.status)}
+          </div>
+          <p className="mt-0.5 line-clamp-2 text-[10.5px] leading-snug text-muted-foreground/70">
+            {server.description}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-2 flex items-center justify-end gap-1.5">
+        {isConfigured ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
+            <Check className="h-2.5 w-2.5" />
+            {t("mcp.enabled")}
+          </span>
+        ) : (
+          <Button
+            size="sm"
+            className="h-6 gap-1 px-2.5 text-[10.5px]"
+            disabled={enabling}
+            onClick={onEnable}
+          >
+            {enabling ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+            {t("mcp.enable")}
+          </Button>
+        )}
+      </div>
+
+      {expanded && needsFields && (
+        <div className="mt-2 space-y-2 rounded-md border border-border/40 bg-muted/20 p-2">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+            {t("mcp.presetFields")}
+          </p>
+          {fields.map((field: McpPresetField) => (
+            <div key={field.name} className="space-y-1">
+              <label className="text-[10.5px] font-medium text-muted-foreground/80">
+                {field.label}
+                {field.required && <span className="ml-0.5 text-destructive">*</span>}
+              </label>
+              <Input
+                type={field.secret ? "password" : "text"}
+                placeholder={field.placeholder ?? ""}
+                value={formValues[field.name] ?? ""}
+                onChange={(e) => onFieldChange(field.name, e.target.value)}
+                className="h-6 text-[11.5px]"
+              />
+            </div>
+          ))}
+          {server.note && (
+            <p className="text-[10px] text-muted-foreground/60">
+              <span className="font-medium">{t("mcp.note")}: </span>
+              {server.note}
+            </p>
+          )}
+          {error && (
+            <p className="text-[10.5px] text-destructive">{error}</p>
+          )}
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2.5 text-[10.5px]"
+              onClick={onCancel}
+            >
+              {t("mcp.form.cancel")}
+            </Button>
+            <Button
+              size="sm"
+              className="h-6 gap-1 px-2.5 text-[10.5px]"
+              disabled={enabling}
+              onClick={onEnable}
+            >
+              {enabling ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+              {t("mcp.form.save")}
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -463,94 +949,220 @@ export function McpView({ onBack, onOpenSettings, token }: McpViewProps) {
 function ServerCard({
   server,
   acting,
+  testing,
+  testResult,
+  showTools,
+  enabledToolsCache,
+  savingTools,
   onRemove,
+  onTest,
+  onToggleTools,
+  onToggleTool,
+  onSelectAll,
+  onClear,
+  onSaveTools,
   t,
 }: {
   server: McpPresetInfo;
   acting: string | null;
+  testing: boolean;
+  testResult?: { ok: boolean; message: string; toolCount?: number };
+  showTools: boolean;
+  enabledToolsCache: string[] | null;
+  savingTools: boolean;
   onRemove: (name: string) => void;
-  t: (key: string) => string;
+  onTest: () => void;
+  onToggleTools: () => void;
+  onToggleTool: (tool: string) => void;
+  onSelectAll: () => void;
+  onClear: () => void;
+  onSaveTools: () => void;
+  t: TFunc;
 }) {
   const isActing = acting === server.name;
   const isConfigured = server.status === "configured";
+  const toolNames = server.tool_names ?? [];
+  const hasTools = toolNames.length > 0;
+  const selected = enabledToolsCache ?? [];
 
   return (
     <div
       className={cn(
-        "group flex items-start gap-3 rounded-xl border px-3 py-2.5 transition-colors",
+        "flex flex-col rounded-lg border px-2.5 py-2 transition-colors",
         isConfigured
           ? "border-emerald-500/20 bg-emerald-500/[0.04]"
           : "border-border/50 bg-background",
       )}
     >
-      <div
-        className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white text-[11px] font-bold"
-        style={{ backgroundColor: server.brand_color || "#6b7280" }}
-      >
-        {server.display_name.charAt(0).toUpperCase()}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[12.5px] font-medium leading-tight">
-            {server.display_name}
-          </span>
-          {statusIcon(server.status)}
-          <span className="text-[10px] text-muted-foreground/50 uppercase">
-            {server.transport}
-          </span>
+      {/* Header: icon + name + status */}
+      <div className="flex items-start gap-2">
+        <div
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white"
+          style={{ backgroundColor: server.brand_color || "#6b7280" }}
+        >
+          {server.display_name.charAt(0).toUpperCase()}
         </div>
-        <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground/70 line-clamp-2">
-          {server.connection_summary || server.description}
-        </p>
-        {server.tool_count != null && server.tool_count > 0 && (
-          <p className="mt-0.5 text-[10px] text-muted-foreground/50">
-            {server.tool_count} {t("mcp.tools")}
-          </p>
-        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1">
+            <span className="truncate text-[11.5px] font-semibold leading-tight">
+              {server.display_name}
+            </span>
+            {statusIcon(server.status)}
+          </div>
+          <div className="mt-0.5 flex items-center gap-1 text-[9.5px] text-muted-foreground/50">
+            <span className="uppercase">{server.transport}</span>
+            {server.tool_count != null && server.tool_count > 0 && (
+              <>
+                <span>·</span>
+                <span>{server.tool_count} {t("mcp.tools")}</span>
+              </>
+            )}
+          </div>
+        </div>
       </div>
-      <div className="flex shrink-0 items-center gap-1 pt-0.5">
-        {server.docs_url && (
-          <a
-            href={server.docs_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/50 hover:bg-accent/40 hover:text-foreground"
+
+      {/* Body: description */}
+      <p className="mt-1.5 line-clamp-2 text-[10.5px] leading-snug text-muted-foreground/70">
+        {server.connection_summary || server.description}
+      </p>
+
+      {/* Test result */}
+      {testResult && (
+        <div
+          className={cn(
+            "mt-1.5 rounded px-1.5 py-1 text-[10.5px]",
+            testResult.ok
+              ? "bg-emerald-500/10 text-emerald-600"
+              : "bg-destructive/10 text-destructive",
+          )}
+        >
+          {testResult.message}
+        </div>
+      )}
+
+      {/* Tools panel */}
+      {showTools && (
+        <div className="mt-2 rounded-md border border-border/40 bg-muted/20 p-2">
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-[9.5px] font-medium uppercase tracking-wider text-muted-foreground/70">
+              {t("mcp.toolList")}
+            </span>
+            {hasTools && (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 px-1.5 text-[9.5px] text-muted-foreground/70"
+                  onClick={onSelectAll}
+                >
+                  {t("mcp.selectAll")}
+                </Button>
+                <span className="text-muted-foreground/30">·</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 px-1.5 text-[9.5px] text-muted-foreground/70"
+                  onClick={onClear}
+                >
+                  {t("mcp.clearAll")}
+                </Button>
+              </div>
+            )}
+          </div>
+          {!hasTools ? (
+            <p className="py-1.5 text-center text-[10.5px] text-muted-foreground/60">
+              {t("mcp.noTools")}
+            </p>
+          ) : (
+            <>
+              <div className="max-h-32 space-y-0.5 overflow-y-auto pr-1">
+                {toolNames.map((tool) => (
+                  <label
+                    key={tool}
+                    className="flex cursor-pointer items-center gap-1.5 rounded px-1 py-0.5 hover:bg-accent/30"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(tool)}
+                      onChange={() => onToggleTool(tool)}
+                      className="h-3 w-3 accent-emerald-500"
+                    />
+                    <span className="truncate text-[10.5px] font-mono">{tool}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="mt-2 flex items-center justify-end border-t border-border/40 pt-1.5">
+                <Button
+                  size="sm"
+                  className="h-6 gap-1 px-2.5 text-[10.5px]"
+                  disabled={savingTools}
+                  onClick={onSaveTools}
+                >
+                  {savingTools ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Check className="h-3 w-3" />
+                  )}
+                  {t("mcp.saveTools")}
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Footer: actions */}
+      <div className="mt-2 flex items-center justify-between border-t border-border/40 pt-1.5">
+        <div className="flex items-center gap-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-muted-foreground/60 hover:text-emerald-600 hover:bg-emerald-500/10"
+            disabled={testing}
+            onClick={onTest}
+            title={t("mcp.test")}
           >
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        )}
+            {testing ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Zap className="h-3 w-3" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-muted-foreground/60 hover:text-sky-600 hover:bg-sky-500/10"
+            onClick={onToggleTools}
+            title={t("mcp.toolsManage")}
+          >
+            <Wrench className="h-3 w-3" />
+          </Button>
+          {server.docs_url && (
+            <a
+              href={server.docs_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/50 hover:bg-accent/40 hover:text-foreground"
+              title="docs"
+            >
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </div>
         <Button
           variant="ghost"
-          size="sm"
-          className="h-6 px-2 text-[11px] text-amber-600 hover:text-amber-700"
+          size="icon"
+          className="h-6 w-6 text-muted-foreground/60 hover:text-red-600 hover:bg-red-500/10"
           disabled={isActing}
           onClick={() => onRemove(server.name)}
+          title="delete"
         >
-          {isActing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+          {isActing ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Trash2 className="h-3 w-3" />
+          )}
         </Button>
-      </div>
-    </div>
-  );
-}
-
-function PlaceholderCard({ label }: { label: string }) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border-2 border-dashed border-border/40 px-3 py-2.5">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/40 text-[11px] font-bold text-muted-foreground/30">
-        ?
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[12.5px] font-medium leading-tight text-muted-foreground/30">
-            {label}
-          </span>
-          <span className="text-[10px] text-muted-foreground/20 uppercase">
-            {label}
-          </span>
-        </div>
-        <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground/20">
-          ──────────
-        </p>
       </div>
     </div>
   );

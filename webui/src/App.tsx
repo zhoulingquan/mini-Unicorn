@@ -1206,7 +1206,6 @@ function Shell({
               <div className="absolute inset-0 flex flex-col">
                 <McpView
                   onBack={onBackToChat}
-                  onOpenSettings={() => onOpenSettings("advanced")}
                   token={token}
                 />
               </div>

@@ -1,9 +1,11 @@
 """Skills loader for agent capabilities."""
 
+import io
 import json
 import os
 import re
 import shutil
+import zipfile
 from pathlib import Path
 
 import yaml
@@ -16,6 +18,14 @@ _STRIP_SKILL_FRONTMATTER = re.compile(
     r"^---\s*\r?\n(.*?)\r?\n---\s*\r?\n?",
     re.DOTALL,
 )
+
+# Characters allowed in a skill directory name. Keeps traversal-safe names.
+_SKILL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def is_valid_skill_name(name: str) -> bool:
+    """Return True if *name* is a safe skill directory name."""
+    return bool(name) and _SKILL_NAME_RE.match(name) is not None
 
 
 class SkillsLoader:
@@ -30,7 +40,30 @@ class SkillsLoader:
         self.workspace = workspace
         self.workspace_skills = workspace / "skills"
         self.builtin_skills = builtin_skills_dir or BUILTIN_SKILLS_DIR
-        self.disabled_skills = disabled_skills or set()
+        # Initial disabled set; refreshed from live config on each list_skills()
+        # so toggling a skill at runtime takes effect on the next turn.
+        self._initial_disabled_skills = set(disabled_skills) if disabled_skills else set()
+        self.disabled_skills = set(self._initial_disabled_skills)
+
+    def _refresh_disabled_from_config(self) -> None:
+        """Refresh ``self.disabled_skills`` from the live config file.
+
+        Merges the constructor-provided set with config's ``disabled_skills``
+        so runtime toggles (saved to config) take effect without restart.
+        """
+        try:
+            from munchkin.config.loader import load_config
+
+            config = load_config()
+            config_disabled = set(getattr(config.agents.defaults, "disabled_skills", []) or [])
+        except Exception:
+            config_disabled = set()
+        self.disabled_skills = self._initial_disabled_skills | config_disabled
+
+    def set_disabled_skills(self, names: set[str] | None) -> None:
+        """Override the constructor-provided disabled set (used for hot reload)."""
+        self._initial_disabled_skills = set(names) if names else set()
+        self.disabled_skills = set(self._initial_disabled_skills)
 
     def _skill_entries_from_dir(self, base: Path, source: str, *, skip_names: set[str] | None = None) -> list[dict[str, str]]:
         if not base.exists():
@@ -58,6 +91,7 @@ class SkillsLoader:
         Returns:
             List of skill info dicts with 'name', 'path', 'source'.
         """
+        self._refresh_disabled_from_config()
         skills = self._skill_entries_from_dir(self.workspace_skills, "workspace")
         workspace_names = {entry["name"] for entry in skills}
         if self.builtin_skills and self.builtin_skills.exists():
@@ -240,3 +274,144 @@ class SkillsLoader:
         for key, value in parsed.items():
             metadata[str(key)] = value
         return metadata
+
+    # -- Workspace skill management (create / edit / upload) ---------------
+
+    def get_skill_dir(self, name: str) -> Path | None:
+        """Return the directory holding a skill, or None if not found."""
+        if not is_valid_skill_name(name):
+            return None
+        roots = [self.workspace_skills]
+        if self.builtin_skills:
+            roots.append(self.builtin_skills)
+        for root in roots:
+            path = root / name
+            if (path / "SKILL.md").exists():
+                return path
+        return None
+
+    def is_builtin_skill(self, name: str) -> bool:
+        """Return True if a skill exists only in the builtin directory."""
+        if not is_valid_skill_name(name):
+            return False
+        ws_path = self.workspace_skills / name / "SKILL.md"
+        builtin_path = self.builtin_skills / name / "SKILL.md" if self.builtin_skills else None
+        if builtin_path and builtin_path.exists():
+            return not ws_path.exists()
+        return False
+
+    def save_skill_content(self, name: str, content: str) -> Path:
+        """Create or overwrite a workspace skill's SKILL.md.
+
+        Returns the path to the written file. Raises ValueError for invalid
+        names or empty content.
+        """
+        if not is_valid_skill_name(name):
+            raise ValueError(f"invalid skill name: {name!r}")
+        if not content.strip():
+            raise ValueError("skill content must not be empty")
+        skill_dir = self.workspace_skills / name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        skill_file = skill_dir / "SKILL.md"
+        skill_file.write_text(content, encoding="utf-8")
+        return skill_file
+
+    def list_skill_files(self, name: str) -> list[str]:
+        """Return relative paths of all files bundled with a skill."""
+        skill_dir = self.get_skill_dir(name)
+        if skill_dir is None or not skill_dir.exists():
+            return []
+        files: list[str] = []
+        for path in sorted(skill_dir.rglob("*")):
+            if path.is_file():
+                files.append(str(path.relative_to(skill_dir)))
+        return files
+
+    def read_skill_file(self, name: str, rel_path: str) -> str | None:
+        """Read a bundled skill file by relative path (traversal-safe)."""
+        skill_dir = self.get_skill_dir(name)
+        if skill_dir is None:
+            return None
+        # Resolve and ensure the target stays inside the skill dir.
+        target = (skill_dir / rel_path).resolve()
+        try:
+            target.relative_to(skill_dir.resolve())
+        except ValueError:
+            return None
+        if not target.is_file():
+            return None
+        try:
+            return target.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            return None
+
+    def extract_zip_skill(self, data: bytes, preferred_name: str | None = None) -> str:
+        """Extract a ZIP skill package into the workspace skills directory.
+
+        The ZIP must contain either a single top-level directory with a
+        SKILL.md, or SKILL.md at the root. Returns the resulting skill name.
+        Raises ValueError for malformed or unsafe archives.
+        """
+        if not data:
+            raise ValueError("empty zip data")
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(data))
+        except zipfile.BadZipFile as exc:
+            raise ValueError("invalid zip file") from exc
+
+        names = [n for n in zf.namelist() if n and not n.endswith("/")]
+        if not names:
+            raise ValueError("zip contains no files")
+
+        # Detect a top-level directory prefix (e.g. "my-skill/SKILL.md").
+        roots: set[str] = set()
+        for n in names:
+            parts = n.split("/", 1)
+            roots.add(parts[0])
+        single_root = len(roots) == 1 and "/" in names[0]
+
+        if single_root:
+            top = names[0].split("/", 1)[0]
+            skill_name = preferred_name or top
+        else:
+            # Flat archive: derive name from preferred_name or first entry.
+            skill_name = preferred_name or "uploaded-skill"
+
+        if not is_valid_skill_name(skill_name):
+            raise ValueError(f"invalid skill name derived from archive: {skill_name!r}")
+
+        # Has a SKILL.md?
+        skill_md_candidates = [n for n in names if n.endswith("SKILL.md")]
+        if not skill_md_candidates:
+            raise ValueError("zip must contain a SKILL.md file")
+
+        dest_dir = self.workspace_skills / skill_name
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                # Compute destination path relative to the skill root.
+                rel = info.filename
+                if single_root:
+                    rel = rel.split("/", 1)[1] if "/" in rel else rel
+                # Normalize and guard against traversal.
+                rel = rel.lstrip("/")
+                if not rel or rel.startswith(".."):
+                    continue
+                target = (dest_dir / rel).resolve()
+                try:
+                    target.relative_to(dest_dir.resolve())
+                except ValueError:
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(info) as src, open(target, "wb") as out:
+                    shutil.copyfileobj(src, out)
+        finally:
+            zf.close()
+
+        if not (dest_dir / "SKILL.md").exists():
+            shutil.rmtree(dest_dir, ignore_errors=True)
+            raise ValueError("extracted archive has no SKILL.md at the skill root")
+        return skill_name

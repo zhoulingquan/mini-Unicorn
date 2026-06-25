@@ -9,6 +9,8 @@ import type {
   SettingsPayload,
   SettingsUpdate,
   SidebarStatePayload,
+  SkillDetail,
+  SkillFilePayload,
   SkillsPayload,
   SlashCommand,
   WebSearchSettingsUpdate,
@@ -247,6 +249,117 @@ export async function deleteSkill(
   );
 }
 
+/**
+ * Split a string into URL-encoded chunks small enough to fit in a single HTTP
+ * header line (the websockets HTTP layer caps lines at 8192 bytes). Returns an
+ * array of header values to be sent as repeated headers.
+ */
+const HEADER_CHUNK_SIZE = 6000;
+function chunkHeaderValue(raw: string): string[] {
+  const encoded = encodeURIComponent(raw);
+  const chunks: string[] = [];
+  for (let i = 0; i < encoded.length; i += HEADER_CHUNK_SIZE) {
+    chunks.push(encoded.slice(i, i + HEADER_CHUNK_SIZE));
+  }
+  return chunks.length ? chunks : [""];
+}
+
+export async function toggleSkill(
+  token: string,
+  name: string,
+  disabled: boolean,
+  base: string = "",
+): Promise<{ name: string; disabled: boolean; disabled_skills: string[] }> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  query.set("disabled", disabled ? "true" : "false");
+  return request<{ name: string; disabled: boolean; disabled_skills: string[] }>(
+    `${base}/api/skills/toggle?${query}`,
+    token,
+  );
+}
+
+export async function readSkill(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<SkillDetail> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  return request<SkillDetail>(`${base}/api/skills/read?${query}`, token);
+}
+
+export async function readSkillFile(
+  token: string,
+  name: string,
+  path: string,
+  base: string = "",
+): Promise<SkillFilePayload> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  query.set("path", path);
+  return request<SkillFilePayload>(`${base}/api/skills/file?${query}`, token);
+}
+
+export async function saveSkill(
+  token: string,
+  name: string,
+  content: string,
+  base: string = "",
+): Promise<{ saved: boolean; name: string; path: string }> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  const headers: Record<string, string> = {};
+  chunkHeaderValue(content).forEach((chunk, idx) => {
+    // Repeated header name; the backend joins values in order.
+    if (idx === 0) {
+      headers["X-Munchkin-Skill-Content"] = chunk;
+    } else {
+      headers[`X-Munchkin-Skill-Content-${idx}`] = chunk;
+    }
+  });
+  return request<{ saved: boolean; name: string; path: string }>(
+    `${base}/api/skills/save?${query}`,
+    token,
+    { headers },
+  );
+}
+
+export async function uploadSkillZip(
+  token: string,
+  file: File | Blob,
+  preferredName?: string,
+  base: string = "",
+): Promise<{ uploaded: boolean; name: string }> {
+  const query = new URLSearchParams();
+  if (preferredName) query.set("name", preferredName);
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  // Base64-encode in chunks small enough to fit under the 8KB header line.
+  const CHUNK_BYTES = 4000; // ~5.3KB base64, safe under 8KB line limit
+  const headers: Record<string, string> = {};
+  let headerIdx = 0;
+  for (let i = 0; i < bytes.length; i += CHUNK_BYTES) {
+    const slice = bytes.slice(i, i + CHUNK_BYTES);
+    let binary = "";
+    for (let j = 0; j < slice.length; j++) {
+      binary += String.fromCharCode(slice[j]);
+    }
+    const b64 = btoa(binary);
+    if (headerIdx === 0) {
+      headers["X-Munchkin-Skill-Zip"] = b64;
+    } else {
+      headers[`X-Munchkin-Skill-Zip-${headerIdx}`] = b64;
+    }
+    headerIdx++;
+  }
+  return request<{ uploaded: boolean; name: string }>(
+    `${base}/api/skills/upload?${query}`,
+    token,
+    { headers },
+  );
+}
+
 export async function listSlashCommands(
   token: string,
   base: string = "",
@@ -362,6 +475,23 @@ export async function updateProviderSettings(
     `${base}/api/settings/provider/update?${query}`,
     token,
   );
+}
+
+export async function fetchProviderModels(
+  token: string,
+  provider: string,
+  options?: { apiKey?: string; apiBase?: string },
+  base: string = "",
+): Promise<string[]> {
+  const query = new URLSearchParams();
+  query.set("provider", provider);
+  if (options?.apiKey) query.set("api_key", options.apiKey);
+  if (options?.apiBase) query.set("api_base", options.apiBase);
+  const body = await request<{ provider: string; models: string[] }>(
+    `${base}/api/settings/provider/models?${query}`,
+    token,
+  );
+  return body.models;
 }
 
 export async function loginProviderOAuth(

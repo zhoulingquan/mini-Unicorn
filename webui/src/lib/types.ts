@@ -440,11 +440,29 @@ export interface SkillInfo {
   description: string;
   source: "builtin" | "workspace";
   available: boolean;
+  disabled: boolean;
+  always: boolean;
+  builtin_only: boolean;
   path: string;
 }
 
 export interface SkillsPayload {
   skills: SkillInfo[];
+}
+
+export interface SkillDetail {
+  name: string;
+  content: string;
+  files: string[];
+  source: "builtin" | "workspace";
+  metadata: Record<string, unknown>;
+  builtin_only: boolean;
+}
+
+export interface SkillFilePayload {
+  name: string;
+  path: string;
+  content: string;
 }
 
 export interface McpPresetInfo {

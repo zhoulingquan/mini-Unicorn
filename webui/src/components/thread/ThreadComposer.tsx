@@ -804,10 +804,10 @@ export function ThreadComposer({
     "w-full resize-none bg-transparent",
     isHero
       ? cn(
-          "min-h-[78px] px-5 text-[15px] leading-6",
-          centerHeroPlaceholder ? "pb-2 pt-[27px]" : "pb-1.5 pt-4",
+          "min-h-[60px] px-4 text-[14px] leading-5",
+          centerHeroPlaceholder ? "pb-2 pt-5" : "pb-1.5 pt-3",
         )
-      : "min-h-[50px] px-4 pb-1.5 pt-3 text-[13.5px] leading-5",
+      : "min-h-[42px] px-3.5 pb-1.5 pt-2.5 text-[13px] leading-5",
   );
 
   return (
@@ -838,8 +838,8 @@ export function ThreadComposer({
           "group/composer relative mx-auto flex w-full flex-col overflow-visible transition-all duration-200",
           "after:pointer-events-none after:absolute after:inset-[-1px] after:rounded-[inherit] after:border after:border-blue-300/75 after:opacity-0 after:transition-opacity after:duration-200 focus-within:after:opacity-100 dark:after:border-blue-400/55",
           isHero
-            ? "max-w-[58rem] rounded-[28px] border border-black/[0.035] bg-card shadow-[0_20px_55px_rgba(15,23,42,0.08)] dark:border-white/[0.06] dark:shadow-[0_24px_55px_rgba(0,0,0,0.34)]"
-            : "max-w-[49.5rem] rounded-[22px] border border-black/[0.035] bg-card shadow-[0_12px_30px_rgba(15,23,42,0.07)] dark:border-white/[0.06] dark:shadow-[0_16px_34px_rgba(0,0,0,0.28)]",
+            ? "max-w-[44rem] rounded-[22px] border border-black/[0.035] bg-card shadow-[0_20px_55px_rgba(15,23,42,0.08)] dark:border-white/[0.06] dark:shadow-[0_24px_55px_rgba(0,0,0,0.34)]"
+            : "max-w-[40rem] rounded-[18px] border border-black/[0.035] bg-card shadow-[0_12px_30px_rgba(15,23,42,0.07)] dark:border-white/[0.06] dark:shadow-[0_16px_34px_rgba(0,0,0,0.28)]",
           "focus-within:border-blue-300/75 dark:focus-within:border-blue-400/55",
           disabled && "opacity-60",
           isDragging && "ring-2 ring-primary/40 motion-reduce:ring-0 motion-reduce:border-primary",
@@ -1120,7 +1120,7 @@ function SlashCommandPalette({
         layout.placement === "above" ? "bottom-full mb-2" : "top-full mt-2",
         "border-border/65 bg-popover p-1.5 text-popover-foreground shadow-[0_18px_55px_rgba(15,23,42,0.16)]",
         "dark:border-white/10 dark:shadow-[0_22px_55px_rgba(0,0,0,0.45)]",
-        isHero ? "max-w-[58rem]" : "max-w-[49.5rem]",
+        isHero ? "max-w-[44rem]" : "max-w-[40rem]",
       )}
     >
       <div ref={listRef} className="overflow-y-auto pr-0.5" style={{ maxHeight: listMaxHeight }}>

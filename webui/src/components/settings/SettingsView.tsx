@@ -65,6 +65,7 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   createModelConfiguration,
+  fetchProviderModels,
   fetchSettings,
   loginProviderOAuth,
   logoutProviderOAuth,
@@ -132,7 +133,7 @@ type RestartAwarePayload = {
   runtime_capabilities?: SettingsPayload["runtime_capabilities"];
 };
 type ProviderApiType = "auto" | "chat_completions" | "responses";
-type ProviderForm = { apiKey: string; apiBase: string; apiType: ProviderApiType };
+type ProviderForm = { apiKey: string; apiBase: string; apiType: ProviderApiType; model: string };
 
 const MUNCHKIN_ICON_SRC = "/brand/munchkin_icon.png";
 const CONTEXT_WINDOW_TOKEN_OPTIONS = [65_536, 262_144] as const;
@@ -261,6 +262,16 @@ export function SettingsView({
     model: "",
   });
   const [providerSaving, setProviderSaving] = useState<string | null>(null);
+  const [providerSaved, setProviderSaved] = useState<Record<string, boolean>>({});
+  const [providerModels, setProviderModels] = useState<Record<string, string[]>>(() => {
+    try {
+      const stored = localStorage.getItem("munchkin:providerModels");
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [providerModelsLoading, setProviderModelsLoading] = useState<string | null>(null);
   const [webSearchSaving, setWebSearchSaving] = useState(false);
   const [networkSafetySaving, setNetworkSafetySaving] = useState(false);
   const [hostEngineApplying, setHostEngineApplying] = useState(false);
@@ -387,15 +398,46 @@ export function SettingsView({
     setProviderForms((prev) => {
       const next = { ...prev };
       for (const provider of settings.providers) {
+        // Find the model associated with this provider: check active preset first,
+        // then any preset using this provider, then the agent default model.
+        const activePreset = settings.model_presets.find((p) => p.active);
+        const matchingPreset =
+          activePreset && (activePreset.provider === provider.name || (activePreset.is_default && settings.agent.provider === provider.name))
+            ? activePreset
+            : settings.model_presets.find((p) => !p.is_default && p.provider === provider.name);
+        const inferredModel =
+          prev[provider.name]?.model ??
+          (matchingPreset ? matchingPreset.model : "") ??
+          (settings.agent.provider === provider.name ? settings.agent.model : "") ??
+          "";
         next[provider.name] = {
           apiKey: next[provider.name]?.apiKey ?? "",
           apiBase: next[provider.name]?.apiBase ?? provider.api_base ?? provider.default_api_base ?? "",
           apiType: next[provider.name]?.apiType ?? provider.api_type ?? "auto",
+          model: inferredModel,
         };
       }
       return next;
     });
+    // Mark already-configured providers as saved on initial load / refresh.
+    setProviderSaved((prev) => {
+      const next = { ...prev };
+      for (const provider of settings.providers) {
+        if (next[provider.name] === undefined) {
+          next[provider.name] = provider.configured;
+        }
+      }
+      return next;
+    });
   }, [settings]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("munchkin:providerModels", JSON.stringify(providerModels));
+    } catch {
+      // ignore quota errors
+    }
+  }, [providerModels]);
 
   const modelDirty = useMemo(() => {
     if (!settings) return false;
@@ -622,21 +664,30 @@ export function SettingsView({
     const provider = settings?.providers.find((item) => item.name === providerName);
     if (!provider) return;
     if (provider.auth_type === "oauth") return;
-    const providerForm = providerForms[providerName] ?? { apiKey: "", apiBase: "", apiType: "auto" };
+    const providerForm = providerForms[providerName] ?? { apiKey: "", apiBase: "", apiType: "auto", model: "" };
     const apiKey = providerForm.apiKey.trim();
     const apiKeyRequired = provider.api_key_required ?? true;
     if (!provider.configured && apiKeyRequired && !apiKey) {
       setError(t("settings.byok.apiKeyRequired"));
       return;
     }
+    const modelId = providerForm.model.trim();
     setProviderSaving(providerName);
     try {
-      const payload = await updateProviderSettings(token, {
+      let payload = await updateProviderSettings(token, {
         provider: providerName,
         apiKey: apiKey || undefined,
         apiBase: providerForm.apiBase.trim(),
         apiType: providerForm.apiType,
       });
+      // If a model ID was entered, also set it as the active model+provider
+      // so the user doesn't have to jump to the Models section separately.
+      if (modelId) {
+        payload = await updateSettings(token, {
+          provider: providerName,
+          model: modelId,
+        });
+      }
       applyPayload(payload);
       if (payload.requires_restart) {
         setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
@@ -648,15 +699,38 @@ export function SettingsView({
           apiKey: "",
           apiBase: providerForm.apiBase.trim(),
           apiType: providerForm.apiType,
+          model: modelId,
         },
       }));
       setVisibleProviderKeys((prev) => ({ ...prev, [providerName]: false }));
       setEditingProviderKeys((prev) => ({ ...prev, [providerName]: false }));
+      setProviderSaved((prev) => ({ ...prev, [providerName]: true }));
       setError(null);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setProviderSaving(null);
+    }
+  };
+
+  const fetchProviderModelList = async (providerName: string) => {
+    if (providerModelsLoading) return;
+    const provider = settings?.providers.find((item) => item.name === providerName);
+    if (!provider) return;
+    const providerForm = providerForms[providerName];
+    setProviderModelsLoading(providerName);
+    try {
+      const models = await fetchProviderModels(token, providerName, {
+        apiKey: providerForm?.apiKey.trim() || undefined,
+        apiBase: providerForm?.apiBase.trim() || undefined,
+      });
+      setProviderModels((prev) => ({ ...prev, [providerName]: models }));
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+      setProviderModels((prev) => ({ ...prev, [providerName]: [] }));
+    } finally {
+      setProviderModelsLoading(null);
     }
   };
 
@@ -738,12 +812,18 @@ export function SettingsView({
   const resetProviderDraft = useCallback((providerName: string) => {
     const provider = settings?.providers.find((item) => item.name === providerName);
     if (!provider) return;
+    const activePreset = settings?.model_presets.find((p) => p.active);
+    const matchingPreset =
+      activePreset && (activePreset.provider === providerName || (activePreset.is_default && settings?.agent.provider === providerName))
+        ? activePreset
+        : settings?.model_presets.find((p) => !p.is_default && p.provider === providerName);
     setProviderForms((prev) => ({
       ...prev,
       [providerName]: {
         apiKey: "",
         apiBase: provider.api_base ?? provider.default_api_base ?? "",
         apiType: provider.api_type ?? "auto",
+        model: matchingPreset?.model ?? (settings?.agent.provider === providerName ? (settings.agent.model || "") : ""),
       },
     }));
     setVisibleProviderKeys((prev) => ({ ...prev, [providerName]: false }));
@@ -798,6 +878,7 @@ export function SettingsView({
             apiKey: "",
             apiBase: forms[providerName]?.apiBase ?? "",
             apiType: forms[providerName]?.apiType ?? "auto",
+            model: forms[providerName]?.model ?? "",
           },
         }));
         setVisibleProviderKeys((visible) => ({ ...visible, [providerName]: false }));
@@ -851,29 +932,32 @@ export function SettingsView({
               visibleProviderKeys={visibleProviderKeys}
               editingProviderKeys={editingProviderKeys}
               providerSaving={providerSaving}
+              providerSaved={providerSaved}
+              providerModels={providerModels}
+              providerModelsLoading={providerModelsLoading}
               query={providerQuery}
               showBrandLogos={localPrefs.brandLogos}
               onQueryChange={setProviderQuery}
               onToggleProvider={handleToggleProvider}
               onToggleProviderKey={toggleProviderKeyVisibility}
               onToggleProviderKeyEditing={toggleProviderKeyEditing}
-              onChangeProviderForm={(provider, value) =>
+              onChangeProviderForm={(provider, value) => {
                 setProviderForms((prev) => ({
                   ...prev,
                   [provider]: {
                     apiKey: prev[provider]?.apiKey ?? "",
                     apiBase: prev[provider]?.apiBase ?? "",
                     apiType: prev[provider]?.apiType ?? "auto",
+                    model: prev[provider]?.model ?? "",
                     ...value,
                   },
-                }))
-              }
+                }));
+                setProviderSaved((prev) => ({ ...prev, [provider]: false }));
+              }}
               onSaveProvider={saveProvider}
+              onFetchProviderModels={fetchProviderModelList}
               onProviderOAuthLogin={(provider) => runProviderOAuth(provider, "login")}
               onProviderOAuthLogout={(provider) => runProviderOAuth(provider, "logout")}
-              onResetProviderDraft={resetProviderDraft}
-              onRestart={restartViaSettingsSurface}
-              isRestarting={isRestarting || hostEngineApplying}
             />
           </div>
         );
@@ -1579,16 +1663,6 @@ function ModelsSettings({
             </SettingsRow>
           ) : null}
           <SettingsRow
-            title={t("settings.rows.model")}
-            description={t("settings.help.model")}
-          >
-            <Input
-              value={form.model}
-              onChange={(event) => setForm((prev) => ({ ...prev, model: event.target.value }))}
-              className="h-8 w-[min(280px,70vw)] rounded-full text-[13px]"
-            />
-          </SettingsRow>
-          <SettingsRow
             title={tx("settings.rows.contextWindow", "Context window")}
             description={tx(
               "settings.help.contextWindow",
@@ -1634,6 +1708,9 @@ function ProvidersSettings({
   visibleProviderKeys,
   editingProviderKeys,
   providerSaving,
+  providerSaved,
+  providerModels,
+  providerModelsLoading,
   query,
   showBrandLogos,
   onQueryChange,
@@ -1642,11 +1719,9 @@ function ProvidersSettings({
   onToggleProviderKeyEditing,
   onChangeProviderForm,
   onSaveProvider,
+  onFetchProviderModels,
   onProviderOAuthLogin,
   onProviderOAuthLogout,
-  onResetProviderDraft,
-  onRestart,
-  isRestarting,
 }: {
   settings: SettingsPayload;
   expandedProvider: string | null;
@@ -1654,6 +1729,9 @@ function ProvidersSettings({
   visibleProviderKeys: Record<string, boolean>;
   editingProviderKeys: Record<string, boolean>;
   providerSaving: string | null;
+  providerSaved: Record<string, boolean>;
+  providerModels: Record<string, string[]>;
+  providerModelsLoading: string | null;
   query: string;
   showBrandLogos: boolean;
   onQueryChange: (query: string) => void;
@@ -1662,11 +1740,9 @@ function ProvidersSettings({
   onToggleProviderKeyEditing: (provider: string) => void;
   onChangeProviderForm: (provider: string, value: Partial<ProviderForm>) => void;
   onSaveProvider: (provider: string) => void;
+  onFetchProviderModels: (provider: string) => void;
   onProviderOAuthLogin: (provider: string) => void;
   onProviderOAuthLogout: (provider: string) => void;
-  onResetProviderDraft: (provider: string) => void;
-  onRestart?: () => void;
-  isRestarting?: boolean;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -1683,8 +1759,12 @@ function ProvidersSettings({
       apiKey: "",
       apiBase: provider.api_base ?? provider.default_api_base ?? "",
       apiType: provider.api_type ?? "auto",
+      model: "",
     };
     const saving = providerSaving === provider.name;
+    const saved = !!providerSaved[provider.name];
+    const modelsLoading = providerModelsLoading === provider.name;
+    const fetchedModels = providerModels[provider.name] ?? [];
     const isOauthProvider = provider.auth_type === "oauth";
     const keyVisible = !!visibleProviderKeys[provider.name];
     const editingKey = !provider.configured || !!editingProviderKeys[provider.name];
@@ -1844,6 +1924,61 @@ function ProvidersSettings({
                 className="h-9 rounded-full text-[13px]"
               />
             </label>
+            <label className="block space-y-1.5">
+              <span className="text-[12px] font-medium text-muted-foreground">
+                {tx("settings.byok.modelId", "Model ID")}
+              </span>
+              <div className="flex gap-2">
+                <Input
+                  value={form.model}
+                  onChange={(event) =>
+                    onChangeProviderForm(provider.name, { model: event.target.value })
+                  }
+                  placeholder={tx("settings.byok.modelIdPlaceholder", "e.g. gpt-4o, deepseek-chat")}
+                  className="h-9 flex-1 rounded-full text-[13px]"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onFetchProviderModels(provider.name)}
+                  disabled={modelsLoading}
+                  className="h-9 shrink-0 rounded-full px-3 text-[12px]"
+                >
+                  {modelsLoading ? (
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden />
+                  ) : (
+                    <Search className="mr-1 h-3 w-3" aria-hidden />
+                  )}
+                  {modelsLoading
+                    ? tx("settings.byok.fetchingModels", "Fetching...")
+                    : tx("settings.byok.fetchModels", "Fetch models")}
+                </Button>
+              </div>
+              <span className="block text-[11px] text-muted-foreground/80">
+                {tx("settings.byok.modelIdHelp", "Set as active model when saving.")}
+              </span>
+              {fetchedModels.length > 0 ? (
+                <div className="mt-1 max-h-[160px] overflow-y-auto rounded-lg border border-border/45 bg-background/60">
+                  {fetchedModels.map((modelId) => (
+                    <button
+                      key={modelId}
+                      type="button"
+                      onClick={() => onChangeProviderForm(provider.name, { model: modelId })}
+                      className={cn(
+                        "block w-full truncate px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-muted/50",
+                        form.model === modelId
+                          ? "font-semibold text-foreground"
+                          : "text-muted-foreground",
+                      )}
+                      title={modelId}
+                    >
+                      {modelId}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </label>
             {provider.name === "openai" ? (
               <label className="block space-y-1.5">
                 <span className="text-[12px] font-medium text-muted-foreground">
@@ -1879,20 +2014,19 @@ function ProvidersSettings({
             <div className="flex items-center justify-end gap-2">
               <Button
                 size="sm"
-                variant="ghost"
-                onClick={() => onResetProviderDraft(provider.name)}
-                className="rounded-full"
-              >
-                {t("settings.actions.cancel")}
-              </Button>
-              <Button
-                size="sm"
                 variant="outline"
                 onClick={() => onSaveProvider(provider.name)}
-                disabled={saving || missingRequiredApiKey || missingOptionalCredential}
-                className="rounded-full"
+                disabled={saving || saved || missingRequiredApiKey || missingOptionalCredential}
+                className={cn(
+                  "rounded-full",
+                  saved && "opacity-50 cursor-not-allowed",
+                )}
               >
-                {saving ? t("settings.actions.saving") : tx("settings.providers.saveProvider", "Save provider")}
+                {saving
+                  ? t("settings.actions.saving")
+                  : saved
+                    ? tx("settings.providers.saved", "Saved")
+                    : tx("settings.providers.saveProvider", "Save provider")}
               </Button>
             </div>
               </>
@@ -1907,29 +2041,6 @@ function ProvidersSettings({
       <p className="max-w-[42rem] text-[13px] leading-6 text-muted-foreground">
         {t("settings.byok.description")}
       </p>
-      {onRestart ? (
-        <div className="flex min-h-[48px] items-center justify-between gap-3 border-y border-border/55 py-3">
-          <p className="text-[13px] leading-5 text-muted-foreground">
-            {tx("settings.status.restartPending", "Changes saved. Restart when ready.")}
-          </p>
-          <div className="shrink-0">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={onRestart}
-              disabled={isRestarting}
-              className="rounded-full"
-            >
-              {isRestarting ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
-              ) : (
-                <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-              )}
-              {isRestarting ? t("app.system.restarting") : t("app.system.restart")}
-            </Button>
-          </div>
-        </div>
-      ) : null}
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
         <Input
@@ -3193,7 +3304,7 @@ function ModelPresetPicker({
           variant="outline"
           disabled={!presets.length}
           className={cn(
-            "h-12 w-[min(430px,72vw)] justify-between rounded-full border-input bg-background px-3.5 text-[13px] font-normal shadow-none",
+            "h-10 w-[min(340px,72vw)] justify-between rounded-full border-input bg-background px-3 text-[13px] font-normal shadow-none",
             "hover:bg-accent/55 focus-visible:ring-2 focus-visible:ring-ring",
           )}
         >
@@ -3216,7 +3327,7 @@ function ModelPresetPicker({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        className="max-h-[20rem] w-[430px] max-w-[calc(100vw-2rem)] overflow-y-auto"
+        className="max-h-[20rem] w-[340px] max-w-[calc(100vw-2rem)] overflow-y-auto"
       >
         {presets.map((preset) => {
           const selected = preset.name === value;

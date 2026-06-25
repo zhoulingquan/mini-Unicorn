@@ -266,7 +266,7 @@ export function ThreadViewport({
         ) : (
           <div ref={contentRef} className="mx-auto flex min-h-full w-full max-w-[72rem] flex-col px-4">
             <div className="flex w-full flex-1 items-center justify-center py-10 sm:py-12">
-              <div className="relative w-full max-w-[58rem]">
+              <div className="relative w-full max-w-[44rem]">
                 <div className="absolute inset-x-0 bottom-[calc(100%+1.5rem)] flex justify-center">
                   {emptyState}
                 </div>

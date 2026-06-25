@@ -615,7 +615,7 @@ def update_provider_settings(query: QueryParams) -> dict[str, Any]:
 
     if changed:
         save_config(config)
-    return settings_payload(requires_restart=changed)
+    return settings_payload(requires_restart=False)
 
 
 def login_oauth_provider(query: QueryParams) -> dict[str, Any]:
@@ -624,6 +624,53 @@ def login_oauth_provider(query: QueryParams) -> dict[str, Any]:
 
 def logout_oauth_provider(query: QueryParams) -> dict[str, Any]:
     raise WebUISettingsError("No OAuth providers available in this build")
+
+
+async def list_provider_models(query: QueryParams) -> dict[str, Any]:
+    """Fetch available models from a provider's /v1/models endpoint.
+
+    Uses the api_key and api_base from the provider config, or from query
+    params (for testing before saving). Returns a list of model id strings.
+    """
+    provider_name = (_query_first(query, "provider") or "").strip()
+    if not provider_name:
+        raise WebUISettingsError("provider is required")
+
+    spec = find_by_name(provider_name)
+    if spec is None:
+        raise WebUISettingsError("unknown provider")
+
+    config = load_config()
+    provider_config = getattr(config.providers, spec.name, None)
+    if provider_config is None:
+        raise WebUISettingsError("unknown provider")
+
+    # Allow query params to override config values (for testing before saving).
+    api_key = (
+        _query_first_alias(query, "api_key", "apiKey")
+        or (provider_config.api_key if provider_config else None)
+    )
+    api_base = (
+        _query_first_alias(query, "api_base", "apiBase")
+        or provider_config.api_base
+        or spec.default_api_base
+    )
+    if not api_base:
+        raise WebUISettingsError("api_base is required")
+
+    try:
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(api_key=api_key or "unused", base_url=api_base)
+        models = await client.models.list()
+        model_ids = sorted(
+            [m.id for m in models.data if m.id],
+            key=lambda x: x.lower(),
+        )
+        await client.close()
+        return {"provider": provider_name, "models": model_ids}
+    except Exception as exc:
+        raise WebUISettingsError(f"Failed to fetch models: {exc}") from exc
 
 
 def update_network_safety_settings(query: QueryParams) -> dict[str, Any]:

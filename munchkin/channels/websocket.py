@@ -63,6 +63,7 @@ from munchkin.webui.settings_api import (
     WebUISettingsError,
     create_model_configuration,
     decorate_settings_payload,
+    list_provider_models,
     login_oauth_provider,
     logout_oauth_provider,
     runtime_capabilities,
@@ -315,6 +316,33 @@ def _normalize_http_path(path_with_query: str) -> str:
 
 def _parse_query(path_with_query: str) -> dict[str, list[str]]:
     return _parse_request_path(path_with_query)[1]
+
+
+def _collect_chunked_header(headers: Any, base_name: str) -> str:
+    """Concatenate a chunked header transmitted as repeated headers.
+
+    The websockets HTTP layer caps each header line at 8KB. The frontend
+    splits large payloads across ``{base_name}`` (first chunk) and
+    ``{base_name}-1``, ``{base_name}-2``, ... headers. This helper reassembles
+    them in order.
+    """
+    parts: dict[int, str] = {}
+    first = headers.get(base_name)
+    if first:
+        parts[0] = first
+    for key, value in headers.raw_items():
+        lower = key.lower()
+        prefix = f"{base_name.lower()}-"
+        if lower.startswith(prefix):
+            suffix = key[len(base_name) + 1:]
+            try:
+                idx = int(suffix)
+            except ValueError:
+                continue
+            parts[idx] = value
+    if not parts:
+        return ""
+    return "".join(parts[i] for i in sorted(parts))
 
 
 def _parse_mcp_settings_query(request: WsRequest) -> dict[str, list[str]]:
@@ -806,25 +834,62 @@ class WebSocketChannel(BaseChannel):
         if got == "/api/skills/delete":
             return self._handle_skills_delete(request)
 
+        if got == "/api/skills/toggle":
+            return self._handle_skills_toggle(request)
+
+        if got == "/api/skills/read":
+            return self._handle_skills_read(request)
+
+        if got == "/api/skills/save":
+            return self._handle_skills_save(request)
+
+        if got == "/api/skills/file":
+            return self._handle_skills_file(request)
+
+        if got == "/api/skills/upload":
+            return self._handle_skills_upload(request)
+
         return None
 
     def _handle_skills_list(self, request: WsRequest | None = None) -> Response:
-        """Return available skills (builtin + workspace) as JSON."""
+        """Return available skills (builtin + workspace) as JSON.
+
+        Includes disabled skills with a ``disabled`` flag so the UI can render
+        the toggle state.
+        """
         from munchkin.agent.skills import SkillsLoader
 
         try:
             loader = SkillsLoader(self._workspace_path)
-            skills = loader.list_skills(filter_unavailable=False)
+            # Refresh the disabled set from live config, then enumerate all
+            # skills (without the disabled filter) so the UI can show them.
+            loader._refresh_disabled_from_config()
+            disabled_set = set(loader.disabled_skills)
+            all_entries = loader._skill_entries_from_dir(loader.workspace_skills, "workspace")
+            workspace_names = {e["name"] for e in all_entries}
+            if loader.builtin_skills and loader.builtin_skills.exists():
+                all_entries.extend(
+                    loader._skill_entries_from_dir(
+                        loader.builtin_skills, "builtin", skip_names=workspace_names
+                    )
+                )
             result = []
-            for entry in skills:
+            for entry in all_entries:
                 meta = loader.get_skill_metadata(entry["name"]) or {}
                 description = meta.get("description", entry["name"])
                 available = loader._check_requirements(loader._get_skill_meta(entry["name"]))
+                always = bool(
+                    loader._parse_munchkin_metadata(meta.get("metadata")).get("always")
+                    or meta.get("always")
+                )
                 result.append({
                     "name": entry["name"],
                     "description": description,
                     "source": entry["source"],
                     "available": available,
+                    "disabled": entry["name"] in disabled_set,
+                    "always": always,
+                    "builtin_only": loader.is_builtin_skill(entry["name"]),
                     "path": entry["path"],
                 })
             return _http_json_response({"skills": result})
@@ -856,6 +921,170 @@ class WebSocketChannel(BaseChannel):
         except Exception as exc:
             return _http_error(500, str(exc))
 
+    def _handle_skills_toggle(self, request: WsRequest) -> Response:
+        """Enable or disable a skill at runtime (hot reload, no restart).
+
+        Updates ``config.agents.defaults.disabled_skills`` and saves. The
+        change is picked up on the next agent turn via
+        ``SkillsLoader._refresh_disabled_from_config``.
+        """
+        from munchkin.agent.skills import is_valid_skill_name
+        from munchkin.config.loader import load_config, save_config
+
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+
+        query = _parse_query(request.path)
+        name = _query_first(query, "name")
+        if not name or not is_valid_skill_name(name):
+            return _http_error(400, "invalid 'name' parameter")
+        disabled_value = _query_first(query, "disabled")
+        if disabled_value is None:
+            return _http_error(400, "missing 'disabled' parameter")
+        disable = disabled_value.lower() in ("1", "true", "yes", "on")
+
+        try:
+            config = load_config()
+            current = list(getattr(config.agents.defaults, "disabled_skills", []) or [])
+            if disable:
+                if name not in current:
+                    current.append(name)
+            else:
+                current = [n for n in current if n != name]
+            config.agents.defaults.disabled_skills = current
+            save_config(config)
+            return _http_json_response(
+                {"name": name, "disabled": disable, "disabled_skills": current}
+            )
+        except Exception as exc:
+            return _http_error(500, str(exc))
+
+    def _handle_skills_read(self, request: WsRequest) -> Response:
+        """Return a skill's SKILL.md content and bundled file list."""
+        from munchkin.agent.skills import SkillsLoader
+
+        query = _parse_query(request.path)
+        name = _query_first(query, "name")
+        if not name:
+            return _http_error(400, "missing 'name' parameter")
+        try:
+            loader = SkillsLoader(self._workspace_path)
+            content = loader.load_skill(name)
+            if content is None:
+                return _http_error(404, f"skill '{name}' not found")
+            files = loader.list_skill_files(name)
+            meta = loader.get_skill_metadata(name) or {}
+            ws_exists = (loader.workspace_skills / name / "SKILL.md").exists()
+            return _http_json_response({
+                "name": name,
+                "content": content,
+                "files": files,
+                "source": "workspace" if ws_exists else "builtin",
+                "metadata": meta,
+                "builtin_only": loader.is_builtin_skill(name),
+            })
+        except Exception as exc:
+            return _http_error(500, str(exc))
+
+    def _handle_skills_file(self, request: WsRequest) -> Response:
+        """Read a single bundled file from a skill (traversal-safe)."""
+        from munchkin.agent.skills import SkillsLoader
+
+        query = _parse_query(request.path)
+        name = _query_first(query, "name")
+        rel = _query_first(query, "path")
+        if not name or not rel:
+            return _http_error(400, "missing 'name' or 'path' parameter")
+        try:
+            loader = SkillsLoader(self._workspace_path)
+            content = loader.read_skill_file(name, rel)
+            if content is None:
+                return _http_error(404, "file not found")
+            return _http_json_response({"name": name, "path": rel, "content": content})
+        except Exception as exc:
+            return _http_error(500, str(exc))
+
+    def _handle_skills_save(self, request: WsRequest) -> Response:
+        """Create or update a workspace skill's SKILL.md.
+
+        Accepts the new content via repeated ``X-Munchkin-Skill-Content``
+        headers (URL-encoded chunks, concatenated in order) to stay within the
+        HTTP line limit for large skills. Falls back to the ``content`` query
+        parameter for small edits.
+        """
+        from urllib.parse import unquote
+
+        from munchkin.agent.skills import SkillsLoader, is_valid_skill_name
+
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+
+        query = _parse_query(request.path)
+        name = _query_first(query, "name")
+        if not name or not is_valid_skill_name(name):
+            return _http_error(400, "invalid 'name' parameter")
+
+        # Prefer chunked content headers; fall back to query param.
+        header_b64 = _collect_chunked_header(request.headers, "X-Munchkin-Skill-Content")
+        if header_b64:
+            content = unquote(header_b64)
+        else:
+            content_values = query.get("content", [])
+            content = unquote(content_values[0]) if content_values else ""
+        if not content.strip():
+            return _http_error(400, "content must not be empty")
+
+        try:
+            loader = SkillsLoader(self._workspace_path)
+            path = loader.save_skill_content(name, content)
+            return _http_json_response({"saved": True, "name": name, "path": str(path)})
+        except ValueError as exc:
+            return _http_error(400, str(exc))
+        except Exception as exc:
+            return _http_error(500, str(exc))
+
+    def _handle_skills_upload(self, request: WsRequest) -> Response:
+        """Upload and extract a ZIP skill package into the workspace.
+
+        The websockets HTTP layer does not read request bodies, so the ZIP is
+        transported as base64 chunks in repeated ``X-Munchkin-Skill-Zip``
+        headers (each header stays under the 8KB line limit). The chunks are
+        concatenated in order before decoding.
+        """
+        import base64
+        from urllib.parse import unquote
+
+        from munchkin.agent.skills import SkillsLoader
+
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+
+        query = _parse_query(request.path)
+        preferred = _query_first(query, "name")
+        preferred = unquote(preferred) if preferred else None
+
+        # Collect base64 chunks from repeated headers (order preserved).
+        b64_data = _collect_chunked_header(request.headers, "X-Munchkin-Skill-Zip")
+        if not b64_data:
+            return _http_error(400, "missing ZIP data (send via X-Munchkin-Skill-Zip headers)")
+
+        try:
+            data = base64.b64decode(b64_data)
+        except Exception as exc:
+            return _http_error(400, f"invalid base64 data: {exc}")
+
+        if not data:
+            return _http_error(400, "empty zip data")
+
+        try:
+            loader = SkillsLoader(self._workspace_path)
+            skill_name = loader.extract_zip_skill(data, preferred_name=preferred)
+            return _http_json_response({"uploaded": True, "name": skill_name})
+        except ValueError as exc:
+            return _http_error(400, str(exc))
+        except Exception as exc:
+            return _http_error(500, str(exc))
+
     async def _dispatch_settings_api_route(
         self,
         request: WsRequest,
@@ -875,6 +1104,9 @@ class WebSocketChannel(BaseChannel):
 
         if got == "/api/settings/provider/update":
             return self._handle_settings_provider_update(request)
+
+        if got == "/api/settings/provider/models":
+            return await self._handle_settings_provider_models(request)
 
         if got == "/api/settings/provider/oauth-login":
             return await self._handle_settings_provider_oauth(request, "login")
@@ -1173,7 +1405,17 @@ class WebSocketChannel(BaseChannel):
             payload = update_provider_settings(query)
         except WebUISettingsError as e:
             return _http_error(e.status, e.message)
-        return _http_json_response(self._with_settings_restart_state(payload, section="image"))
+        return _http_json_response(payload)
+
+    async def _handle_settings_provider_models(self, request: WsRequest) -> Response:
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        try:
+            payload = await list_provider_models(query)
+        except WebUISettingsError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(payload)
 
     async def _handle_settings_provider_oauth(self, request: WsRequest, action: str) -> Response:
         if not self._check_api_token(request):
