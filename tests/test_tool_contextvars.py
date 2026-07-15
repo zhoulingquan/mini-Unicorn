@@ -4,11 +4,11 @@ import asyncio
 
 import pytest
 
-from munchkin.agent.tools.context import RequestContext
-from munchkin.agent.tools.cron import CronTool
-from munchkin.agent.tools.message import MessageTool
-from munchkin.agent.tools.spawn import SpawnTool
-from munchkin.cron.service import CronService
+from miniUnicorn.agent.tools.context import RequestContext
+from miniUnicorn.agent.tools.cron import CronTool
+from miniUnicorn.agent.tools.message import MessageTool
+from miniUnicorn.agent.tools.spawn import SpawnTool
+from miniUnicorn.cron.service import CronService
 
 
 @pytest.mark.asyncio

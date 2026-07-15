@@ -1,4 +1,4 @@
-"""Persistence tests for ``Munchkin.cron.service.CronService``.
+"""Persistence tests for ``MiniUnicorn.cron.service.CronService``.
 
 These tests target the specific failure mode where a corrupt or partially
 written ``jobs.json`` would silently turn into an empty job list on the next
@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from munchkin.cron.service import CronService
-from munchkin.cron.types import CronSchedule
+from miniUnicorn.cron.service import CronService
+from miniUnicorn.cron.types import CronSchedule
 
 
 def _seeded_store(tmp_path: Path) -> tuple[CronService, Path]:

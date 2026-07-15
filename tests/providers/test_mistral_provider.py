@@ -1,7 +1,7 @@
 """Tests for the Mistral provider registration."""
 
-from munchkin.config.schema import ProvidersConfig
-from munchkin.providers.registry import PROVIDERS
+from miniUnicorn.config.schema import ProvidersConfig
+from miniUnicorn.providers.registry import PROVIDERS
 
 
 def test_mistral_config_field_exists():

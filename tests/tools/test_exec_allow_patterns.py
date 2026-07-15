@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from munchkin.agent.tools.shell import ExecTool
+from miniUnicorn.agent.tools.shell import ExecTool
 
 
 def test_deny_patterns_block_rm_rf():

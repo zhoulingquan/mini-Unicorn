@@ -1,5 +1,5 @@
 [project]
-name = "munchkin-ai"
+name = "miniUnicorn-ai"
 version = "0.2.0"
 description = "A lightweight personal AI assistant framework"
 readme = { file = "README.md", content-type = "text/markdown" }
@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     {name = "Xubin Ren"},
-    {name = "the Munchkin contributors"}
+    {name = "the MiniUnicorn contributors"}
 ]
 keywords = ["ai", "agent", "chatbot"]
 classifiers = [
@@ -57,6 +57,9 @@ dependencies = [
 api = [
     "aiohttp>=3.9.0,<4.0.0",
 ]
+vector = [
+    "sqlite-vec>=0.1.0",
+]
 langsmith = [
     "langsmith>=0.1.0",
 ]
@@ -76,12 +79,18 @@ dev = [
 ]
 
 [project.scripts]
-munchkin = "munchkin.cli.commands:app"
+miniUnicorn = "miniUnicorn.cli.commands:app"
 
 # Third-party tool plugins register here.  Built-in tools are discovered
 # automatically via pkgutil scanning in ToolLoader.discover().
-# [project.entry-points."munchkin.tools"]
+# [project.entry-points."miniUnicorn.tools"]
 # my_plugin = "my_package.plugins:MyTool"
+
+# Third-party context governance strategies register here.  Built-in
+# strategies live in miniUnicorn.agent.runner_strategies and are always
+# loaded first; a plugin never overrides a builtin with the same name.
+# [project.entry-points."miniUnicorn.context_strategies"]
+# my_strategy = "my_package.strategies:MyStrategy"
 
 [build-system]
 requires = ["hatchling"]
@@ -95,31 +104,31 @@ allow-direct-references = true
 
 [tool.hatch.build]
 include = [
-    "munchkin/**/*.py",
-    "munchkin/templates/**/*.md",
-    "munchkin/skills/**/*.md",
-    "munchkin/skills/**/*.sh",
-    "munchkin/web/dist/**/*",
+    "miniUnicorn/**/*.py",
+    "miniUnicorn/templates/**/*.md",
+    "miniUnicorn/skills/**/*.md",
+    "miniUnicorn/skills/**/*.sh",
+    "miniUnicorn/web/dist/**/*",
 ]
-# munchkin/web/dist/ is produced by `cd webui && bun run build` and is
+# miniUnicorn/web/dist/ is produced by `cd webui && bun run build` and is
 # git-ignored. List it as an artifact so hatch ships it in both wheel and
 # sdist even though VCS does not track it.
 artifacts = [
-    "munchkin/web/dist/**/*",
+    "miniUnicorn/web/dist/**/*",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["munchkin"]
+packages = ["miniUnicorn"]
 
 [tool.hatch.build.targets.wheel.sources]
-"munchkin" = "munchkin"
+"miniUnicorn" = "miniUnicorn"
 
 [tool.hatch.build.targets.wheel.force-include]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "munchkin/",
-    "munchkin/web/dist/",
+    "miniUnicorn/",
+    "miniUnicorn/web/dist/",
     "hatch_build.py",
     "README.md",
     "LICENSE",
@@ -140,7 +149,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [tool.coverage.run]
-source = ["munchkin"]
+source = ["miniUnicorn"]
 omit = ["tests/*", "**/tests/*"]
 
 [tool.coverage.report]

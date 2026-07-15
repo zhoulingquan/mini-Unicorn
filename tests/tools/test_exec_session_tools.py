@@ -6,8 +6,8 @@ import shlex
 import subprocess
 import sys
 
-from munchkin.agent.tools.shell import ExecTool
-from munchkin.agent.tools.exec_session import ExecSessionManager, ListExecSessionsTool, WriteStdinTool
+from miniUnicorn.agent.tools.shell import ExecTool
+from miniUnicorn.agent.tools.exec_session import ExecSessionManager, ListExecSessionsTool, WriteStdinTool
 
 
 def _python_command(code: str) -> str:

@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from munchkin.agent.context import ContextBuilder
-from munchkin.utils.document import extract_documents
+from miniUnicorn.agent.context import ContextBuilder
+from miniUnicorn.utils.document import extract_documents
 
 
 def _make_builder(tmp_path: Path) -> ContextBuilder:

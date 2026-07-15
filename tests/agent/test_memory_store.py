@@ -5,7 +5,7 @@ from datetime import datetime
 
 import pytest
 
-from munchkin.agent.memory import _HISTORY_ENTRY_HARD_CAP, MemoryStore
+from miniUnicorn.agent.memory import _HISTORY_ENTRY_HARD_CAP, MemoryStore
 
 
 @pytest.fixture

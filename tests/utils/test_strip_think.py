@@ -1,4 +1,4 @@
-from munchkin.utils.helpers import extract_reasoning, extract_think, strip_think
+from miniUnicorn.utils.helpers import extract_reasoning, extract_think, strip_think
 
 
 class TestStripThinkTag:

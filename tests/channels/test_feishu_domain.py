@@ -3,8 +3,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from munchkin.bus.queue import MessageBus
-from munchkin.channels.feishu import FeishuChannel, FeishuConfig
+from miniUnicorn.bus.queue import MessageBus
+from miniUnicorn.channels.feishu import FeishuChannel, FeishuConfig
 
 
 def _make_channel(domain: str = "feishu") -> FeishuChannel:

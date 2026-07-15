@@ -10,21 +10,21 @@
 **Install from source** (latest features, experimental changes may land here first; recommended for development)
 
 ```bash
-git clone https://github.com/HKUDS/munchkin.git
-cd Munchkin
+git clone https://github.com/HKUDS/miniUnicorn.git
+cd MiniUnicorn
 pip install -e .
 ```
 
 **Install with [uv](https://github.com/astral-sh/uv)** (stable release, fast)
 
 ```bash
-uv tool install munchkin-ai
+uv tool install miniUnicorn-ai
 ```
 
 **Install from PyPI** (stable release)
 
 ```bash
-pip install munchkin-ai
+pip install miniUnicorn-ai
 ```
 
 ### Update to latest version
@@ -32,28 +32,28 @@ pip install munchkin-ai
 **PyPI / pip**
 
 ```bash
-pip install -U munchkin-ai
-munchkin --version
+pip install -U miniUnicorn-ai
+miniUnicorn --version
 ```
 
 **uv**
 
 ```bash
-uv tool upgrade munchkin-ai
-munchkin --version
+uv tool upgrade miniUnicorn-ai
+miniUnicorn --version
 ```
 
 **Using WhatsApp?** Rebuild the local bridge after upgrading:
 
 ```bash
-rm -rf ~/.munchkin/bridge
-munchkin channels login whatsapp
+rm -rf ~/.miniUnicorn/bridge
+miniUnicorn channels login whatsapp
 ```
 
 ## Quick Start
 
 > [!TIP]
-> Set your API key in `~/.munchkin/config.json`.
+> Set your API key in `~/.miniUnicorn/config.json`.
 > Get API keys: [OpenRouter](https://openrouter.ai/keys) (Global)
 >
 > For other LLM providers, please see [`configuration.md`](./configuration.md).
@@ -63,12 +63,12 @@ munchkin channels login whatsapp
 **1. Initialize**
 
 ```bash
-munchkin onboard
+miniUnicorn onboard
 ```
 
-Use `munchkin onboard --wizard` if you want the interactive setup wizard.
+Use `miniUnicorn onboard --wizard` if you want the interactive setup wizard.
 
-**2. Configure** (`~/.munchkin/config.json`)
+**2. Configure** (`~/.miniUnicorn/config.json`)
 
 Configure these **two parts** in your config (other options have defaults).
 
@@ -98,7 +98,7 @@ Configure these **two parts** in your config (other options have defaults).
 **3. Chat**
 
 ```bash
-munchkin agent
+miniUnicorn agent
 ```
 
 That's it! You have a working AI agent in 2 minutes.

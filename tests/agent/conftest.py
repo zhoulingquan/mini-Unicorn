@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from munchkin.agent.loop import AgentLoop
-from munchkin.bus.queue import MessageBus
-from munchkin.providers.base import LLMProvider
+from miniUnicorn.agent.loop import AgentLoop
+from miniUnicorn.bus.queue import MessageBus
+from miniUnicorn.providers.base import LLMProvider
 
 
 def make_provider(
@@ -77,9 +77,9 @@ def make_loop(
         kwargs["hooks"] = hooks
 
     if patch_deps:
-        with patch("munchkin.agent.loop.ContextBuilder"), \
-             patch("munchkin.agent.loop.SessionManager"), \
-             patch("munchkin.agent.loop.SubagentManager") as MockSubMgr:
+        with patch("miniUnicorn.agent.loop.ContextBuilder"), \
+             patch("miniUnicorn.agent.loop.SessionManager"), \
+             patch("miniUnicorn.agent.loop.SubagentManager") as MockSubMgr:
             MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
             return AgentLoop(**kwargs)
     return AgentLoop(**kwargs)

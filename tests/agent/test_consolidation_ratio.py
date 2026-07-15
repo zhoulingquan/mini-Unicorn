@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import ValidationError
 
-import munchkin.agent.memory as memory_module
-from munchkin.agent.loop import AgentLoop
-from munchkin.bus.queue import MessageBus
-from munchkin.config.schema import AgentDefaults
-from munchkin.providers.base import GenerationSettings, LLMResponse
+import miniUnicorn.agent.memory as memory_module
+from miniUnicorn.agent.loop import AgentLoop
+from miniUnicorn.bus.queue import MessageBus
+from miniUnicorn.config.schema import AgentDefaults
+from miniUnicorn.providers.base import GenerationSettings, LLMResponse
 
 
 def _make_loop(

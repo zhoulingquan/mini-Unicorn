@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from munchkin.bus.queue import MessageBus
-from munchkin.channels.feishu import FeishuChannel, FeishuConfig, _FeishuStreamBuf
+from miniUnicorn.bus.queue import MessageBus
+from miniUnicorn.channels.feishu import FeishuChannel, FeishuConfig, _FeishuStreamBuf
 
 
 def _make_channel() -> FeishuChannel:

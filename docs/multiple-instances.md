@@ -1,6 +1,6 @@
 # Multiple Instances
 
-Run multiple Munchkin instances simultaneously with separate configs and runtime data. Use `--config` as the main entrypoint. Optionally pass `--workspace` during `onboard` when you want to initialize or update the saved workspace for a specific instance.
+Run multiple MiniUnicorn instances simultaneously with separate configs and runtime data. Use `--config` as the main entrypoint. Optionally pass `--workspace` during `onboard` when you want to initialize or update the saved workspace for a specific instance.
 
 ## Quick Start
 
@@ -10,50 +10,50 @@ If you want each instance to have its own dedicated workspace from the start, pa
 
 ```bash
 # Create separate instance configs and workspaces
-munchkin onboard --config ~/.munchkin-telegram/config.json --workspace ~/.munchkin-telegram/workspace
-munchkin onboard --config ~/.munchkin-discord/config.json --workspace ~/.munchkin-discord/workspace
-munchkin onboard --config ~/.munchkin-feishu/config.json --workspace ~/.munchkin-feishu/workspace
+miniUnicorn onboard --config ~/.miniUnicorn-telegram/config.json --workspace ~/.miniUnicorn-telegram/workspace
+miniUnicorn onboard --config ~/.miniUnicorn-discord/config.json --workspace ~/.miniUnicorn-discord/workspace
+miniUnicorn onboard --config ~/.miniUnicorn-feishu/config.json --workspace ~/.miniUnicorn-feishu/workspace
 ```
 
 **Configure each instance:**
 
-Edit `~/.munchkin-telegram/config.json`, `~/.munchkin-discord/config.json`, etc. with different channel settings. The workspace you passed during `onboard` is saved into each config as that instance's default workspace.
+Edit `~/.miniUnicorn-telegram/config.json`, `~/.miniUnicorn-discord/config.json`, etc. with different channel settings. The workspace you passed during `onboard` is saved into each config as that instance's default workspace.
 
 **Run instances:**
 
 ```bash
 # Instance A - Telegram bot
-munchkin gateway --config ~/.munchkin-telegram/config.json
+miniUnicorn gateway --config ~/.miniUnicorn-telegram/config.json
 
 # Instance B - Discord bot
-munchkin gateway --config ~/.munchkin-discord/config.json
+miniUnicorn gateway --config ~/.miniUnicorn-discord/config.json
 
 # Instance C - Feishu bot with custom port
-munchkin gateway --config ~/.munchkin-feishu/config.json --port 18792
+miniUnicorn gateway --config ~/.miniUnicorn-feishu/config.json --port 18792
 ```
 
 ## Path Resolution
 
-When using `--config`, Munchkin derives its runtime data directory from the config file location. The workspace still comes from `agents.defaults.workspace` unless you override it with `--workspace`.
+When using `--config`, MiniUnicorn derives its runtime data directory from the config file location. The workspace still comes from `agents.defaults.workspace` unless you override it with `--workspace`.
 
 To open a CLI session against one of these instances locally:
 
 ```bash
-munchkin agent -c ~/.munchkin-telegram/config.json -m "Hello from Telegram instance"
-munchkin agent -c ~/.munchkin-discord/config.json -m "Hello from Discord instance"
+miniUnicorn agent -c ~/.miniUnicorn-telegram/config.json -m "Hello from Telegram instance"
+miniUnicorn agent -c ~/.miniUnicorn-discord/config.json -m "Hello from Discord instance"
 
 # Optional one-off workspace override
-munchkin agent -c ~/.munchkin-telegram/config.json -w /tmp/munchkin-telegram-test
+miniUnicorn agent -c ~/.miniUnicorn-telegram/config.json -w /tmp/miniUnicorn-telegram-test
 ```
 
-> `munchkin agent` starts a local CLI agent using the selected workspace/config. It does not attach to or proxy through an already running `munchkin gateway` process.
+> `miniUnicorn agent` starts a local CLI agent using the selected workspace/config. It does not attach to or proxy through an already running `miniUnicorn gateway` process.
 
 | Component | Resolved From | Example |
 |-----------|---------------|---------|
-| **Config** | `--config` path | `~/.munchkin-A/config.json` |
-| **Workspace** | `--workspace` or config | `~/.munchkin-A/workspace/` |
-| **Cron Jobs** | config directory | `~/.munchkin-A/cron/` |
-| **Media / runtime state** | config directory | `~/.munchkin-A/media/` |
+| **Config** | `--config` path | `~/.miniUnicorn-A/config.json` |
+| **Workspace** | `--workspace` or config | `~/.miniUnicorn-A/workspace/` |
+| **Cron Jobs** | config directory | `~/.miniUnicorn-A/cron/` |
+| **Media / runtime state** | config directory | `~/.miniUnicorn-A/media/` |
 
 ## How It Works
 
@@ -73,7 +73,7 @@ Example config:
 {
   "agents": {
     "defaults": {
-      "workspace": "~/.munchkin-telegram/workspace",
+      "workspace": "~/.miniUnicorn-telegram/workspace",
       "model": "anthropic/claude-sonnet-4-6"
     }
   },
@@ -92,8 +92,8 @@ Example config:
 Start separate instances:
 
 ```bash
-munchkin gateway --config ~/.munchkin-telegram/config.json
-munchkin gateway --config ~/.munchkin-discord/config.json
+miniUnicorn gateway --config ~/.miniUnicorn-telegram/config.json
+miniUnicorn gateway --config ~/.miniUnicorn-discord/config.json
 ```
 
 Each gateway instance binds to `gateway.host` (default `127.0.0.1`),
@@ -106,7 +106,7 @@ public or LAN-facing address.
 Override workspace for one-off runs when needed:
 
 ```bash
-munchkin gateway --config ~/.munchkin-telegram/config.json --workspace /tmp/munchkin-telegram-test
+miniUnicorn gateway --config ~/.miniUnicorn-telegram/config.json --workspace /tmp/miniUnicorn-telegram-test
 ```
 
 ## Common Use Cases

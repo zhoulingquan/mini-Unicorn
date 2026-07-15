@@ -5,11 +5,13 @@ import { ThreadComposer } from "@/components/thread/ThreadComposer";
 import { ThreadHeader } from "@/components/thread/ThreadHeader";
 import { StreamErrorNotice } from "@/components/thread/StreamErrorNotice";
 import { ThreadViewport } from "@/components/thread/ThreadViewport";
-import { useMunchkinStream, type SendImage, type SendOptions } from "@/hooks/useMunchkinStream";
+import { useMiniUnicornStream, type SendImage, type SendOptions } from "@/hooks/useMiniUnicornStream";
+import type { ThemeMode } from "@/hooks/useTheme";
 import { useSessionHistory } from "@/hooks/useSessions";
-import { fetchSettings, listSlashCommands } from "@/lib/api";
+import { fetchAgents, fetchSettings, listSlashCommands } from "@/lib/api";
 import { inferProviderFromModelName, providerDisplayLabel } from "@/lib/provider-brand";
 import type {
+  AgentInfo,
   ChatSummary,
   SettingsPayload,
   SlashCommand,
@@ -49,6 +51,7 @@ interface ThreadShellProps {
   onCreateChat?: (workspaceScope?: WorkspaceScopePayload | null) => Promise<string | null>;
   onTurnEnd?: () => void;
   theme?: "light" | "dark";
+  themeMode?: ThemeMode;
   onToggleTheme?: () => void;
   onToggleLanguage?: () => void;
   hideSidebarToggleForHostChrome?: boolean;
@@ -60,6 +63,12 @@ interface ThreadShellProps {
   workspaceError?: string | null;
   onWorkspaceScopeChange?: (scope: WorkspaceScopePayload) => void;
   settingsSnapshot?: SettingsPayload | null;
+  /** Currently selected subagent id (routes outbound turns to that agent). */
+  selectedAgentId?: string | null;
+  /** Called when the user picks a subagent in the composer. */
+  onSelectAgent?: (agentId: string) => void;
+  /** Called when the user clears the active subagent selection. */
+  onClearAgent?: () => void;
 }
 
 function toModelBadgeLabel(modelName: string | null): string | null {
@@ -130,6 +139,7 @@ export function ThreadShell({
   onCreateChat,
   onTurnEnd,
   theme = "light",
+  themeMode,
   onToggleTheme = () => {},
   onToggleLanguage = () => {},
   hideSidebarToggleForHostChrome = false,
@@ -141,6 +151,9 @@ export function ThreadShell({
   workspaceError = null,
   onWorkspaceScopeChange,
   settingsSnapshot = null,
+  selectedAgentId = null,
+  onSelectAgent,
+  onClearAgent,
 }: ThreadShellProps) {
   const { t } = useTranslation();
   const chatId = session?.chatId ?? null;
@@ -155,6 +168,7 @@ export function ThreadShell({
   const { client, modelName, token } = useClient();
   const [booting, setBooting] = useState(false);
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [settings, setSettings] = useState<SettingsPayload | null>(settingsSnapshot);
   const [heroGreetingKey, setHeroGreetingKey] = useState(randomHeroGreetingKey);
   const [scrollToBottomSignal, setScrollToBottomSignal] = useState(0);
@@ -185,7 +199,7 @@ export function ThreadShell({
     setMessages,
     streamError,
     dismissStreamError,
-  } = useMunchkinStream(chatId, initial, hasPendingToolCalls, handleTurnEnd);
+  } = useMiniUnicornStream(chatId, initial, hasPendingToolCalls, handleTurnEnd);
 
   useEffect(() => {
     if (chatId && historyKey) sessionKeyByChatIdRef.current.set(chatId, historyKey);
@@ -318,7 +332,7 @@ export function ThreadShell({
     }
   }, [chatId, messages]);
 
-  // Persist thread to in-memory cache after paint so ``useMunchkinStream``'s chat switch
+  // Persist thread to in-memory cache after paint so ``useMiniUnicornStream``'s chat switch
   // ``useEffect`` reset has flushed; ``skipLayoutCacheRef`` drops the first run that still
   // sees the *previous* chat's ``messages`` (avoids stale rows leaking across sessions).
   useEffect(() => {
@@ -353,6 +367,22 @@ export function ThreadShell({
         if (!cancelled) setSlashCommands(commands);
       } catch {
         if (!cancelled) setSlashCommands([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  // Fetch available subagents for the composer selector. Refresh on token change.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const payload = await fetchAgents(token);
+        if (!cancelled) setAgents(payload.agents);
+      } catch {
+        if (!cancelled) setAgents([]);
       }
     })();
     return () => {
@@ -414,6 +444,10 @@ export function ThreadShell({
           workspaceScopeDisabled={workspaceScopeDisabled}
           workspaceError={workspaceError}
           onWorkspaceScopeChange={onWorkspaceScopeChange}
+          agents={agents}
+          selectedAgentId={selectedAgentId}
+          onSelectAgent={onSelectAgent}
+          onClearAgent={onClearAgent}
         />
       ) : (
         <ThreadComposer
@@ -438,6 +472,10 @@ export function ThreadShell({
           workspaceScopeDisabled={workspaceScopeDisabled}
           workspaceError={workspaceError}
           onWorkspaceScopeChange={onWorkspaceScopeChange}
+          agents={agents}
+          selectedAgentId={selectedAgentId}
+          onSelectAgent={onSelectAgent}
+          onClearAgent={onClearAgent}
         />
       )}
     </>
@@ -502,6 +540,7 @@ export function ThreadShell({
           title={title}
           onToggleSidebar={onToggleSidebar}
           theme={theme}
+          themeMode={themeMode}
           onToggleTheme={onToggleTheme}
           onToggleLanguage={onToggleLanguage}
           hideSidebarToggleForHostChrome={hideSidebarToggleForHostChrome}

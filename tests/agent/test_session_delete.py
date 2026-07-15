@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from munchkin.session.manager import Session, SessionManager
+from miniUnicorn.session.manager import Session, SessionManager
 
 
 def _seed(workspace: Path, key: str = "telegram:abc") -> SessionManager:

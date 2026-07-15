@@ -36,17 +36,17 @@ print_row() {
   printf "  %-16s %6s lines\n" "$label" "$count"
 }
 
-echo "Munchkin line count"
+echo "MiniUnicorn line count"
 echo "=================="
 echo ""
 
 echo "Core runtime"
 echo "------------"
-core_agent=$(count_top_level_py_lines "munchkin/agent")
-core_bus=$(count_top_level_py_lines "munchkin/bus")
-core_config=$(count_top_level_py_lines "munchkin/config")
-core_cron=$(count_top_level_py_lines "munchkin/cron")
-core_session=$(count_top_level_py_lines "munchkin/session")
+core_agent=$(count_top_level_py_lines "miniUnicorn/agent")
+core_bus=$(count_top_level_py_lines "miniUnicorn/bus")
+core_config=$(count_top_level_py_lines "miniUnicorn/config")
+core_cron=$(count_top_level_py_lines "miniUnicorn/cron")
+core_session=$(count_top_level_py_lines "miniUnicorn/session")
 
 print_row "agent/" "$core_agent"
 print_row "bus/" "$core_bus"
@@ -59,12 +59,12 @@ core_total=$((core_agent + core_bus + core_config + core_cron + core_session))
 echo ""
 echo "Separate buckets"
 echo "----------------"
-extra_tools=$(count_recursive_py_lines "munchkin/agent/tools")
-extra_skills=$(count_skill_lines "munchkin/skills")
-extra_api=$(count_recursive_py_lines "munchkin/api")
-extra_cli=$(count_recursive_py_lines "munchkin/cli")
-extra_channels=$(count_recursive_py_lines "munchkin/channels")
-extra_utils=$(count_recursive_py_lines "munchkin/utils")
+extra_tools=$(count_recursive_py_lines "miniUnicorn/agent/tools")
+extra_skills=$(count_skill_lines "miniUnicorn/skills")
+extra_api=$(count_recursive_py_lines "miniUnicorn/api")
+extra_cli=$(count_recursive_py_lines "miniUnicorn/cli")
+extra_channels=$(count_recursive_py_lines "miniUnicorn/channels")
+extra_utils=$(count_recursive_py_lines "miniUnicorn/utils")
 
 print_row "tools/" "$extra_tools"
 print_row "skills/" "$extra_skills"
@@ -84,7 +84,7 @@ print_row "extra total" "$extra_total"
 echo ""
 echo "Notes"
 echo "-----"
-echo "  - agent/ only counts top-level Python files under munchkin/agent"
-echo "  - tools/ is counted separately from munchkin/agent/tools"
+echo "  - agent/ only counts top-level Python files under miniUnicorn/agent"
+echo "  - tools/ is counted separately from miniUnicorn/agent/tools"
 echo "  - skills/ counts .md, .py, and .sh files"
-echo "  - not included here: command/, providers/, security/, templates/, munchkin.py, root files"
+echo "  - not included here: command/, providers/, security/, templates/, miniUnicorn.py, root files"

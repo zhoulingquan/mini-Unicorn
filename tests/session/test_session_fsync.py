@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from munchkin.session.manager import SessionManager
+from miniUnicorn.session.manager import SessionManager
 
 _IS_WINDOWS = sys.platform == "win32"
 

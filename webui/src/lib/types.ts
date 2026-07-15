@@ -240,9 +240,6 @@ export interface SettingsPayload {
     context_window_tokens: number;
     temperature: number;
     reasoning_effort: string | null;
-    timezone: string;
-    bot_name: string;
-    bot_icon: string;
     tool_hint_max_length: number;
   };
   model_presets: Array<{
@@ -465,6 +462,24 @@ export interface SkillFilePayload {
   content: string;
 }
 
+export interface AgentInfo {
+  name: string;
+  description: string;
+  model: string | null;
+  tools: string[] | null;
+  avatar: string | null;
+  system_prompt: string;
+  path: string | null;
+}
+
+export interface AgentsPayload {
+  agents: AgentInfo[];
+}
+
+export interface AgentDetail extends AgentInfo {
+  content: string;
+}
+
 export interface McpPresetInfo {
   name: string;
   display_name: string;
@@ -529,9 +544,6 @@ export interface SettingsUpdate {
   provider?: string;
   modelPreset?: string | null;
   contextWindowTokens?: number;
-  timezone?: string;
-  botName?: string;
-  botIcon?: string;
   toolHintMaxLength?: number;
 }
 
@@ -569,6 +581,101 @@ export interface WebSearchSettingsUpdate {
 export interface NetworkSafetySettingsUpdate {
   webuiAllowLocalServiceAccess: boolean;
   webuiDefaultAccessMode: WebuiDefaultAccessMode;
+}
+
+export interface RuntimeSettingsUpdate {
+  heartbeatIntervalS?: number;
+  dreamIntervalH?: number;
+}
+
+export type CronScheduleKind = "every" | "cron" | "at";
+
+export interface CronSchedulePayload {
+  kind: CronScheduleKind;
+  at_ms?: number | null;
+  every_ms?: number | null;
+  expr?: string | null;
+  tz?: string | null;
+}
+
+export interface CronPayloadPayload {
+  kind: "system_event" | "agent_turn";
+  message: string;
+  deliver: boolean;
+  channel?: string | null;
+  to?: string | null;
+  channel_meta?: Record<string, unknown>;
+  session_key?: string | null;
+}
+
+export interface CronJobStatePayload {
+  next_run_at_ms?: number | null;
+  last_run_at_ms?: number | null;
+  last_status?: "ok" | "error" | "skipped" | null;
+  last_error?: string | null;
+  run_history?: Array<{
+    run_at_ms: number;
+    status: "ok" | "error" | "skipped";
+    duration_ms?: number;
+    error?: string | null;
+  }>;
+}
+
+export interface CronJobPayload {
+  id: string;
+  name: string;
+  enabled: boolean;
+  schedule: CronSchedulePayload;
+  payload: CronPayloadPayload;
+  state: CronJobStatePayload;
+  created_at_ms: number;
+  updated_at_ms: number;
+  delete_after_run: boolean;
+  is_system: boolean;
+}
+
+export interface CronJobsPayload {
+  jobs: CronJobPayload[];
+}
+
+export interface CronJobCreate {
+  name: string;
+  message: string;
+  schedule: CronScheduleKind;
+  everySeconds?: number;
+  cronExpr?: string;
+  tz?: string;
+  atMs?: number;
+  deliver?: boolean;
+  deleteAfterRun?: boolean;
+}
+
+export type ToolSource = "builtin" | "mcp" | "user";
+
+export interface ToolPayload {
+  name: string;
+  description: string;
+  source: ToolSource;
+  read_only: boolean;
+  loaded: boolean;
+  filename?: string;
+}
+
+export interface ToolsPayload {
+  tools: ToolPayload[];
+  counts: {
+    builtin: number;
+    mcp: number;
+    user: number;
+    total: number;
+  };
+}
+
+export interface ToolImportResult {
+  imported: boolean;
+  filename: string;
+  name: string;
+  message: string;
 }
 
 export interface SlashCommand {
@@ -700,6 +807,14 @@ export interface OutboundMcpPresetMention {
   brand_color?: string | null;
 }
 
+/** Per-message metadata attached to outbound user turns. The backend reads
+ * ``agent_id`` to hand the conversation off to the matching subagent (its
+ * system prompt + tools) for that turn. */
+export interface OutboundMessageMetadata {
+  agent_id?: string;
+  [key: string]: unknown;
+}
+
 /** Response shape for ``GET .../webui-thread`` (server-built transcript replay). */
 export interface WebuiThreadPersistedPayload {
   schemaVersion: number;
@@ -721,6 +836,8 @@ export type Outbound =
       cli_apps?: OutboundCliAppMention[];
       mcp_presets?: OutboundMcpPresetMention[];
       workspace_scope?: WorkspaceScopePayload;
+      /** Per-turn metadata; ``agent_id`` routes the turn to a subagent. */
+      metadata?: OutboundMessageMetadata;
       /** Marks messages sent by the embedded WebUI, without changing the
        * generic websocket protocol for other clients. */
       webui?: true;

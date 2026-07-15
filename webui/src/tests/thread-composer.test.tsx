@@ -24,7 +24,7 @@ const ORIGINAL_INNER_HEIGHT = window.innerHeight;
 
 afterEach(() => {
   vi.restoreAllMocks();
-  Reflect.deleteProperty(window, "munchkinHost");
+  Reflect.deleteProperty(window, "miniUnicornHost");
   window.localStorage.clear();
   Object.defineProperty(window, "innerHeight", {
     value: ORIGINAL_INNER_HEIGHT,
@@ -66,6 +66,7 @@ describe("ThreadComposer", () => {
     expect(screen.queryByRole("button", { name: "Reason" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Deep research" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Voice input" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("composer-model-logo-deepseek")).toBeInTheDocument();
     const input = screen.getByPlaceholderText("Ask anything...");
     expect(input).toBeInTheDocument();
     expect(input.className).toContain("min-h-[78px]");
@@ -84,7 +85,6 @@ describe("ThreadComposer", () => {
     );
 
     expect(screen.getByText("gpt-4o")).toBeInTheDocument();
-    expect(screen.getByTestId("composer-model-logo-deepseek")).toBeInTheDocument();
     const input = screen.getByPlaceholderText("Type your message...");
     expect(input.className).toContain("min-h-[50px]");
     expect(input.parentElement?.parentElement?.className).toContain("max-w-[49.5rem]");
@@ -127,7 +127,7 @@ describe("ThreadComposer", () => {
   it("keeps project selection as a compact composer dropdown", async () => {
     const onWorkspaceScopeChange = vi.fn();
     const defaultScope = {
-      project_path: "/Users/test/.munchkin/workspace",
+      project_path: "/Users/test/.miniUnicorn/workspace",
       project_name: "workspace",
       access_mode: "restricted" as const,
       restrict_to_workspace: true,
@@ -189,12 +189,12 @@ describe("ThreadComposer", () => {
     const onWorkspaceScopeChange = vi.fn();
     const pickFolder = vi.fn().mockResolvedValue("/Users/test/native-project");
     const defaultScope = {
-      project_path: "/Users/test/.munchkin/workspace",
+      project_path: "/Users/test/.miniUnicorn/workspace",
       project_name: "workspace",
       access_mode: "full" as const,
       restrict_to_workspace: false,
     };
-    Object.defineProperty(window, "munchkinHost", {
+    Object.defineProperty(window, "miniUnicornHost", {
       configurable: true,
       value: {
         getRuntimeInfo: vi.fn(),
@@ -231,7 +231,7 @@ describe("ThreadComposer", () => {
 
   it("uses the web path menu when no native host picker is available", async () => {
     const defaultScope = {
-      project_path: "/Users/test/.munchkin/workspace",
+      project_path: "/Users/test/.miniUnicorn/workspace",
       project_name: "workspace",
       access_mode: "full" as const,
       restrict_to_workspace: false,
@@ -376,11 +376,11 @@ describe("ThreadComposer", () => {
 
     expect(onStop).toHaveBeenCalledTimes(1);
     expect(input).toHaveValue("");
-    expect(window.localStorage.getItem("munchkin.webui.slashCommandRecents")).toBeNull();
+    expect(window.localStorage.getItem("miniUnicorn.webui.slashCommandRecents")).toBeNull();
   });
 
   it("orders recent slash commands first for the blank slash menu", () => {
-    window.localStorage.setItem("munchkin.webui.slashCommandRecents", JSON.stringify(["/history"]));
+    window.localStorage.setItem("miniUnicorn.webui.slashCommandRecents", JSON.stringify(["/history"]));
     render(
       <ThreadComposer
         onSend={vi.fn()}
@@ -607,35 +607,6 @@ describe("ThreadComposer", () => {
     fireEvent.keyDown(input, { key: "Tab" });
 
     expect(input).toHaveValue("use @blender tonight");
-  });
-
-  it("renders a CLI app mention logo inline without moving the text cursor slot", () => {
-    render(
-      <ThreadComposer
-        onSend={vi.fn()}
-        placeholder="Type your message..."
-      />,
-    );
-
-    const input = screen.getByLabelText("Message input");
-    fireEvent.change(input, {
-      target: { value: "meeting in @gimp", selectionStart: 16 },
-    });
-
-    expect(input).toHaveValue("meeting in @gimp");
-    const token = screen.getByTestId("composer-cli-mention-gimp");
-    expect(token).toHaveTextContent("@gimp");
-    expect(token.className).not.toContain("font-semibold");
-    expect(token.className).not.toContain("zoom-in");
-    expect(token.className).not.toContain("px-");
-    expect(token.className).not.toContain("mx-");
-    expect(token.getAttribute("style")).toContain("color: #5C5543");
-    expect(token.getAttribute("style")).toContain("text-shadow");
-    expect(screen.queryByTestId("composer-cli-app-tray")).not.toBeInTheDocument();
-    const logo = screen.getByTestId("composer-cli-mention-logo-gimp");
-    expect(logo.className).toContain("top-1/2");
-    expect(logo.className).toContain("left-1/2");
-    expect(logo.className).not.toContain("-top-");
   });
 
   it("opens the slash command palette downward when there is more room below", async () => {

@@ -6,8 +6,8 @@
 .env
 .web
 .orion
-munchkin-desktop/
-munchkin-workspace/
+miniUnicorn-desktop/
+miniUnicorn-workspace/
 desktop/
 
 # Claude / AI assistant artifacts

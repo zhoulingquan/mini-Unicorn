@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from munchkin.agent.memory import MemoryStore
+from miniUnicorn.agent.memory import MemoryStore
 
 
 @pytest.fixture

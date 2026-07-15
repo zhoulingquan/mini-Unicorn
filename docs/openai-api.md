@@ -1,10 +1,10 @@
 # OpenAI-Compatible API
 
-Munchkin can expose a minimal OpenAI-compatible endpoint for local integrations:
+MiniUnicorn can expose a minimal OpenAI-compatible endpoint for local integrations:
 
 ```bash
-pip install "munchkin-ai[api]"
-Munchkin serve
+pip install "miniUnicorn-ai[api]"
+MiniUnicorn serve
 ```
 
 By default, the API binds to `127.0.0.1:8900`. You can change this in `config.json`.
@@ -28,7 +28,7 @@ Example tool call for cross-channel delivery from an API session:
 }
 ```
 
-If `channel` points to a channel that is not enabled in your config, Munchkin will queue the outbound event but no platform delivery will occur.
+If `channel` points to a channel that is not enabled in your config, MiniUnicorn will queue the outbound event but no platform delivery will occur.
 
 ## Endpoints
 

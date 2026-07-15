@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from munchkin.command.builtin import register_builtin_commands
-from munchkin.command.router import CommandContext, CommandRouter
+from miniUnicorn.command.builtin import register_builtin_commands
+from miniUnicorn.command.router import CommandContext, CommandRouter
 
 
 class TestIsDispatchableCommand:
@@ -175,7 +175,7 @@ class TestPairingCommandDispatch:
         self, router: CommandRouter, fake_msg: MagicMock, monkeypatch,
     ) -> None:
         monkeypatch.setattr(
-            "munchkin.pairing.store.list_pending",
+            "miniUnicorn.pairing.store.list_pending",
             lambda: [
                 {
                     "code": "ABCD-EFGH",
@@ -199,7 +199,7 @@ class TestPairingCommandDispatch:
         self, router: CommandRouter, fake_msg: MagicMock, monkeypatch,
     ) -> None:
         monkeypatch.setattr(
-            "munchkin.pairing.store.approve_code",
+            "miniUnicorn.pairing.store.approve_code",
             lambda code: ("telegram", "123") if code == "ABCD-EFGH" else None,
         )
         fake_msg.content = "/pairing approve ABCD-EFGH"
@@ -217,7 +217,7 @@ class TestPairingCommandDispatch:
         self, router: CommandRouter, fake_msg: MagicMock, monkeypatch,
     ) -> None:
         monkeypatch.setattr(
-            "munchkin.pairing.store.revoke",
+            "miniUnicorn.pairing.store.revoke",
             lambda ch, sid: sid == "123",
         )
         fake_msg.content = "/pairing revoke 123"

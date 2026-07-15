@@ -5,9 +5,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from munchkin.agent.subagent import SubagentManager
-from munchkin.bus.queue import MessageBus
-from munchkin.providers.base import LLMProvider
+from miniUnicorn.agent.subagent import SubagentManager
+from miniUnicorn.bus.queue import MessageBus
+from miniUnicorn.providers.base import LLMProvider
 
 
 @pytest.mark.asyncio

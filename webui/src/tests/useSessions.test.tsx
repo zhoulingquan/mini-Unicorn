@@ -45,7 +45,7 @@ function wrap(client: ReturnType<typeof fakeClient>) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <ClientProvider
-        client={client as unknown as import("@/lib/munchkin-client").MunchkinClient}
+        client={client as unknown as import("@/lib/miniUnicorn-client").MiniUnicornClient}
         token="tok"
       >
         {children}

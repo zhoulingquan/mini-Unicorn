@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from munchkin.providers.openai_compat_provider import (
+from miniUnicorn.providers.openai_compat_provider import (
     OpenAICompatProvider,
     _is_local_endpoint,
 )

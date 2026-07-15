@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from munchkin.bus.events import OutboundMessage
-from munchkin.channels.whatsapp import (
+from miniUnicorn.bus.events import OutboundMessage
+from miniUnicorn.channels.whatsapp import (
     WhatsAppChannel,
     _load_or_create_bridge_token,
 )
@@ -301,7 +301,7 @@ def test_load_or_create_bridge_token_persists_generated_secret(tmp_path):
 
 def test_configured_bridge_token_skips_local_token_file(monkeypatch, tmp_path):
     token_path = tmp_path / "whatsapp-auth" / "bridge-token"
-    monkeypatch.setattr("munchkin.channels.whatsapp._bridge_token_path", lambda: token_path)
+    monkeypatch.setattr("miniUnicorn.channels.whatsapp._bridge_token_path", lambda: token_path)
     ch = WhatsAppChannel({"enabled": True, "bridgeToken": "manual-secret"}, MagicMock())
 
     assert ch._effective_bridge_token() == "manual-secret"
@@ -315,15 +315,15 @@ async def test_login_exports_effective_bridge_token(monkeypatch, tmp_path):
     bridge_dir.mkdir()
     calls = []
 
-    monkeypatch.setattr("munchkin.channels.whatsapp._bridge_token_path", lambda: token_path)
-    monkeypatch.setattr("munchkin.channels.whatsapp._ensure_bridge_setup", lambda: bridge_dir)
-    monkeypatch.setattr("munchkin.channels.whatsapp.shutil.which", lambda _: "/usr/bin/npm")
+    monkeypatch.setattr("miniUnicorn.channels.whatsapp._bridge_token_path", lambda: token_path)
+    monkeypatch.setattr("miniUnicorn.channels.whatsapp._ensure_bridge_setup", lambda: bridge_dir)
+    monkeypatch.setattr("miniUnicorn.channels.whatsapp.shutil.which", lambda _: "/usr/bin/npm")
 
     def fake_run(*args, **kwargs):
         calls.append((args, kwargs))
         return MagicMock()
 
-    monkeypatch.setattr("munchkin.channels.whatsapp.subprocess.run", fake_run)
+    monkeypatch.setattr("miniUnicorn.channels.whatsapp.subprocess.run", fake_run)
     ch = WhatsAppChannel({"enabled": True}, MagicMock())
 
     assert await ch.login() is True
@@ -364,7 +364,7 @@ async def test_start_sends_auth_message_with_generated_token(monkeypatch, tmp_pa
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-    monkeypatch.setattr("munchkin.channels.whatsapp._bridge_token_path", lambda: token_path)
+    monkeypatch.setattr("miniUnicorn.channels.whatsapp._bridge_token_path", lambda: token_path)
     monkeypatch.setitem(
         sys.modules,
         "websockets",

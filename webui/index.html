@@ -6,14 +6,11 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="Munchkin web UI — chat with your Munchkin workspace."
+      content="MiniUnicorn web UI — chat with your MiniUnicorn workspace."
       data-i18n-meta="description"
     />
     <meta name="theme-color" content="#fafaf9" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#161618" media="(prefers-color-scheme: dark)" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/brand/munchkin_favicon_32.png" />
-    <link rel="icon" type="image/png" sizes="73x75" href="/brand/munchkin_icon.png" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/brand/munchkin_apple_touch.png" />
     <style>
       html,
       body,
@@ -80,7 +77,7 @@
     <script>
       (function () {
         try {
-          var stored = localStorage.getItem("munchkin-webui.theme");
+          var stored = localStorage.getItem("miniUnicorn-webui.theme");
           var dark =
             stored === "dark" ||
             (!stored &&
@@ -92,43 +89,43 @@
     </script>
     <script>
       (function () {
-        var localeKey = "munchkin.locale";
+        var localeKey = "miniUnicorn.locale";
         var copy = {
           en: {
-            boot: "Loading Munchkin…",
-            description: "Munchkin web UI — chat with your Munchkin workspace."
+            boot: "Loading MiniUnicorn…",
+            description: "MiniUnicorn web UI — chat with your MiniUnicorn workspace."
           },
           "zh-CN": {
-            boot: "正在加载 Munchkin…",
-            description: "Munchkin Web UI —— 与你的 Munchkin 工作区对话。"
+            boot: "正在加载 MiniUnicorn…",
+            description: "MiniUnicorn Web UI —— 与你的 MiniUnicorn 工作区对话。"
           },
           "zh-TW": {
-            boot: "正在載入 Munchkin…",
-            description: "Munchkin Web UI —— 與你的 Munchkin 工作區對話。"
+            boot: "正在載入 MiniUnicorn…",
+            description: "MiniUnicorn Web UI —— 與你的 MiniUnicorn 工作區對話。"
           },
           fr: {
-            boot: "Chargement de Munchkin…",
-            description: "Interface web Munchkin — discutez avec votre espace de travail Munchkin."
+            boot: "Chargement de MiniUnicorn…",
+            description: "Interface web MiniUnicorn — discutez avec votre espace de travail MiniUnicorn."
           },
           ja: {
-            boot: "Munchkin を読み込み中…",
-            description: "Munchkin Web UI — Munchkin ワークスペースと会話します。"
+            boot: "MiniUnicorn を読み込み中…",
+            description: "MiniUnicorn Web UI — MiniUnicorn ワークスペースと会話します。"
           },
           ko: {
-            boot: "Munchkin 불러오는 중…",
-            description: "Munchkin 웹 UI — Munchkin 작업공간과 대화하세요."
+            boot: "MiniUnicorn 불러오는 중…",
+            description: "MiniUnicorn 웹 UI — MiniUnicorn 작업공간과 대화하세요."
           },
           es: {
-            boot: "Cargando Munchkin…",
-            description: "Interfaz web de Munchkin: conversa con tu espacio de trabajo de Munchkin."
+            boot: "Cargando MiniUnicorn…",
+            description: "Interfaz web de MiniUnicorn: conversa con tu espacio de trabajo de MiniUnicorn."
           },
           vi: {
-            boot: "Đang tải Munchkin…",
-            description: "Giao diện web Munchkin — trò chuyện với workspace Munchkin của bạn."
+            boot: "Đang tải MiniUnicorn…",
+            description: "Giao diện web MiniUnicorn — trò chuyện với workspace MiniUnicorn của bạn."
           },
           id: {
-            boot: "Memuat Munchkin…",
-            description: "UI web Munchkin — ngobrol dengan workspace Munchkin Anda."
+            boot: "Memuat MiniUnicorn…",
+            description: "UI web MiniUnicorn — ngobrol dengan workspace MiniUnicorn Anda."
           }
         };
 
@@ -170,14 +167,14 @@
         } catch {}
       })();
     </script>
-    <title>Munchkin</title>
+    <title>MiniUnicorn</title>
   </head>
   <body class="bg-background text-foreground antialiased">
     <div id="root">
       <div class="boot-splash">
         <div class="boot-splash-inner">
           <span class="boot-dot" aria-hidden="true"></span>
-          <span data-boot-copy>Loading Munchkin…</span>
+          <span data-boot-copy>Loading MiniUnicorn…</span>
         </div>
       </div>
     </div>

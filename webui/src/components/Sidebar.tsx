@@ -1,12 +1,14 @@
 import { useState, type ReactNode } from "react";
 import {
   Archive,
+  CalendarClock,
   Menu,
+  Package,
   PlugZap,
-  Search,
   Settings,
   Sparkles,
   SquarePen,
+  Users,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -36,7 +38,9 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onOpenMcp: () => void;
   onOpenSkills: () => void;
-  onOpenSearch: () => void;
+  onOpenAgents: () => void;
+  onOpenCron: () => void;
+  onOpenTools: () => void;
   onToggleArchived: () => void;
   onCollapse: () => void;
   onExpand?: () => void;
@@ -61,7 +65,6 @@ export function Sidebar(props: SidebarProps) {
   const [menuPortalContainer, setMenuPortalContainer] =
     useState<HTMLElement | null>(null);
   const collapsed = Boolean(props.collapsed);
-  const toggleLabel = t("thread.header.toggleSidebar");
 
   return (
     <nav
@@ -74,62 +77,35 @@ export function Sidebar(props: SidebarProps) {
     >
       <div
         className={cn(
-          "flex items-center px-3 pb-2.5",
+          "space-y-1.5 px-2",
           props.hostChromeInset ? "pt-[2.85rem]" : "pt-3",
-          collapsed ? "w-14 justify-start" : "justify-between",
-        )}
-      >
-        <button
-          type="button"
-          aria-label={collapsed ? toggleLabel : undefined}
-          aria-hidden={collapsed ? undefined : true}
-          title={collapsed ? toggleLabel : undefined}
-          onClick={collapsed ? props.onExpand : undefined}
-          tabIndex={collapsed ? 0 : -1}
-          className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl transition-colors",
-            collapsed
-              ? "-ml-0.5 hover:bg-sidebar-accent/75"
-              : "pointer-events-none -ml-0.5",
-          )}
-        >
-          <img
-            src="/brand/munchkin_icon.png"
-            alt=""
-            className="h-8 w-8 select-none object-contain"
-            draggable={false}
-          />
-        </button>
-        {!collapsed && !props.hostChromeInset && (
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={t("sidebar.collapse")}
-            onClick={props.onCollapse}
-            className="h-7 w-7 rounded-lg text-muted-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground"
-          >
-            <Menu className="h-3.5 w-3.5" />
-          </Button>
-        )}
-      </div>
-
-      <div
-        className={cn(
-          "space-y-1.5 px-2 pb-2",
           collapsed && "flex w-14 flex-col items-center px-0",
         )}
       >
+        {!collapsed && !props.hostChromeInset ? (
+          <Button
+            type="button"
+            variant="ghost"
+            aria-label={t("sidebar.collapse")}
+            onClick={props.onCollapse}
+            className="h-8 w-full justify-start rounded-xl px-3 text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground"
+          >
+            <Menu className="h-4 w-4" />
+          </Button>
+        ) : null}
+        {collapsed && props.onExpand ? (
+          <SidebarActionButton
+            collapsed
+            label={t("sidebar.expand")}
+            onClick={props.onExpand}
+            icon={<Menu className="h-4 w-4" />}
+          />
+        ) : null}
         <SidebarActionButton
           collapsed={collapsed}
           label={t("sidebar.newChat")}
           onClick={props.onNewChat}
           icon={<SquarePen className="h-4 w-4" />}
-        />
-        <SidebarActionButton
-          collapsed={collapsed}
-          label={t("sidebar.searchAria")}
-          onClick={props.onOpenSearch}
-          icon={<Search className="h-4 w-4" />}
         />
         <SidebarActionButton
           collapsed={collapsed}
@@ -139,9 +115,27 @@ export function Sidebar(props: SidebarProps) {
         />
         <SidebarActionButton
           collapsed={collapsed}
+          label={t("sidebar.tools")}
+          onClick={props.onOpenTools}
+          icon={<Package className="h-4 w-4" />}
+        />
+        <SidebarActionButton
+          collapsed={collapsed}
+          label={t("sidebar.agents")}
+          onClick={props.onOpenAgents}
+          icon={<Users className="h-4 w-4" />}
+        />
+        <SidebarActionButton
+          collapsed={collapsed}
           label={t("sidebar.mcp")}
           onClick={props.onOpenMcp}
           icon={<PlugZap className="h-4 w-4" />}
+        />
+        <SidebarActionButton
+          collapsed={collapsed}
+          label={t("sidebar.cron")}
+          onClick={props.onOpenCron}
+          icon={<CalendarClock className="h-4 w-4" />}
         />
         {props.archivedCount ? (
           <SidebarActionButton

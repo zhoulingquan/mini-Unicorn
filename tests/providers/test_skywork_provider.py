@@ -2,9 +2,9 @@
 
 from unittest.mock import patch
 
-from munchkin.config.schema import Config, ProvidersConfig
-from munchkin.providers.openai_compat_provider import OpenAICompatProvider
-from munchkin.providers.registry import PROVIDERS, find_by_name
+from miniUnicorn.config.schema import Config, ProvidersConfig
+from miniUnicorn.providers.openai_compat_provider import OpenAICompatProvider
+from miniUnicorn.providers.registry import PROVIDERS, find_by_name
 
 
 def test_skywork_config_field_exists() -> None:
@@ -58,7 +58,7 @@ def test_skywork_model_auto_matches_with_default_api_base() -> None:
 
 def test_skywork_preserves_model_id_and_uses_chat_completion_max_tokens() -> None:
     spec = find_by_name("skywork")
-    with patch("munchkin.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider(
             api_key="sky-key",
             default_model="skywork-ai/skyclaw-v1",

@@ -25,9 +25,6 @@ function settingsPayload(): SettingsPayload {
       context_window_tokens: 65536,
       temperature: 0.1,
       reasoning_effort: null,
-      timezone: "UTC",
-      bot_name: "Munchkin",
-      bot_icon: "nb",
       tool_hint_max_length: 40,
     },
     model_presets: [{
@@ -117,9 +114,9 @@ function renderSettingsView(
   render(
     <ClientProvider client={{} as never} token="tok">
       <SettingsView
-        theme="light"
+        themeMode="system"
         initialSection={options.initialSection ?? "advanced"}
-        onToggleTheme={() => {}}
+        onSetThemeMode={() => {}}
         onBackToChat={() => {}}
         onModelNameChange={() => {}}
         onSettingsChange={options.onSettingsChange}
@@ -209,29 +206,6 @@ describe("SettingsView Apps catalog", () => {
     renderSettingsView({ onSettingsChange });
 
     await waitFor(() => expect(onSettingsChange).toHaveBeenCalledWith(payload));
-  });
-
-  it("shows context window options in model settings", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url === "/api/settings") return jsonResponse(settingsPayload());
-        if (url === "/api/settings/cli-apps") {
-          return jsonResponse({ apps: [], installed_count: 0 });
-        }
-        if (url === "/api/settings/mcp-presets") {
-          return jsonResponse({ presets: [], installed_count: 0 });
-        }
-        return { ok: false, status: 404, json: async () => ({}) } as Response;
-      }),
-    );
-
-    renderSettingsView({ initialSection: "models" });
-
-    expect(await screen.findByText("Context window")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "64K" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "256K" })).toBeInTheDocument();
   });
 
   it("saves network safety without exposing technical SSRF copy", async () => {

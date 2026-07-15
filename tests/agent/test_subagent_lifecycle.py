@@ -7,15 +7,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from munchkin.agent.hook import AgentHookContext
-from munchkin.agent.runner import AgentRunResult
-from munchkin.agent.subagent import (
+from miniUnicorn.agent.hook import AgentHookContext
+from miniUnicorn.agent.runner import AgentRunResult
+from miniUnicorn.agent.subagent import (
     SubagentManager,
     SubagentStatus,
     _SubagentHook,
 )
-from munchkin.bus.queue import MessageBus
-from munchkin.providers.base import LLMProvider
+from miniUnicorn.bus.events import OutboundMessage, make_session_key, session_key_base
+from miniUnicorn.bus.queue import MessageBus
+from miniUnicorn.providers.base import LLMProvider
 
 
 # ---------------------------------------------------------------------------
@@ -556,3 +557,241 @@ class TestSubagentHook:
         ctx = _make_hook_context(error="something broke")
         await hook.after_iteration(ctx)
         assert status.error == "something broke"
+
+
+# ---------------------------------------------------------------------------
+# _SubagentHook activity forwarding (upgrade 1: subagent activity stream)
+# ---------------------------------------------------------------------------
+
+
+class TestSubagentHookActivity:
+    """Verify the hook publishes _subagent_activity outbound frames when bus
+    and origin routing are provided, and stays silent otherwise."""
+
+    @pytest.mark.asyncio
+    async def test_before_execute_tools_publishes_activity(self):
+        bus = MessageBus()
+        status = SubagentStatus(
+            task_id="t1", label="researcher", task_description="do",
+            started_at=time.monotonic(),
+        )
+        hook = _SubagentHook(
+            "t1", status, bus=bus,
+            origin_channel="websocket", origin_chat_id="chat-1",
+        )
+        tool_call = MagicMock()
+        tool_call.name = "read_file"
+        tool_call.arguments = {"path": "/tmp/test"}
+        ctx = _make_hook_context(tool_calls=[tool_call])
+        await hook.before_execute_tools(ctx)
+
+        msg = bus.outbound.get_nowait()
+        assert msg.channel == "websocket"
+        assert msg.chat_id == "chat-1"
+        assert msg.metadata["_subagent_activity"] is True
+        assert msg.metadata["_subagent_label"] == "researcher"
+        assert msg.metadata["_subagent_task_id"] == "t1"
+        assert msg.metadata["_progress"] is True
+        assert "[researcher] calling read_file" in msg.content
+
+    @pytest.mark.asyncio
+    async def test_after_iteration_publishes_tool_events(self):
+        bus = MessageBus()
+        status = SubagentStatus(
+            task_id="t2", label="worker", task_description="do",
+            started_at=time.monotonic(),
+        )
+        hook = _SubagentHook(
+            "t2", status, bus=bus,
+            origin_channel="websocket", origin_chat_id="chat-2",
+        )
+        ctx = _make_hook_context(
+            iteration=1,
+            tool_events=[
+                {"name": "read_file", "status": "ok", "detail": "10 lines"},
+                {"name": "exec", "status": "error", "detail": "timeout"},
+            ],
+        )
+        await hook.after_iteration(ctx)
+
+        # Two tool events → two outbound activity messages.
+        first = bus.outbound.get_nowait()
+        second = bus.outbound.get_nowait()
+        assert first.metadata["_subagent_activity"] is True
+        assert second.metadata["_subagent_activity"] is True
+        assert "read_file" in first.content
+        assert "ok" in first.content
+        assert "exec" in second.content
+        assert "error" in second.content
+
+    @pytest.mark.asyncio
+    async def test_no_bus_no_publish(self):
+        """Hook without bus must not publish (backward-compat with _run_subagent)."""
+        status = SubagentStatus(
+            task_id="t3", label="solo", task_description="do",
+            started_at=time.monotonic(),
+        )
+        hook = _SubagentHook("t3", status)  # no bus, no origin
+        tool_call = MagicMock()
+        tool_call.name = "read_file"
+        tool_call.arguments = {}
+        ctx = _make_hook_context(tool_calls=[tool_call])
+        await hook.before_execute_tools(ctx)
+        await hook.after_iteration(ctx)
+        # No bus to inspect; just verify no exception was raised.
+
+    @pytest.mark.asyncio
+    async def test_emit_reasoning_publishes_activity(self):
+        bus = MessageBus()
+        status = SubagentStatus(
+            task_id="t4", label="thinker", task_description="do",
+            started_at=time.monotonic(),
+        )
+        hook = _SubagentHook(
+            "t4", status, bus=bus,
+            origin_channel="websocket", origin_chat_id="chat-4",
+        )
+        await hook.emit_reasoning("analyzing the problem")
+        msg = bus.outbound.get_nowait()
+        assert msg.metadata["_subagent_activity"] is True
+        assert "analyzing the problem" in msg.content
+        assert "thinking" in msg.content
+
+    @pytest.mark.asyncio
+    async def test_emit_reasoning_empty_no_publish(self):
+        bus = MessageBus()
+        status = SubagentStatus(
+            task_id="t5", label="quiet", task_description="do",
+            started_at=time.monotonic(),
+        )
+        hook = _SubagentHook(
+            "t5", status, bus=bus,
+            origin_channel="websocket", origin_chat_id="chat-5",
+        )
+        await hook.emit_reasoning(None)
+        await hook.emit_reasoning("")
+        assert bus.outbound.empty()
+
+
+# ---------------------------------------------------------------------------
+# make_session_key / session_key_base (upgrade 2: session namespace)
+# ---------------------------------------------------------------------------
+
+
+class TestMakeSessionKey:
+    def test_legacy_form_without_agent_id(self):
+        assert make_session_key("websocket", "chat-1") == "websocket:chat-1"
+
+    def test_namespaced_form_with_agent_id(self):
+        key = make_session_key("websocket", "chat-1", "sub:abc123")
+        assert key == "websocket:chat-1#sub:abc123"
+
+    def test_base_recovery_from_namespaced_key(self):
+        key = make_session_key("cli", "direct", "sub:xyz")
+        assert session_key_base(key) == "cli:direct"
+
+    def test_base_recovery_from_legacy_key(self):
+        # Legacy keys without ``#`` round-trip through session_key_base unchanged.
+        assert session_key_base("websocket:chat-1") == "websocket:chat-1"
+
+    def test_base_recovery_strips_only_first_namespace(self):
+        # Only the first ``#`` splits; a base that itself contains ``#`` (which
+        # is unusual but possible if a parent session was already namespaced)
+        # preserves the rest. This matches the documented contract
+        # ``split("#", 1)[0]``.
+        assert session_key_base("a:b#sub:1#extra") == "a:b"
+
+
+# ---------------------------------------------------------------------------
+# _run_subagent_direct session isolation (upgrade 2)
+# ---------------------------------------------------------------------------
+
+
+class TestRunSubagentDirectSessionIsolation:
+    @pytest.mark.asyncio
+    async def test_uses_namespaced_session_key(self, tmp_path):
+        """The runner must receive a namespaced session key so the subagent's
+        consolidation history is isolated from the parent session."""
+        sm = _manager(tmp_path)
+        captured_spec = {}
+
+        async def _capture_run(spec):
+            captured_spec["session_key"] = spec.session_key
+            captured_spec["hook"] = spec.hook
+            return AgentRunResult(
+                final_content="done", messages=[], stop_reason="completed",
+            )
+
+        sm.runner.run = _capture_run
+        status = SubagentStatus(
+            task_id="abc123", label="worker", task_description="do",
+            started_at=time.monotonic(),
+        )
+        await sm._run_subagent_direct(
+            "abc123", "do task", "worker",
+            {"channel": "websocket", "chat_id": "chat-1", "session_key": "websocket:chat-1"},
+            status,
+        )
+        # Subagent session key must be namespaced and contain the task_id.
+        assert captured_spec["session_key"] == "websocket:chat-1#sub:abc123"
+
+    @pytest.mark.asyncio
+    async def test_hook_receives_bus_and_origin(self, tmp_path):
+        """The hook must be constructed with bus + origin so activity events
+        are forwarded to subscribed clients."""
+        sm = _manager(tmp_path)
+        captured_hook = {}
+
+        async def _capture_run(spec):
+            captured_hook["hook"] = spec.hook
+            return AgentRunResult(
+                final_content="done", messages=[], stop_reason="completed",
+            )
+
+        sm.runner.run = _capture_run
+        status = SubagentStatus(
+            task_id="t9", label="researcher", task_description="do",
+            started_at=time.monotonic(),
+        )
+        await sm._run_subagent_direct(
+            "t9", "do task", "researcher",
+            {"channel": "websocket", "chat_id": "chat-9", "session_key": "websocket:chat-9"},
+            status,
+        )
+        hook = captured_hook["hook"]
+        assert hook._bus is sm.bus
+        assert hook._origin_channel == "websocket"
+        assert hook._origin_chat_id == "chat-9"
+        assert hook._label == "researcher"
+
+    @pytest.mark.asyncio
+    async def test_llm_timeout_uses_parent_session_key(self, tmp_path):
+        """The LLM wall timeout must be looked up against the parent session
+        key, not the namespaced subagent key, so per-session limits still apply."""
+        seen_keys = []
+
+        def _timeout_lookup(key):
+            seen_keys.append(key)
+            return None
+
+        sm = _manager(
+            tmp_path,
+            llm_wall_timeout_for_session=_timeout_lookup,
+        )
+
+        async def _noop_run(spec):
+            return AgentRunResult(
+                final_content="done", messages=[], stop_reason="completed",
+            )
+
+        sm.runner.run = _noop_run
+        status = SubagentStatus(
+            task_id="t10", label="worker", task_description="do",
+            started_at=time.monotonic(),
+        )
+        await sm._run_subagent_direct(
+            "t10", "do task", "worker",
+            {"channel": "cli", "chat_id": "direct", "session_key": "cli:direct"},
+            status,
+        )
+        assert seen_keys == ["cli:direct"]

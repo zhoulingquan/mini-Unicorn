@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from munchkin.agent.tools.base import Tool
-from munchkin.agent.tools.registry import ToolRegistry
+from miniUnicorn.agent.tools.base import Tool
+from miniUnicorn.agent.tools.registry import ToolRegistry
 
 
 class _FakeTool(Tool):

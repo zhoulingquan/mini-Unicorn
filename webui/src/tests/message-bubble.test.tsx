@@ -39,7 +39,6 @@ describe("MessageBubble", () => {
     expect(token.className).not.toContain("px-");
     expect(token.getAttribute("style")).toContain("color: #0B5CFF");
     expect(token.getAttribute("style")).toContain("text-shadow");
-    expect(screen.getByTestId("message-cli-mention-logo-zoom")).toBeInTheDocument();
     expect(screen.queryByTestId("message-cli-mention-krita")).not.toBeInTheDocument();
     expect(screen.getByText(/not @krita/)).toBeInTheDocument();
   });
@@ -67,7 +66,6 @@ describe("MessageBubble", () => {
     expect(token.className).not.toContain("rounded");
     expect(token.className).not.toContain("px-");
     expect(token.getAttribute("style")).toContain("color: #F08705");
-    expect(screen.getByTestId("message-cli-mention-logo-drawio")).toBeInTheDocument();
   });
 
   it("renders MCP preset mentions inside sent user messages", () => {
@@ -84,7 +82,6 @@ describe("MessageBubble", () => {
     expect(token).toHaveTextContent("@browserbase");
     expect(token).toHaveAttribute("title", "MCP server: Browserbase");
     expect(token.getAttribute("style")).toContain("color: #111827");
-    expect(screen.getByTestId("message-mcp-mention-logo-browserbase")).toBeInTheDocument();
   });
 
   it("copies completed assistant replies from the action row", async () => {
@@ -250,7 +247,7 @@ describe("MessageBubble", () => {
       id: "a-file-path",
       role: "assistant",
       content:
-        "改动在 `webui/src/components/MarkdownTextRenderer.tsx` 和 `/Users/renxubin/.munchkin/workspace/minecraft-fps/index.html`。",
+        "改动在 `webui/src/components/MarkdownTextRenderer.tsx` 和 `/Users/renxubin/.miniUnicorn/workspace/minecraft-fps/index.html`。",
       createdAt: Date.now(),
     };
 
@@ -270,7 +267,7 @@ describe("MessageBubble", () => {
       expect(references[1]).not.toHaveAttribute("title");
       expect(references[1]).toHaveAttribute(
         "aria-label",
-        "/Users/renxubin/.munchkin/workspace/minecraft-fps/index.html",
+        "/Users/renxubin/.miniUnicorn/workspace/minecraft-fps/index.html",
       );
 
       vi.useFakeTimers();
@@ -280,7 +277,7 @@ describe("MessageBubble", () => {
       });
       const tooltip = screen.getByRole("tooltip");
       expect(tooltip).toHaveTextContent(
-        "/Users/renxubin/.munchkin/workspace/minecraft-fps/index.html",
+        "/Users/renxubin/.miniUnicorn/workspace/minecraft-fps/index.html",
       );
     } finally {
       vi.useRealTimers();

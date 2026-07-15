@@ -23,7 +23,7 @@ export interface HostRuntimeInfo {
   engine_transport?: "unix_socket";
 }
 
-export interface MunchkinHostApi {
+export interface MiniUnicornHostApi {
   getRuntimeInfo(): Promise<HostRuntimeInfo>;
   restartEngine(): Promise<void>;
   pickFolder(): Promise<string | null>;
@@ -47,19 +47,19 @@ export type HostSocketEvent =
   | { code?: number; id: string; reason?: string; type: "close" };
 
 type HostSocketBridge = Required<Pick<
-  MunchkinHostApi,
+  MiniUnicornHostApi,
   "closeSocket" | "onSocketEvent" | "openSocket" | "sendSocket"
 >>;
 
 declare global {
   interface Window {
-    munchkinHost?: MunchkinHostApi;
+    miniUnicornHost?: MiniUnicornHostApi;
   }
 }
 
-export function getHostApi(): MunchkinHostApi | null {
+export function getHostApi(): MiniUnicornHostApi | null {
   if (typeof window === "undefined") return null;
-  return window.munchkinHost ?? null;
+  return window.miniUnicornHost ?? null;
 }
 
 export function toRuntimeSurface(surface: string | null | undefined): RuntimeSurface {

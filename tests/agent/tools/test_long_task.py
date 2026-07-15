@@ -7,15 +7,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from munchkin.agent.loop import AgentLoop
-from munchkin.agent.tools.context import RequestContext
-from munchkin.agent.tools.long_task import (
+from miniUnicorn.agent.loop import AgentLoop
+from miniUnicorn.agent.tools.context import RequestContext
+from miniUnicorn.agent.tools.long_task import (
     CompleteGoalTool,
     LongTaskTool,
 )
-from munchkin.bus.queue import MessageBus
-from munchkin.session.goal_state import GOAL_STATE_KEY
-from munchkin.session.manager import SessionManager
+from miniUnicorn.bus.queue import MessageBus
+from miniUnicorn.session.goal_state import GOAL_STATE_KEY
+from miniUnicorn.session.manager import SessionManager
 
 
 def _tools(sm: SessionManager) -> tuple[LongTaskTool, CompleteGoalTool]:

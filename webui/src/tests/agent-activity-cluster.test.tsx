@@ -483,7 +483,6 @@ describe("AgentActivityCluster", () => {
     expect(cliRuns).toHaveTextContent("Using");
     expect(cliRuns).toHaveTextContent("@blender");
     expect(cliRuns).toHaveTextContent("--json --background scene.blend");
-    expect(screen.getByTestId("activity-cli-logo-blender")).toBeInTheDocument();
     expect(screen.queryByText(/run_cli_app/)).not.toBeInTheDocument();
   });
 
@@ -497,8 +496,8 @@ describe("AgentActivityCluster", () => {
             id: "t-search",
             role: "tool",
             kind: "trace",
-            content: 'web_search({"query":"munchkin architecture"})',
-            traces: ['web_search({"query":"munchkin architecture"})'],
+            content: 'web_search({"query":"miniUnicorn architecture"})',
+            traces: ['web_search({"query":"miniUnicorn architecture"})'],
             createdAt: 1,
           },
           {
@@ -602,7 +601,6 @@ describe("AgentActivityCluster", () => {
     expect(mcpRuns).toHaveTextContent("Browserbase");
     expect(mcpRuns).toHaveTextContent("browser_navigate");
     expect(mcpRuns).toHaveTextContent("url: https://example.com");
-    expect(screen.getByTestId("activity-mcp-logo-browserbase")).toBeInTheDocument();
     expect(screen.queryByText(/mcp_browserbase_browser_navigate/)).not.toBeInTheDocument();
   });
 

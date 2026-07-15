@@ -10,12 +10,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from munchkin.agent.loop import AgentLoop
-from munchkin.agent.subagent import SubagentManager, SubagentStatus
-from munchkin.agent.tools.search import FindFilesTool, GrepTool
-from munchkin.agent.tools.web import WebSearchTool
-from munchkin.bus.queue import MessageBus
-from munchkin.config.schema import WebSearchConfig
+from miniUnicorn.agent.loop import AgentLoop
+from miniUnicorn.agent.subagent import SubagentManager, SubagentStatus
+from miniUnicorn.agent.tools.search import FindFilesTool, GrepTool
+from miniUnicorn.agent.tools.web import WebSearchTool
+from miniUnicorn.bus.queue import MessageBus
+from miniUnicorn.config.schema import WebSearchConfig
 
 
 @pytest.mark.asyncio
@@ -30,7 +30,7 @@ async def test_web_search_tool_refreshes_dynamic_config_loader(monkeypatch) -> N
 
     monkeypatch.setattr(WebSearchTool, "_search_duckduckgo", fake_duckduckgo)
 
-    assert await tool.execute("munchkin") == "duckduckgo:munchkin:3"
+    assert await tool.execute("miniUnicorn") == "duckduckgo:miniUnicorn:3"
 
 
 @pytest.mark.asyncio

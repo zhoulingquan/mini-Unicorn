@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from munchkin.providers.openai_compat_provider import OpenAICompatProvider
+from miniUnicorn.providers.openai_compat_provider import OpenAICompatProvider
 
 
 class FakeUsage:

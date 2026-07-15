@@ -1,15 +1,15 @@
 # Channel Plugin Guide
 
-Build a custom Munchkin channel in three steps: subclass, package, install.
+Build a custom MiniUnicorn channel in three steps: subclass, package, install.
 
-> **Note:** We recommend developing channel plugins against a source checkout of Munchkin (`pip install -e .`) rather than a PyPI release, so you always have access to the latest base-channel features and APIs.
+> **Note:** We recommend developing channel plugins against a source checkout of MiniUnicorn (`pip install -e .`) rather than a PyPI release, so you always have access to the latest base-channel features and APIs.
 
 ## How It Works
 
-Munchkin discovers channel plugins via Python [entry points](https://packaging.python.org/en/latest/specifications/entry-points/). When `munchkin gateway` starts, it scans:
+MiniUnicorn discovers channel plugins via Python [entry points](https://packaging.python.org/en/latest/specifications/entry-points/). When `miniUnicorn gateway` starts, it scans:
 
-1. Built-in channels in `Munchkin/channels/`
-2. External packages registered under the `Munchkin.channels` entry point group
+1. Built-in channels in `MiniUnicorn/channels/`
+2. External packages registered under the `MiniUnicorn.channels` entry point group
 
 If a matching config section has `"enabled": true`, the channel is instantiated and started.
 
@@ -20,8 +20,8 @@ We'll build a minimal webhook channel that receives messages via HTTP POST and s
 ### Project Structure
 
 ```text
-Munchkin-channel-webhook/
-├── munchkin_channel_webhook/
+MiniUnicorn-channel-webhook/
+├── miniUnicorn_channel_webhook/
 │   ├── __init__.py          # re-export WebhookChannel
 │   └── channel.py           # channel implementation
 └── pyproject.toml
@@ -30,14 +30,14 @@ Munchkin-channel-webhook/
 ### 1. Create Your Channel
 
 ```python
-# munchkin_channel_webhook/__init__.py
-from munchkin_channel_webhook.channel import WebhookChannel
+# miniUnicorn_channel_webhook/__init__.py
+from miniUnicorn_channel_webhook.channel import WebhookChannel
 
 __all__ = ["WebhookChannel"]
 ```
 
 ```python
-# munchkin_channel_webhook/channel.py
+# miniUnicorn_channel_webhook/channel.py
 import asyncio
 from typing import Any
 
@@ -45,10 +45,10 @@ from aiohttp import web
 from loguru import logger
 from pydantic import Field
 
-from Munchkin.channels.base import BaseChannel
-from Munchkin.bus.events import OutboundMessage
-from Munchkin.bus.queue import MessageBus
-from Munchkin.config.schema import Base
+from MiniUnicorn.channels.base import BaseChannel
+from MiniUnicorn.bus.events import OutboundMessage
+from MiniUnicorn.bus.queue import MessageBus
+from MiniUnicorn.config.schema import Base
 
 
 class WebhookConfig(Base):
@@ -133,19 +133,19 @@ class WebhookChannel(BaseChannel):
 ```toml
 # pyproject.toml
 [project]
-name = "Munchkin-channel-webhook"
+name = "MiniUnicorn-channel-webhook"
 version = "0.1.0"
-dependencies = ["munchkin-ai", "aiohttp"]
+dependencies = ["miniUnicorn-ai", "aiohttp"]
 
-[project.entry-points."Munchkin.channels"]
-webhook = "munchkin_channel_webhook:WebhookChannel"
+[project.entry-points."MiniUnicorn.channels"]
+webhook = "miniUnicorn_channel_webhook:WebhookChannel"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["munchkin_channel_webhook"]
+packages = ["miniUnicorn_channel_webhook"]
 ```
 
 The key (`webhook`) becomes the config section name. The value points to your `BaseChannel` subclass.
@@ -154,11 +154,11 @@ The key (`webhook`) becomes the config section name. The value points to your `B
 
 ```bash
 pip install -e .
-Munchkin plugins list      # verify "Webhook" shows as "plugin"
-munchkin onboard           # auto-adds default config for detected plugins
+MiniUnicorn plugins list      # verify "Webhook" shows as "plugin"
+miniUnicorn onboard           # auto-adds default config for detected plugins
 ```
 
-Edit `~/.munchkin/config.json`:
+Edit `~/.miniUnicorn/config.json`:
 
 ```json
 {
@@ -175,7 +175,7 @@ Edit `~/.munchkin/config.json`:
 ### 4. Run & Test
 
 ```bash
-munchkin gateway
+miniUnicorn gateway
 ```
 
 In another terminal:
@@ -223,8 +223,8 @@ Channels that don't need interactive login (e.g. Telegram with bot token, Discor
 
 Users trigger interactive login via:
 ```bash
-munchkin channels login <channel_name>
-munchkin channels login <channel_name> --force  # re-authenticate
+miniUnicorn channels login <channel_name>
+miniUnicorn channels login <channel_name> --force  # re-authenticate
 ```
 
 ### Provided by Base
@@ -233,7 +233,7 @@ munchkin channels login <channel_name> --force  # re-authenticate
 |-------------------|-------------|
 | `_handle_message(sender_id, chat_id, content, media?, metadata?, session_key?)` | **Call this when you receive a message.** Checks `is_allowed()`, then publishes to the bus. Automatically sets `_wants_stream` if `supports_streaming` is true. |
 | `is_allowed(sender_id)` | Checks against `config.allow_from`; `"*"` allows all, `[]` denies all. |
-| `default_config()` (classmethod) | Returns default config dict for `munchkin onboard`. Override to declare your fields. |
+| `default_config()` (classmethod) | Returns default config dict for `miniUnicorn onboard`. Override to declare your fields. |
 | `transcribe_audio(file_path)` | Transcribes audio via Groq Whisper (if configured). |
 | `supports_streaming` (property) | `True` when config has `"streaming": true` **and** subclass overrides `send_delta()`. |
 | `is_running` | Returns `self._running`. |
@@ -355,7 +355,7 @@ When `streaming` is `false` (default) or omitted, only `send()` is called — no
 
 ## Progress, Tool Hints, and Reasoning
 
-Besides normal assistant text, Munchkin can emit low-emphasis trace blocks. These are intended for UI affordances like status rows, collapsible "used tools" groups, or reasoning/thinking blocks. Platforms that do not have a good place for them can ignore them safely.
+Besides normal assistant text, MiniUnicorn can emit low-emphasis trace blocks. These are intended for UI affordances like status rows, collapsible "used tools" groups, or reasoning/thinking blocks. Platforms that do not have a good place for them can ignore them safely.
 
 ### Progress and Tool Hints
 
@@ -465,15 +465,15 @@ Recommended rendering:
 
 `BaseChannel.is_allowed()` reads the permission list via `getattr(self.config, "allow_from", [])`. This works for Pydantic models where `allow_from` is a real Python attribute, but **fails silently for plain `dict`** — `dict` has no `allow_from` attribute, so `getattr` always returns the default `[]`, causing all messages to be denied.
 
-Built-in channels use Pydantic config models (subclassing `Base` from `Munchkin.config.schema`). Plugin channels **must do the same**.
+Built-in channels use Pydantic config models (subclassing `Base` from `MiniUnicorn.config.schema`). Plugin channels **must do the same**.
 
 ### Pattern
 
-1. Define a Pydantic model inheriting from `Munchkin.config.schema.Base`:
+1. Define a Pydantic model inheriting from `MiniUnicorn.config.schema.Base`:
 
 ```python
 from pydantic import Field
-from Munchkin.config.schema import Base
+from MiniUnicorn.config.schema import Base
 
 class WebhookConfig(Base):
     """Webhook channel configuration."""
@@ -488,7 +488,7 @@ class WebhookConfig(Base):
 
 ```python
 from typing import Any
-from Munchkin.bus.queue import MessageBus
+from MiniUnicorn.bus.queue import MessageBus
 
 class WebhookChannel(BaseChannel):
     def __init__(self, config: Any, bus: MessageBus):
@@ -507,7 +507,7 @@ async def start(self) -> None:
 
 `allowFrom` is handled automatically by `_handle_message()` — you don't need to check it yourself.
 
-Override `default_config()` so `munchkin onboard` auto-populates `config.json`:
+Override `default_config()` so `miniUnicorn onboard` auto-populates `config.json`:
 
 ```python
 @classmethod
@@ -523,25 +523,25 @@ If not overridden, the base class returns `{"enabled": false}`.
 
 | What | Format | Example |
 |------|--------|---------|
-| PyPI package | `Munchkin-channel-{name}` | `Munchkin-channel-webhook` |
+| PyPI package | `MiniUnicorn-channel-{name}` | `MiniUnicorn-channel-webhook` |
 | Entry point key | `{name}` | `webhook` |
 | Config section | `channels.{name}` | `channels.webhook` |
-| Python package | `munchkin_channel_{name}` | `munchkin_channel_webhook` |
+| Python package | `miniUnicorn_channel_{name}` | `miniUnicorn_channel_webhook` |
 
 ## Local Development
 
 ```bash
-git clone https://github.com/you/Munchkin-channel-webhook
-cd Munchkin-channel-webhook
+git clone https://github.com/you/MiniUnicorn-channel-webhook
+cd MiniUnicorn-channel-webhook
 pip install -e .
-Munchkin plugins list    # should show "Webhook" as "plugin"
-munchkin gateway         # test end-to-end
+MiniUnicorn plugins list    # should show "Webhook" as "plugin"
+miniUnicorn gateway         # test end-to-end
 ```
 
 ## Verify
 
 ```bash
-$ Munchkin plugins list
+$ MiniUnicorn plugins list
 
   Name       Source    Enabled
   telegram   builtin  yes

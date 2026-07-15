@@ -14,8 +14,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import websockets
 
-from munchkin.channels.websocket import WebSocketChannel
-from munchkin.bus.events import OutboundMessage
+from miniUnicorn.channels.websocket import WebSocketChannel
+from miniUnicorn.bus.events import OutboundMessage
 from ws_test_client import WsTestClient, issue_token, issue_token_ok
 
 

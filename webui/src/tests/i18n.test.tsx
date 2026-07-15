@@ -29,7 +29,6 @@ const SETTINGS_NAV_KEYS = [
   "models",
   "browser",
   "apps",
-  "runtime",
   "advanced",
 ];
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -90,7 +89,7 @@ describe("webui i18n", () => {
     await waitFor(() => {
       expect(document.documentElement.lang).toBe("zh-CN");
     });
-    expect(localStorage.getItem("munchkin.locale")).toBe("zh-CN");
+    expect(localStorage.getItem("miniUnicorn.locale")).toBe("zh-CN");
     expect(screen.getByPlaceholderText("输入消息…")).toBeInTheDocument();
   });
 

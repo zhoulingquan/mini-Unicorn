@@ -1,4 +1,4 @@
-export const LOCALE_STORAGE_KEY = "munchkin.locale";
+export const LOCALE_STORAGE_KEY = "miniUnicorn.locale";
 
 export const supportedLocales = [
   { code: "en", label: "English", nativeLabel: "English" },

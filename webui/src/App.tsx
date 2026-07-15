@@ -1,20 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Menu, Moon, Sun } from "lucide-react";
+import { Menu, Monitor, Moon, Sun } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { DeleteConfirm } from "@/components/DeleteConfirm";
 import { RenameChatDialog } from "@/components/RenameChatDialog";
 import { Sidebar } from "@/components/Sidebar";
+import { AgentsView } from "@/components/agents/AgentsView";
 import { McpView } from "@/components/mcp/McpView";
 import { SkillsView } from "@/components/skills/SkillsView";
-import { SessionSearchDialog } from "@/components/SessionSearchDialog";
 import { SettingsView, type SettingsSectionKey } from "@/components/settings/SettingsView";
+import { CronView } from "@/components/cron/CronView";
+import { ToolsView } from "@/components/tools/ToolsView";
 import { ThreadShell } from "@/components/thread/ThreadShell";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
 import { useSessions } from "@/hooks/useSessions";
 import { useDeferredTitleRefresh } from "@/hooks/useDeferredTitleRefresh";
 import { useSidebarState } from "@/hooks/useSidebarState";
-import { ThemeProvider, useTheme } from "@/hooks/useTheme";
+import { ThemeProvider, useTheme, type ThemeMode } from "@/hooks/useTheme";
 import { cn } from "@/lib/utils";
 import {
   supportedLocales,
@@ -29,7 +31,7 @@ import {
   saveSecret,
 } from "@/lib/bootstrap";
 import { deriveTitle } from "@/lib/format";
-import { MunchkinClient } from "@/lib/munchkin-client";
+import { MiniUnicornClient } from "@/lib/miniUnicorn-client";
 import { ClientProvider, useClient } from "@/providers/ClientProvider";
 import type {
   ChatSummary,
@@ -53,21 +55,21 @@ type BootState =
   | { status: "auth"; failed?: boolean }
   | {
       status: "ready";
-      client: MunchkinClient;
+      client: MiniUnicornClient;
       token: string;
       tokenExpiresAt: number;
       modelName: string | null;
       runtimeSurface: RuntimeSurface;
     };
 
-const SIDEBAR_STORAGE_KEY = "munchkin-webui.sidebar";
-const COMPLETED_RUNS_STORAGE_KEY = "munchkin-webui.sidebar.completed-runs.v1";
-const RESTART_STARTED_KEY = "munchkin-webui.restartStartedAt";
+const SIDEBAR_STORAGE_KEY = "miniUnicorn-webui.sidebar";
+const COMPLETED_RUNS_STORAGE_KEY = "miniUnicorn-webui.sidebar.completed-runs.v1";
+const RESTART_STARTED_KEY = "miniUnicorn-webui.restartStartedAt";
 const SIDEBAR_WIDTH = 272;
 const SIDEBAR_RAIL_WIDTH = 56;
 const TOKEN_REFRESH_MARGIN_MS = 30_000;
 const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
-type ShellView = "chat" | "settings" | "mcp" | "skills";
+type ShellView = "chat" | "settings" | "mcp" | "skills" | "agents" | "cron" | "tools";
 
 function bootstrapTokenExpiresAt(expiresInSeconds: number): number {
   return Date.now() + Math.max(0, expiresInSeconds) * 1000;
@@ -182,13 +184,13 @@ function normalizeWorkspaceScope(scope: WorkspaceScopePayload): WorkspaceScopePa
 
 function HostChrome({
   onToggleSidebar,
-  theme,
+  mode,
   onToggleTheme,
   onToggleLanguage,
   showThemeButton = true,
 }: {
   onToggleSidebar?: () => void;
-  theme: "light" | "dark";
+  mode: ThemeMode;
   onToggleTheme: () => void;
   onToggleLanguage: () => void;
   showThemeButton?: boolean;
@@ -241,10 +243,12 @@ function HostChrome({
             onClick={onToggleTheme}
             className="host-no-drag pointer-events-auto h-8 w-8 rounded-full text-muted-foreground/85 hover:bg-accent/40 hover:text-foreground"
           >
-            {theme === "dark" ? (
+            {mode === "light" ? (
               <Sun className="h-4 w-4" />
-            ) : (
+            ) : mode === "dark" ? (
               <Moon className="h-4 w-4" />
+            ) : (
+              <Monitor className="h-4 w-4" />
             )}
           </Button>
         ) : (
@@ -272,7 +276,7 @@ export default function App() {
           const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
           const runtimeSurface = toRuntimeSurface(boot.runtime_surface);
           const runtimeHost = createRuntimeHost(runtimeSurface, boot.runtime_capabilities);
-          const client = new MunchkinClient({
+          const client = new MiniUnicornClient({
             url,
             socketFactory: runtimeHost.socketFactory,
             onReauth: async () => {
@@ -434,7 +438,7 @@ function Shell({
 }) {
   const { t, i18n } = useTranslation();
   const { client, token } = useClient();
-  const { theme, toggle } = useTheme();
+  const { theme, mode, toggle, setMode } = useTheme();
 
   const toggleLanguage = useCallback(() => {
     const current = i18n.resolvedLanguage ?? i18n.language;
@@ -454,7 +458,6 @@ function Shell({
   const [hostSidebarOpen, setHostSidebarOpen] =
     useState<boolean>(readSidebarOpen);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
     key: string;
     label: string;
@@ -480,6 +483,8 @@ function Shell({
   const [workspaceOverrides, setWorkspaceOverrides] =
     useState<Record<string, WorkspaceScopePayload>>({});
   const runningChatIdsRef = useRef<Set<string>>(new Set());
+  /** Currently selected subagent id (routes outbound turns to that agent). */
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -865,34 +870,6 @@ function Shell({
     }));
   }, [updateSidebarState]);
 
-  const onOpenSessionSearch = useCallback(() => {
-    setMobileSidebarOpen(false);
-    setSessionSearchOpen(true);
-  }, []);
-
-  useEffect(() => {
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      const plainCommandK =
-        (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey;
-      if (!plainCommandK) return;
-      if (event.key.toLowerCase() !== "k") return;
-      event.preventDefault();
-      onOpenSessionSearch();
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onOpenSessionSearch]);
-
-  const onSelectSearchResult = useCallback(
-    (key: string) => {
-      setSessionSearchOpen(false);
-      onSelectChat(key);
-    },
-    [onSelectChat],
-  );
-
   const onOpenMcp = useCallback(() => {
     setView("mcp");
     setMobileSidebarOpen(false);
@@ -903,8 +880,37 @@ function Shell({
     setMobileSidebarOpen(false);
   }, []);
 
+  const onOpenAgents = useCallback(() => {
+    setView("agents");
+    setMobileSidebarOpen(false);
+  }, []);
+
+  const onOpenCron = useCallback(() => {
+    setView("cron");
+    setMobileSidebarOpen(false);
+  }, []);
+
+  const onOpenTools = useCallback(() => {
+    setView("tools");
+    setMobileSidebarOpen(false);
+  }, []);
+
+  const onSelectAgent = useCallback((agentId: string) => {
+    setSelectedAgentId(agentId);
+  }, []);
+
+  const onClearAgent = useCallback(() => {
+    setSelectedAgentId(null);
+  }, []);
+
+  /** Called from AgentsView to start a chat with a specific subagent. */
+  const onUseAgent = useCallback((agentId: string) => {
+    setSelectedAgentId(agentId);
+    setView("chat");
+    setMobileSidebarOpen(false);
+  }, []);
+
   const onOpenSettings = useCallback((section: SettingsSectionKey = "overview") => {
-    setSessionSearchOpen(false);
     setSettingsInitialSection(section);
     setView("settings");
     setMobileSidebarOpen(false);
@@ -1050,7 +1056,9 @@ function Shell({
     onOpenSettings,
     onOpenMcp,
     onOpenSkills,
-    onOpenSearch: onOpenSessionSearch,
+    onOpenAgents,
+    onOpenCron,
+    onOpenTools,
     onToggleArchived,
     pinnedKeys: sidebarState.pinned_keys,
     archivedKeys: sidebarState.archived_keys,
@@ -1068,7 +1076,7 @@ function Shell({
     settingsSnapshot?.surface ?? settingsSnapshot?.runtime_surface ?? runtimeSurface;
   const isNativeHostSetupSurface = effectiveRuntimeSurface === "native";
   const showHostChrome = isNativeHostSetupSurface;
-  const showMainSidebar = view !== "settings" && view !== "mcp";
+  const showMainSidebar = view !== "settings";
 
   return (
     <ThemeProvider theme={theme}>
@@ -1081,7 +1089,7 @@ function Shell({
         {showHostChrome ? (
           <HostChrome
             onToggleSidebar={showMainSidebar ? toggleSidebar : undefined}
-            theme={theme}
+            mode={mode}
             onToggleTheme={toggle}
             onToggleLanguage={toggleLanguage}
             showThemeButton={view !== "chat"}
@@ -1142,15 +1150,6 @@ function Shell({
             </Sheet>
           ) : null}
 
-          <SessionSearchDialog
-            open={sessionSearchOpen}
-            onOpenChange={setSessionSearchOpen}
-            sessions={sessions}
-            activeKey={activeKey}
-            loading={loading}
-            titleOverrides={sidebarState.title_overrides}
-            onSelect={onSelectSearchResult}
-          />
           <main
             className={cn(
               "relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background",
@@ -1172,6 +1171,7 @@ function Shell({
                 onCreateChat={onCreateChat}
                 onTurnEnd={onTurnEnd}
                 theme={theme}
+                themeMode={mode}
                 onToggleTheme={toggle}
                 onToggleLanguage={toggleLanguage}
                 hideSidebarToggleForHostChrome
@@ -1183,19 +1183,21 @@ function Shell({
                 workspaceError={workspaceError}
                 onWorkspaceScopeChange={applyWorkspaceScope}
                 settingsSnapshot={settingsSnapshot}
+                selectedAgentId={selectedAgentId}
+                onSelectAgent={onSelectAgent}
+                onClearAgent={onClearAgent}
               />
             </div>
             {view === "settings" && (
               <div className="absolute inset-0 flex flex-col">
                 <SettingsView
-                  theme={theme}
+                  themeMode={mode}
                   initialSection={settingsInitialSection}
                   showSidebar={view === "settings"}
-                  onToggleTheme={toggle}
+                  onSetThemeMode={setMode}
                   onBackToChat={onBackToChat}
                   onModelNameChange={onModelNameChange}
                   onSettingsChange={setSettingsSnapshot}
-                  onWorkspaceSettingsChange={refreshWorkspaces}
                   onRestart={onRestart}
                   isRestarting={isRestarting}
                   hostChromeInset={showHostChrome}
@@ -1216,6 +1218,25 @@ function Shell({
                   onBack={onBackToChat}
                   token={token}
                 />
+              </div>
+            )}
+            {view === "agents" && (
+              <div className="absolute inset-0 flex flex-col">
+                <AgentsView
+                  onBack={onBackToChat}
+                  token={token}
+                  onUseAgent={onUseAgent}
+                />
+              </div>
+            )}
+            {view === "cron" && (
+              <div className="absolute inset-0 flex flex-col">
+                <CronView onBack={onBackToChat} token={token} />
+              </div>
+            )}
+            {view === "tools" && (
+              <div className="absolute inset-0 flex flex-col">
+                <ToolsView onBack={onBackToChat} token={token} />
               </div>
             )}
           </main>

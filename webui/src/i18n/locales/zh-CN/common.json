@@ -1,13 +1,13 @@
 {
   "app": {
-    "brand": "Munchkin",
+    "brand": "MiniUnicorn",
     "loading": {
-      "connecting": "正在连接 Munchkin…",
-      "boot": "正在加载 Munchkin…"
+      "connecting": "正在连接 MiniUnicorn…",
+      "boot": "正在加载 MiniUnicorn…"
     },
     "error": {
-      "title": "无法连接到 Munchkin",
-      "gatewayHint": "请确认 gateway 已启动（`munchkin gateway`），并且当前页面与 gateway 运行在同一台机器上。"
+      "title": "无法连接到 MiniUnicorn",
+      "gatewayHint": "请确认 gateway 已启动（`miniUnicorn gateway`），并且当前页面与 gateway 运行在同一台机器上。"
     },
     "auth": {
       "title": "需要验证",
@@ -23,8 +23,8 @@
     },
     "system": {
       "section": "系统",
-      "restartHint": "重启 Munchkin 以应用运行时更改。",
-      "restart": "重启 Munchkin",
+      "restartHint": "重启 MiniUnicorn 以应用运行时更改。",
+      "restart": "重启 MiniUnicorn",
       "restarting": "正在重启...",
       "restartEngine": "重启引擎",
       "restartingEngine": "正在重启引擎..."
@@ -33,25 +33,25 @@
       "completed": "重启已完成，用时 {{seconds}} 秒。"
     },
     "documentTitle": {
-      "base": "Munchkin",
-      "chat": "{{title}} · Munchkin"
+      "base": "MiniUnicorn",
+      "chat": "{{title}} · MiniUnicorn"
     },
     "meta": {
-      "description": "Munchkin Web UI —— 与你的 Munchkin 工作区对话。"
+      "description": "MiniUnicorn Web UI —— 与你的 MiniUnicorn 工作区对话。"
     }
   },
   "sidebar": {
     "navigation": "侧边栏导航",
     "collapse": "收起侧边栏",
+    "expand": "展开侧边栏",
     "newChat": "新建对话",
-    "searchAria": "搜索",
-    "searchPlaceholder": "搜索",
-    "searchResults": "搜索结果",
-    "noSearchResults": "没有匹配的会话。",
     "recent": "最近对话",
     "settings": "设置",
     "mcp": "MCP",
     "skills": "技能",
+    "agents": "子代理",
+    "cron": "定时任务",
+    "tools": "工具",
     "language": {
       "label": "语言",
       "ariaLabel": "切换语言"
@@ -74,7 +74,6 @@
       "browser": "网页",
       "cliApps": "CLI 应用",
       "mcp": "MCP",
-      "runtime": "系统",
       "advanced": "安全",
       "apps": "应用"
     },
@@ -91,7 +90,6 @@
       "mcp": "MCP 服务",
       "identity": "身份",
       "webuiSafety": "网页端安全",
-      "capabilities": "能力",
       "apps": "应用",
       "nativeHost": "App",
       "hostSafety": "App 安全"
@@ -110,7 +108,7 @@
       "language": "语言",
       "provider": "提供商",
       "model": "模型",
-      "restart": "重启 Munchkin",
+      "restart": "重启 MiniUnicorn",
       "configPath": "配置路径",
       "activePreset": "当前预设",
       "gateway": "网关",
@@ -126,9 +124,6 @@
       "maxResults": "最大结果数",
       "timeout": "超时",
       "jinaReader": "Jina Reader",
-      "botName": "Bot 名称",
-      "botIcon": "Bot 图标",
-      "timezone": "时区",
       "workspacePath": "默认工作区",
       "localServiceAccess": "本机服务",
       "webuiDefaultAccess": "默认权限",
@@ -143,9 +138,9 @@
       "theme": "在浅色和深色外观之间切换。",
       "language": "选择 WebUI 使用的语言。",
       "provider": "选择新模型请求使用的服务商。",
-      "model": "设置 Munchkin 默认使用的模型名称。",
+      "model": "设置 MiniUnicorn 默认使用的模型名称。",
       "configPath": "当前网关正在使用的配置文件。",
-      "currentModel": "选择 Munchkin 接下来回复时使用的模型。",
+      "currentModel": "选择 MiniUnicorn 接下来回复时使用的模型。",
       "selectedModelProvider": "由当前模型决定。",
       "selectedModelValue": "由当前模型决定。",
       "selectedPreset": "命名预设在这里只读；需要编辑时请改 config.json。",
@@ -157,10 +152,7 @@
       "maxResults": "每次 web_search 返回的结果数量。",
       "timeout": "搜索服务商请求超时秒数。",
       "jinaReader": "可用时为 web_fetch 使用 Jina Reader。",
-      "botName": "显示在 Munchkin 使用名称的地方。",
-      "botIcon": "显示在 bot 名称旁的短 emoji 或文本。",
-      "timezone": "用于计划任务和需要时间感知的回复。",
-      "cliAppsCatalog": "只安装 Munchkin 在本机调用应用时需要的 CLI 适配层，不触碰应用本体。",
+      "cliAppsCatalog": "只安装 MiniUnicorn 在本机调用应用时需要的 CLI 适配层，不触碰应用本体。",
       "cliAppsFilter": "按应用、分类或能力搜索。",
       "localServiceAccess": "允许完全访问模式下的 shell 命令访问 localhost 服务。",
       "webuiDefaultAccess": "用于没有单独选择权限的网页端对话。",
@@ -169,12 +161,9 @@
       "diagnostics": "导出一份用于支持排查的运行时报告。",
       "localServiceAccessNative": "允许完全访问模式下的 shell 命令访问这台 Mac 上的服务。",
       "webuiDefaultAccessNative": "用于没有单独选择权限的原生 App 对话。",
-      "contextWindow": "选择这个模型配置默认使用的上下文预算。"
-    },
-    "timezone": {
-      "select": "选择时区",
-      "search": "搜索时区",
-      "empty": "没有匹配的时区。"
+      "contextWindow": "选择这个模型配置默认使用的上下文预算。",
+      "heartbeat": "空闲检查间隔，单位秒（60-86400）。",
+      "dream": "记忆整合间隔，单位小时（1-48）。"
     },
     "cliApps": {
       "allCategories": "全部分类",
@@ -210,6 +199,7 @@
     "values": {
       "light": "浅色",
       "dark": "深色",
+      "system": "跟随系统",
       "notAvailable": "不可用",
       "enabled": "已启用",
       "disabled": "已禁用",
@@ -233,10 +223,10 @@
       "loadError": "无法加载设置",
       "unsaved": "有未保存的更改。",
       "upToDate": "已是最新。",
-      "savedRestart": "已保存。重启 Munchkin 后生效。",
+      "savedRestart": "已保存。重启 MiniUnicorn 后生效。",
       "restartAfterSaving": "保存后，可在合适时重启。",
       "savedRestartApply": "已保存，可稍后重启。",
-      "hostRestartAfterSaving": "保存后，Munchkin 会自动重启引擎。",
+      "hostRestartAfterSaving": "保存后，MiniUnicorn 会自动重启引擎。",
       "hostRestartPending": "已保存，将在合适时重启引擎。",
       "hostApiUnavailable": "宿主操作只能在原生 App 内使用。",
       "logsOpened": "已打开日志文件夹。",
@@ -255,7 +245,7 @@
       "exporting": "导出中..."
     },
     "byok": {
-      "description": "Munchkin 会从当前 config 读取这些值，只有已配置的服务商才能在通用设置里选择。",
+      "description": "MiniUnicorn 会从当前 config 读取这些值，只有已配置的服务商才能在通用设置里选择。",
       "configured": "已配置",
       "notConfigured": "未配置",
       "configuredSection": "已配置",
@@ -307,17 +297,18 @@
       "configuredCount": "已配置 {{count}} 个",
       "totalProviders": "共 {{count}} 个可用",
       "webSearch": "网页搜索",
-      "workspace": "工作区"
+      "workspace": "工作区",
+      "heartbeat": "心跳",
+      "dream": "Dream",
+      "dreamHint": "记忆整合"
     },
     "providers": {
-      "searchPlaceholder": "搜索服务商",
-      "noMatches": "没有匹配的服务商。",
       "saveProvider": "保存服务商",
       "saved": "已保存"
     },
     "legal": {},
     "apps": {
-      "description": "添加 Munchkin 可在聊天中使用的 App CLI 和 MCP 服务。",
+      "description": "添加 MiniUnicorn 可在聊天中使用的 App CLI 和 MCP 服务。",
       "cliLabel": "CLI",
       "mcpLabel": "MCP",
       "filterAll": "全部",
@@ -487,7 +478,7 @@
             "description": "取消这个对话中正在运行的 agent 回合。"
           },
           "restart": {
-            "title": "重启 Munchkin",
+            "title": "重启 MiniUnicorn",
             "description": "原地重启 bot 进程。"
           },
           "status": {
@@ -617,7 +608,7 @@
     },
     "workspaceScopeRejected": {
       "title": "工作区未更改",
-      "body": "网关拒绝了请求的项目或访问权限，Munchkin 已继续使用之前的工作区。"
+      "body": "网关拒绝了请求的项目或访问权限，MiniUnicorn 已继续使用之前的工作区。"
     }
   },
   "workspace": {
@@ -644,6 +635,8 @@
     "presetServices": "预设服务",
     "allServices": "所有服务",
     "noPresets": "暂无预设服务",
+    "listView": "列表视图",
+    "gridView": "网格视图",
     "enable": "启用",
     "enabled": "已启用",
     "test": "测试",
@@ -738,5 +731,127 @@
     "toggleError": "切换失败",
     "saveError": "保存失败",
     "builtinOnlyDeleteDisabled": "内置技能无法删除"
+  },
+  "agents": {
+    "title": "子代理",
+    "description": "管理声明式子代理定义",
+    "create": "新建子代理",
+    "edit": "编辑",
+    "delete": "删除",
+    "name": "名称",
+    "nameLabel": "名称",
+    "namePlaceholder": "my-agent",
+    "nameHelp": "只能包含字母、数字、点、横杠和下划线。",
+    "descriptionField": "描述",
+    "descriptionPlaceholder": "一句话描述这个子代理的作用",
+    "tools": "工具",
+    "toolsPlaceholder": "read_file, grep, find_files",
+    "model": "模型",
+    "modelPlaceholder": "留空则使用默认模型",
+    "systemPrompt": "系统提示词",
+    "systemPromptPlaceholder": "编写子代理的系统提示词...",
+    "editorPlaceholder": "在此编写 .md 内容(含 YAML frontmatter)...",
+    "loading": "加载子代理中...",
+    "empty": "尚未创建子代理。在 agents/ 目录下创建 .md 文件来定义子代理。",
+    "allTools": "全部工具",
+    "noTools": "无工具",
+    "save": "保存",
+    "saving": "保存中...",
+    "saved": "已保存",
+    "cancel": "取消",
+    "saveError": "保存失败",
+    "deleteDialogTitle": "删除子代理 \"{{name}}\"?",
+    "deleteDescription": "此操作无法撤销,子代理定义文件将被永久删除。",
+    "deleteCancel": "取消",
+    "deleteConfirm": "删除",
+    "generate": "智能生成",
+    "generateDescription": "描述这个子代理应该做什么(例如:\"一个检查安全问题并建议改进的代码审查员\")...",
+    "generateLoading": "生成中...",
+    "useAgent": "用此 agent 对话",
+    "usingAgent": "使用中:{{name}}",
+    "clear": "清除"
+  },
+  "cron": {
+    "title": "定时任务",
+    "loading": "加载中...",
+    "empty": "暂无定时任务，点击「新建」创建一个。",
+    "retry": "重试",
+    "create": "新建",
+    "newJob": "新建定时任务",
+    "cancel": "取消",
+    "save": "保存",
+    "delete": "删除",
+    "enable": "启用",
+    "disable": "停用",
+    "nextRun": "下次执行",
+    "lastRun": "上次执行",
+    "userJobs": "用户任务",
+    "systemJobs": "系统任务",
+    "protectedHint": "系统任务不可删除",
+    "schedule": {
+      "every": "循环间隔",
+      "cron": "Cron 表达式",
+      "at": "单次定时"
+    },
+    "field": {
+      "name": "名称",
+      "namePlaceholder": "每日站会提醒",
+      "message": "消息",
+      "messagePlaceholder": "任务触发时发送给 Agent 的提示词",
+      "schedule": "调度方式",
+      "everySecondsHint": "秒（最小 60）",
+      "cronExprPlaceholder": "0 9 * * *",
+      "tzPlaceholder": "system",
+      "atHint": "一次性任务，到指定时间执行一次"
+    },
+    "badge": {
+      "system": "系统",
+      "disabled": "已停用"
+    },
+    "error": {
+      "nameRequired": "名称不能为空",
+      "messageRequired": "消息不能为空",
+      "everySecondsInvalid": "间隔至少 60 秒",
+      "cronExprRequired": "Cron 表达式不能为空",
+      "atMsInvalid": "请选择有效的日期时间"
+    }
+  },
+  "tools": {
+    "title": "工具",
+    "loading": "加载中...",
+    "empty": "暂无工具。",
+    "retry": "重试",
+    "import": "导入",
+    "importTitle": "导入工具 (.py)",
+    "importSuccess": "工具导入成功。",
+    "cancel": "取消",
+    "save": "保存",
+    "delete": "删除",
+    "noDescription": "无描述",
+    "userTools": "用户工具",
+    "builtinTools": "内置工具",
+    "mcpTools": "MCP 工具",
+    "listView": "列表视图",
+    "gridView": "网格视图",
+    "field": {
+      "filename": "文件名",
+      "chooseFile": "选择文件",
+      "content": "内容",
+      "contentPlaceholder": "Python 工具源代码...",
+      "hint": "文件必须定义一个继承自 Tool 的类。导入后需重启 gateway 才能加载。"
+    },
+    "badge": {
+      "builtin": "内置",
+      "mcp": "MCP",
+      "user": "用户",
+      "notLoaded": "未加载",
+      "readOnly": "只读"
+    },
+    "error": {
+      "nameRequired": "文件名不能为空",
+      "notPy": "文件必须以 .py 为扩展名",
+      "emptyContent": "内容不能为空",
+      "readFailed": "读取文件失败"
+    }
   }
 }

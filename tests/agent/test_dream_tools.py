@@ -1,7 +1,7 @@
-from munchkin.config.schema import Config
-from munchkin.agent.tools.loader import ToolLoader
-from munchkin.agent.tools.context import ToolContext
-from munchkin.agent.tools.registry import ToolRegistry
+from miniUnicorn.config.schema import Config
+from miniUnicorn.agent.tools.loader import ToolLoader
+from miniUnicorn.agent.tools.context import ToolContext
+from miniUnicorn.agent.tools.registry import ToolRegistry
 
 
 def test_tool_loader_scope_memory_only_returns_memory_tools():

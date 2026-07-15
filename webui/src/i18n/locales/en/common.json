@@ -1,13 +1,13 @@
 {
   "app": {
-    "brand": "Munchkin",
+    "brand": "MiniUnicorn",
     "loading": {
-      "connecting": "Connecting to Munchkin…",
-      "boot": "Loading Munchkin…"
+      "connecting": "Connecting to MiniUnicorn…",
+      "boot": "Loading MiniUnicorn…"
     },
     "error": {
-      "title": "Couldn't reach Munchkin",
-      "gatewayHint": "Make sure the gateway is running (`munchkin gateway`) and that this page is open on the same machine."
+      "title": "Couldn't reach MiniUnicorn",
+      "gatewayHint": "Make sure the gateway is running (`miniUnicorn gateway`) and that this page is open on the same machine."
     },
     "auth": {
       "title": "Authentication required",
@@ -23,8 +23,8 @@
     },
     "system": {
       "section": "System",
-      "restartHint": "Restart Munchkin to apply runtime changes.",
-      "restart": "Restart Munchkin",
+      "restartHint": "Restart MiniUnicorn to apply runtime changes.",
+      "restart": "Restart MiniUnicorn",
       "restarting": "Restarting...",
       "restartEngine": "Restart engine",
       "restartingEngine": "Restarting engine..."
@@ -33,25 +33,25 @@
       "completed": "Restart completed in {{seconds}}s."
     },
     "documentTitle": {
-      "base": "Munchkin",
-      "chat": "{{title}} · Munchkin"
+      "base": "MiniUnicorn",
+      "chat": "{{title}} · MiniUnicorn"
     },
     "meta": {
-      "description": "Munchkin web UI — chat with your Munchkin workspace."
+      "description": "MiniUnicorn web UI — chat with your MiniUnicorn workspace."
     }
   },
   "sidebar": {
     "navigation": "Sidebar navigation",
     "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar",
     "newChat": "New chat",
-    "searchAria": "Search",
-    "searchPlaceholder": "Search",
-    "searchResults": "Results",
-    "noSearchResults": "No matching chats.",
     "recent": "Recent",
     "settings": "Settings",
     "mcp": "MCP",
     "skills": "Skills",
+    "agents": "Agents",
+    "cron": "Schedule",
+    "tools": "Tools",
     "language": {
       "label": "Language",
       "ariaLabel": "Change language"
@@ -74,7 +74,6 @@
       "browser": "Web",
       "cliApps": "CLI Apps",
       "mcp": "MCP",
-      "runtime": "System",
       "advanced": "Security",
       "apps": "Apps"
     },
@@ -91,7 +90,6 @@
       "mcp": "MCP services",
       "identity": "Identity",
       "webuiSafety": "Web safety",
-      "capabilities": "Capabilities",
       "apps": "Apps",
       "nativeHost": "Native host",
       "hostSafety": "App safety"
@@ -110,7 +108,7 @@
       "language": "Language",
       "provider": "Provider",
       "model": "Model",
-      "restart": "Restart Munchkin",
+      "restart": "Restart MiniUnicorn",
       "configPath": "Config path",
       "activePreset": "Active preset",
       "gateway": "Gateway",
@@ -126,9 +124,6 @@
       "maxResults": "Max results",
       "timeout": "Timeout",
       "jinaReader": "Jina reader",
-      "botName": "Bot name",
-      "botIcon": "Bot icon",
-      "timezone": "Timezone",
       "workspacePath": "Default workspace",
       "localServiceAccess": "Local services",
       "webuiDefaultAccess": "Default access",
@@ -143,9 +138,9 @@
       "theme": "Switch between light and dark appearance.",
       "language": "Choose the language used by the WebUI.",
       "provider": "Select the provider that should serve new model requests.",
-      "model": "Set the default model name used by Munchkin.",
+      "model": "Set the default model name used by MiniUnicorn.",
       "configPath": "The gateway configuration file currently in use.",
-      "currentModel": "Choose the model Munchkin uses for new replies.",
+      "currentModel": "Choose the model MiniUnicorn uses for new replies.",
       "selectedModelProvider": "Set by the selected model.",
       "selectedModelValue": "Set by the selected model.",
       "selectedPreset": "Named presets are read-only here; edit them in config.json.",
@@ -157,10 +152,7 @@
       "maxResults": "Results returned by each web_search call.",
       "timeout": "Seconds before a search provider request times out.",
       "jinaReader": "Use Jina Reader for web_fetch when available.",
-      "botName": "Shown wherever Munchkin uses a display name.",
-      "botIcon": "Short emoji or text shown with the bot name.",
-      "timezone": "Used for schedules and time-aware replies.",
-      "cliAppsCatalog": "Install only the app-specific CLI adapters Munchkin can run locally; native apps stay untouched.",
+      "cliAppsCatalog": "Install only the app-specific CLI adapters MiniUnicorn can run locally; native apps stay untouched.",
       "cliAppsFilter": "Search by app, category, or capability.",
       "localServiceAccess": "Allow Full Access shell commands to reach localhost services.",
       "webuiDefaultAccess": "Used by web chats without a project-specific permission.",
@@ -169,12 +161,9 @@
       "diagnostics": "Export a small runtime report for support.",
       "localServiceAccessNative": "Allow Full Access shell commands to reach services on this Mac.",
       "webuiDefaultAccessNative": "Used by native chats without a project-specific permission.",
-      "contextWindow": "Choose the default context budget for this model configuration."
-    },
-    "timezone": {
-      "select": "Select timezone",
-      "search": "Search timezone",
-      "empty": "No matching timezones."
+      "contextWindow": "Choose the default context budget for this model configuration.",
+      "heartbeat": "Idle check interval in seconds (60-86400).",
+      "dream": "Memory consolidation interval in hours (1-48)."
     },
     "cliApps": {
       "allCategories": "All categories",
@@ -210,6 +199,7 @@
     "values": {
       "light": "Light",
       "dark": "Dark",
+      "system": "System",
       "notAvailable": "Not available",
       "enabled": "Enabled",
       "disabled": "Disabled",
@@ -233,10 +223,10 @@
       "loadError": "Could not load settings",
       "unsaved": "Unsaved changes.",
       "upToDate": "Up to date.",
-      "savedRestart": "Saved. Restart Munchkin to apply.",
+      "savedRestart": "Saved. Restart MiniUnicorn to apply.",
       "restartAfterSaving": "Save changes, then restart when ready.",
       "savedRestartApply": "Saved. Restart when ready.",
-      "hostRestartAfterSaving": "Save changes and Munchkin will restart its engine.",
+      "hostRestartAfterSaving": "Save changes and MiniUnicorn will restart its engine.",
       "hostRestartPending": "Saved. Restarting engine when ready.",
       "hostApiUnavailable": "Host actions are only available inside the native app.",
       "logsOpened": "Opened logs folder.",
@@ -255,7 +245,7 @@
       "exporting": "Exporting..."
     },
     "byok": {
-      "description": "Bring your own provider keys. Munchkin reads these values from the current config and only configured providers can be selected in General.",
+      "description": "Bring your own provider keys. MiniUnicorn reads these values from the current config and only configured providers can be selected in General.",
       "configured": "Configured",
       "notConfigured": "Not configured",
       "configuredSection": "Configured",
@@ -302,16 +292,17 @@
       "configuredCount": "{{count}} configured",
       "totalProviders": "{{count}} available",
       "webSearch": "Web search",
-      "workspace": "Workspace"
+      "workspace": "Workspace",
+      "heartbeat": "Heartbeat",
+      "dream": "Dream",
+      "dreamHint": "Memory consolidation"
     },
     "providers": {
-      "searchPlaceholder": "Search providers",
-      "noMatches": "No providers match this search.",
       "saveProvider": "Save provider"
     },
     "legal": {},
     "apps": {
-      "description": "Add app CLIs and MCP services Munchkin can use from chat.",
+      "description": "Add app CLIs and MCP services MiniUnicorn can use from chat.",
       "cliLabel": "CLI",
       "mcpLabel": "MCP",
       "filterAll": "All",
@@ -482,7 +473,7 @@
             "description": "Cancel the active agent turn for this chat."
           },
           "restart": {
-            "title": "Restart Munchkin",
+            "title": "Restart MiniUnicorn",
             "description": "Restart the bot process in place."
           },
           "status": {
@@ -611,7 +602,7 @@
     },
     "workspaceScopeRejected": {
       "title": "Workspace was not changed",
-      "body": "Munchkin kept the previous workspace because the requested project or access mode was rejected by the gateway."
+      "body": "MiniUnicorn kept the previous workspace because the requested project or access mode was rejected by the gateway."
     }
   },
   "workspace": {
@@ -635,6 +626,11 @@
     "empty": "No MCP presets match this filter.",
     "advancedSettings": "Advanced settings",
     "addServer": "Add MCP Server",
+    "presetServices": "Preset services",
+    "allServices": "All services",
+    "noPresets": "No preset services",
+    "listView": "List view",
+    "gridView": "Grid view",
     "form": {
       "name": "Server name",
       "namePlaceholder": "my-mcp-server",
@@ -710,5 +706,127 @@
     "toggleError": "Toggle failed",
     "saveError": "Save failed",
     "builtinOnlyDeleteDisabled": "Built-in skills cannot be deleted"
+  },
+  "agents": {
+    "title": "Agents",
+    "description": "Manage declarative subagent definitions",
+    "create": "New agent",
+    "edit": "Edit",
+    "delete": "Delete",
+    "name": "Name",
+    "nameLabel": "Name",
+    "namePlaceholder": "my-agent",
+    "nameHelp": "Letters, numbers, dots, dashes and underscores only.",
+    "descriptionField": "Description",
+    "descriptionPlaceholder": "One-line summary of what this agent does",
+    "tools": "Tools",
+    "toolsPlaceholder": "read_file, grep, find_files",
+    "model": "Model",
+    "modelPlaceholder": "Leave blank to use the default model",
+    "systemPrompt": "System prompt",
+    "systemPromptPlaceholder": "Write the subagent system prompt...",
+    "editorPlaceholder": "Write the .md content here (with YAML frontmatter)...",
+    "loading": "Loading agents...",
+    "empty": "No subagents defined yet. Create a .md file in the agents/ directory to define one.",
+    "allTools": "All tools",
+    "noTools": "No tools",
+    "save": "Save",
+    "saving": "Saving...",
+    "saved": "Saved",
+    "cancel": "Cancel",
+    "saveError": "Save failed",
+    "deleteDialogTitle": "Delete agent \"{{name}}\"?",
+    "deleteDescription": "This action cannot be undone. The agent definition file will be permanently deleted.",
+    "deleteCancel": "Cancel",
+    "deleteConfirm": "Delete",
+    "generate": "Generate",
+    "generateDescription": "Describe what this agent should do (e.g. \"a code reviewer that checks for security issues and suggests improvements\")...",
+    "generateLoading": "Generating...",
+    "useAgent": "Use this agent",
+    "usingAgent": "Using: {{name}}",
+    "clear": "Clear"
+  },
+  "cron": {
+    "title": "Scheduled tasks",
+    "loading": "Loading jobs...",
+    "empty": "No scheduled tasks yet. Click \"New\" to create one.",
+    "retry": "Retry",
+    "create": "New",
+    "newJob": "New scheduled task",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "enable": "Enable",
+    "disable": "Disable",
+    "nextRun": "Next run",
+    "lastRun": "Last run",
+    "userJobs": "User tasks",
+    "systemJobs": "System tasks",
+    "protectedHint": "System jobs cannot be removed",
+    "schedule": {
+      "every": "Every",
+      "cron": "Cron",
+      "at": "Once at"
+    },
+    "field": {
+      "name": "Name",
+      "namePlaceholder": "Daily standup reminder",
+      "message": "Message",
+      "messagePlaceholder": "Prompt delivered to the agent when the task runs",
+      "schedule": "Schedule",
+      "everySecondsHint": "seconds (min 60)",
+      "cronExprPlaceholder": "0 9 * * *",
+      "tzPlaceholder": "system",
+      "atHint": "One-shot, runs once at the chosen time"
+    },
+    "badge": {
+      "system": "system",
+      "disabled": "disabled"
+    },
+    "error": {
+      "nameRequired": "Name is required",
+      "messageRequired": "Message is required",
+      "everySecondsInvalid": "Interval must be at least 60 seconds",
+      "cronExprRequired": "Cron expression is required",
+      "atMsInvalid": "A valid date/time is required"
+    }
+  },
+  "tools": {
+    "title": "Tools",
+    "loading": "Loading tools...",
+    "empty": "No tools available.",
+    "retry": "Retry",
+    "import": "Import",
+    "importTitle": "Import tool (.py)",
+    "importSuccess": "Tool imported successfully.",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "noDescription": "No description",
+    "userTools": "User Tools",
+    "builtinTools": "Built-in Tools",
+    "mcpTools": "MCP Tools",
+    "listView": "List view",
+    "gridView": "Grid view",
+    "field": {
+      "filename": "Filename",
+      "chooseFile": "Choose file",
+      "content": "Content",
+      "contentPlaceholder": "Python tool source code...",
+      "hint": "The file must define a class inheriting from Tool. Restart the gateway after import to load it."
+    },
+    "badge": {
+      "builtin": "builtin",
+      "mcp": "mcp",
+      "user": "user",
+      "notLoaded": "not loaded",
+      "readOnly": "read-only"
+    },
+    "error": {
+      "nameRequired": "Filename is required",
+      "notPy": "File must have .py extension",
+      "emptyContent": "Content cannot be empty",
+      "readFailed": "Failed to read file"
+    }
   }
 }

@@ -21,7 +21,7 @@ body:
       label: Steps to Reproduce
       description: How can we reproduce this behavior?
       placeholder: |
-        1. Configure Munchkin with ...
+        1. Configure MiniUnicorn with ...
         2. Send message ...
         3. See error ...
     validations:
@@ -40,15 +40,15 @@ body:
     attributes:
       label: Relevant Logs
       description: |
-        Paste any relevant log output. You can run Munchkin with `--log-level DEBUG` for more verbose logs.
+        Paste any relevant log output. You can run MiniUnicorn with `--log-level DEBUG` for more verbose logs.
         **Remember to redact any sensitive information (tokens, API keys, passwords, etc.)**
       render: shell
 
   - type: input
     id: version
     attributes:
-      label: Munchkin Version
-      description: Run `munchkin --version` or `pip show munchkin-ai`
+      label: MiniUnicorn Version
+      description: Run `miniUnicorn --version` or `pip show miniUnicorn-ai`
       placeholder: e.g., 0.2.0
     validations:
       required: true
@@ -125,7 +125,7 @@ body:
     attributes:
       label: Configuration (Optional)
       description: |
-        Relevant parts of your Munchkin configuration. **Remember to redact any sensitive information.**
+        Relevant parts of your MiniUnicorn configuration. **Remember to redact any sensitive information.**
       render: yaml
 
   - type: textarea

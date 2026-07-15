@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from munchkin.cli.stream import StreamRenderer, ThinkingSpinner
-from munchkin.config.schema import AgentDefaults, Config
+from miniUnicorn.cli.stream import StreamRenderer, ThinkingSpinner
+from miniUnicorn.config.schema import AgentDefaults, Config
 
 
 def test_bot_name_and_icon_defaults_preserve_current_branding() -> None:
-    """Default values keep the existing 'Munchkin' name and cat icon."""
+    """Default values keep the existing 'MiniUnicorn' name and cat icon."""
     defaults = AgentDefaults()
 
-    assert defaults.bot_name == "Munchkin"
+    assert defaults.bot_name == "MiniUnicorn"
     assert defaults.bot_icon == "🐱"
 
 

@@ -1,4 +1,4 @@
-"""Tests for Munchkin.agent.skills.SkillsLoader."""
+"""Tests for MiniUnicorn.agent.skills.SkillsLoader."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from munchkin.agent.skills import SkillsLoader
+from miniUnicorn.agent.skills import SkillsLoader
 
 
 def _write_skill(
@@ -17,12 +17,12 @@ def _write_skill(
     metadata_json: dict | None = None,
     body: str = "# Skill\n",
 ) -> Path:
-    """Create ``base / name / SKILL.md`` with optional Munchkin metadata JSON."""
+    """Create ``base / name / SKILL.md`` with optional MiniUnicorn metadata JSON."""
     skill_dir = base / name
     skill_dir.mkdir(parents=True)
     lines = ["---"]
     if metadata_json is not None:
-        payload = json.dumps({"Munchkin": metadata_json}, separators=(",", ":"))
+        payload = json.dumps({"MiniUnicorn": metadata_json}, separators=(",", ":"))
         lines.append(f'metadata: {payload}')
     lines.extend(["---", "", body])
     path = skill_dir / "SKILL.md"
@@ -133,17 +133,17 @@ def test_list_skills_filter_unavailable_excludes_unmet_bin_requirement(
     _write_skill(
         skills_root,
         "needs_bin",
-        metadata_json={"requires": {"bins": ["munchkin_test_fake_binary"]}},
+        metadata_json={"requires": {"bins": ["miniUnicorn_test_fake_binary"]}},
     )
     builtin = tmp_path / "builtin"
     builtin.mkdir()
 
     def fake_which(cmd: str) -> str | None:
-        if cmd == "munchkin_test_fake_binary":
+        if cmd == "miniUnicorn_test_fake_binary":
             return None
         return "/usr/bin/true"
 
-    monkeypatch.setattr("munchkin.agent.skills.shutil.which", fake_which)
+    monkeypatch.setattr("miniUnicorn.agent.skills.shutil.which", fake_which)
 
     loader = SkillsLoader(workspace, builtin_skills_dir=builtin)
     assert loader.list_skills(filter_unavailable=True) == []
@@ -158,17 +158,17 @@ def test_list_skills_filter_unavailable_includes_when_bin_requirement_met(
     skill_path = _write_skill(
         skills_root,
         "has_bin",
-        metadata_json={"requires": {"bins": ["munchkin_test_fake_binary"]}},
+        metadata_json={"requires": {"bins": ["miniUnicorn_test_fake_binary"]}},
     )
     builtin = tmp_path / "builtin"
     builtin.mkdir()
 
     def fake_which(cmd: str) -> str | None:
-        if cmd == "munchkin_test_fake_binary":
-            return "/fake/munchkin_test_fake_binary"
+        if cmd == "miniUnicorn_test_fake_binary":
+            return "/fake/miniUnicorn_test_fake_binary"
         return None
 
-    monkeypatch.setattr("munchkin.agent.skills.shutil.which", fake_which)
+    monkeypatch.setattr("miniUnicorn.agent.skills.shutil.which", fake_which)
 
     loader = SkillsLoader(workspace, builtin_skills_dir=builtin)
     entries = loader.list_skills(filter_unavailable=True)
@@ -186,12 +186,12 @@ def test_list_skills_filter_unavailable_false_keeps_unmet_requirements(
     skill_path = _write_skill(
         skills_root,
         "blocked",
-        metadata_json={"requires": {"bins": ["munchkin_test_fake_binary"]}},
+        metadata_json={"requires": {"bins": ["miniUnicorn_test_fake_binary"]}},
     )
     builtin = tmp_path / "builtin"
     builtin.mkdir()
 
-    monkeypatch.setattr("munchkin.agent.skills.shutil.which", lambda _cmd: None)
+    monkeypatch.setattr("miniUnicorn.agent.skills.shutil.which", lambda _cmd: None)
 
     loader = SkillsLoader(workspace, builtin_skills_dir=builtin)
     entries = loader.list_skills(filter_unavailable=False)
@@ -209,12 +209,12 @@ def test_list_skills_filter_unavailable_excludes_unmet_env_requirement(
     _write_skill(
         skills_root,
         "needs_env",
-        metadata_json={"requires": {"env": ["MUNCHKIN_SKILLS_TEST_ENV_VAR"]}},
+        metadata_json={"requires": {"env": ["MINIUNICORN_SKILLS_TEST_ENV_VAR"]}},
     )
     builtin = tmp_path / "builtin"
     builtin.mkdir()
 
-    monkeypatch.delenv("MUNCHKIN_SKILLS_TEST_ENV_VAR", raising=False)
+    monkeypatch.delenv("MINIUNICORN_SKILLS_TEST_ENV_VAR", raising=False)
 
     loader = SkillsLoader(workspace, builtin_skills_dir=builtin)
     assert loader.list_skills(filter_unavailable=True) == []
@@ -229,7 +229,7 @@ def test_list_skills_openclaw_metadata_parsed_for_requirements(
     skill_dir = skills_root / "openclaw_skill"
     skill_dir.mkdir(parents=True)
     skill_path = skill_dir / "SKILL.md"
-    oc_payload = json.dumps({"openclaw": {"requires": {"bins": ["munchkin_oc_bin"]}}}, separators=(",", ":"))
+    oc_payload = json.dumps({"openclaw": {"requires": {"bins": ["miniUnicorn_oc_bin"]}}}, separators=(",", ":"))
     skill_path.write_text(
         "\n".join(["---", f"metadata: {oc_payload}", "---", "", "# OC"]),
         encoding="utf-8",
@@ -237,14 +237,14 @@ def test_list_skills_openclaw_metadata_parsed_for_requirements(
     builtin = tmp_path / "builtin"
     builtin.mkdir()
 
-    monkeypatch.setattr("munchkin.agent.skills.shutil.which", lambda _cmd: None)
+    monkeypatch.setattr("miniUnicorn.agent.skills.shutil.which", lambda _cmd: None)
 
     loader = SkillsLoader(workspace, builtin_skills_dir=builtin)
     assert loader.list_skills(filter_unavailable=True) == []
 
     monkeypatch.setattr(
-        "munchkin.agent.skills.shutil.which",
-        lambda cmd: "/x" if cmd == "munchkin_oc_bin" else None,
+        "miniUnicorn.agent.skills.shutil.which",
+        lambda cmd: "/x" if cmd == "miniUnicorn_oc_bin" else None,
     )
     entries = loader.list_skills(filter_unavailable=True)
     assert entries == [
@@ -377,7 +377,7 @@ def test_get_skill_metadata_handles_yaml_types(tmp_path: Path) -> None:
     ws_skills.mkdir(parents=True)
     skill_dir = ws_skills / "typed"
     skill_dir.mkdir(parents=True)
-    payload = json.dumps({"Munchkin": {"requires": {"bins": ["gh"]}, "always": True}}, separators=(",", ":"))
+    payload = json.dumps({"MiniUnicorn": {"requires": {"bins": ["gh"]}, "always": True}}, separators=(",", ":"))
     skill_path = skill_dir / "SKILL.md"
     skill_path.write_text(
         "---\n"

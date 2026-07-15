@@ -5,6 +5,8 @@ import {
   ChevronRight,
   CircleDot,
   ExternalLink,
+  LayoutGrid,
+  List,
   Loader2,
   Plus,
   PlugZap,
@@ -106,6 +108,8 @@ export function McpView({ onBack, token }: McpViewProps) {
 
   // Active tab: "all" | "connected"
   const [activeTab, setActiveTab] = useState<"all" | "connected">("all");
+  // View mode: list (single column) | grid (4 columns)
+  const [viewMode, setViewMode] = useState<"list" | "grid">("grid");
 
   // Preset inline form state
   const [expandedPreset, setExpandedPreset] = useState<string | null>(null);
@@ -410,6 +414,40 @@ export function McpView({ onBack, token }: McpViewProps) {
           <h1 className="text-sm font-semibold">{t("mcp.title")}</h1>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
+          <div className="flex items-center rounded-md border bg-muted/40 p-0.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "h-6 w-6 rounded-sm",
+                viewMode === "list"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setViewMode("list")}
+              title={t("mcp.listView")}
+              aria-label={t("mcp.listView")}
+              aria-pressed={viewMode === "list"}
+            >
+              <List className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "h-6 w-6 rounded-sm",
+                viewMode === "grid"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setViewMode("grid")}
+              title={t("mcp.gridView")}
+              aria-label={t("mcp.gridView")}
+              aria-pressed={viewMode === "grid"}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+            </Button>
+          </div>
           <Button
             variant="ghost"
             size="icon"
@@ -479,7 +517,7 @@ export function McpView({ onBack, token }: McpViewProps) {
                     {t("mcp.noPresets")}
                   </p>
                 ) : (
-                  <div className="grid grid-cols-4 gap-1.5">
+                  <div className={cn(viewMode === "grid" ? "grid grid-cols-4 gap-1.5" : "flex flex-col gap-1.5")}>
                     {allServers.map((server) => {
                       const isConnected = server.installed || server.status === "configured";
                       return isConnected ? (
@@ -515,6 +553,7 @@ export function McpView({ onBack, token }: McpViewProps) {
                           enabling={enablingPreset === server.name}
                           error={expandedPreset === server.name ? presetError : null}
                           onEnable={() => handleEnablePreset(server)}
+                          onRemove={() => handleRemove(server.name)}
                           onFieldChange={(field, value) =>
                             setPresetFormValues((prev) => ({
                               ...prev,
@@ -550,7 +589,7 @@ export function McpView({ onBack, token }: McpViewProps) {
                     {t("mcp.empty")}
                   </p>
                 ) : (
-                  <div className="grid grid-cols-4 gap-1.5">
+                  <div className={cn(viewMode === "grid" ? "grid grid-cols-4 gap-1.5" : "flex flex-col gap-1.5")}>
                     {connectedServers.map((server) => (
                       <ServerCard
                         key={server.name}
@@ -826,6 +865,7 @@ function PresetCard({
   enabling,
   error,
   onEnable,
+  onRemove,
   onFieldChange,
   onCancel,
   t,
@@ -836,21 +876,26 @@ function PresetCard({
   enabling: boolean;
   error: string | null;
   onEnable: () => void;
+  onRemove: () => void;
   onFieldChange: (field: string, value: string) => void;
   onCancel: () => void;
   t: TFunc;
 }) {
   const isConfigured = server.status === "configured";
+  const hasError =
+    server.status === "missing_credentials" || server.status === "missing_dependency";
   const fields = server.required_fields ?? [];
   const needsFields = fields.length > 0;
 
   return (
     <div
       className={cn(
-        "flex flex-col rounded-lg border px-2.5 py-2 transition-colors",
-        isConfigured
-          ? "border-emerald-500/30 bg-emerald-500/[0.04]"
-          : "border-border/50 bg-background",
+        "group flex flex-col rounded-lg border px-2.5 py-2 transition-colors",
+        hasError
+          ? "border-amber-500/30 bg-amber-500/[0.03]"
+          : isConfigured
+            ? "border-border/60 bg-background hover:border-violet-500/40"
+            : "border-muted/60 bg-muted/20 opacity-70 hover:opacity-100",
       )}
     >
       <div className="flex items-start gap-2">
@@ -862,34 +907,27 @@ function PresetCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1">
-            <span className="truncate text-[11.5px] font-medium leading-tight">
+            <span className="truncate text-[11px] font-medium leading-tight">
               {server.display_name}
             </span>
             {statusIcon(server.status)}
           </div>
-          <p className="mt-0.5 line-clamp-2 text-[10.5px] leading-snug text-muted-foreground/70">
+          <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground/70">
             {server.description}
           </p>
         </div>
       </div>
 
-      <div className="mt-2 flex items-center justify-end gap-1.5">
-        {isConfigured ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
-            <Check className="h-2.5 w-2.5" />
-            {t("mcp.enabled")}
-          </span>
-        ) : (
-          <Button
-            size="sm"
-            className="h-6 gap-1 px-2.5 text-[10.5px]"
-            disabled={enabling}
-            onClick={onEnable}
-          >
-            {enabling ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-            {t("mcp.enable")}
-          </Button>
-        )}
+      <div className="mt-2 flex items-center justify-between">
+        <span className="text-[9px] uppercase tracking-wider text-muted-foreground/50">
+          {server.transport}
+        </span>
+        <ToggleSwitch
+          checked={isConfigured}
+          disabled={enabling}
+          onClick={isConfigured ? onRemove : onEnable}
+          ariaLabel={isConfigured ? t("mcp.enabled") : t("mcp.enable")}
+        />
       </div>
 
       {expanded && needsFields && (
@@ -988,10 +1026,10 @@ function ServerCard({
   return (
     <div
       className={cn(
-        "flex flex-col rounded-lg border px-2.5 py-2 transition-colors",
+        "group flex flex-col rounded-lg border px-2.5 py-2 transition-colors",
         isConfigured
-          ? "border-emerald-500/20 bg-emerald-500/[0.04]"
-          : "border-border/50 bg-background",
+          ? "border-border/60 bg-background hover:border-violet-500/40"
+          : "border-amber-500/30 bg-amber-500/[0.03]",
       )}
     >
       {/* Header: icon + name + status */}
@@ -1004,12 +1042,12 @@ function ServerCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1">
-            <span className="truncate text-[11.5px] font-semibold leading-tight">
+            <span className="truncate text-[11px] font-medium leading-tight">
               {server.display_name}
             </span>
             {statusIcon(server.status)}
           </div>
-          <div className="mt-0.5 flex items-center gap-1 text-[9.5px] text-muted-foreground/50">
+          <div className="mt-0.5 flex items-center gap-1 text-[9px] text-muted-foreground/50">
             <span className="uppercase">{server.transport}</span>
             {server.tool_count != null && server.tool_count > 0 && (
               <>
@@ -1022,7 +1060,7 @@ function ServerCard({
       </div>
 
       {/* Body: description */}
-      <p className="mt-1.5 line-clamp-2 text-[10.5px] leading-snug text-muted-foreground/70">
+      <p className="mt-1.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground/70">
         {server.connection_summary || server.description}
       </p>
 
@@ -1030,9 +1068,9 @@ function ServerCard({
       {testResult && (
         <div
           className={cn(
-            "mt-1.5 rounded px-1.5 py-1 text-[10.5px]",
+            "mt-1.5 rounded px-1.5 py-1 text-[10px]",
             testResult.ok
-              ? "bg-emerald-500/10 text-emerald-600"
+              ? "bg-violet-500/10 text-violet-600"
               : "bg-destructive/10 text-destructive",
           )}
         >
@@ -1077,18 +1115,17 @@ function ServerCard({
             <>
               <div className="max-h-32 space-y-0.5 overflow-y-auto pr-1">
                 {toolNames.map((tool) => (
-                  <label
+                  <div
                     key={tool}
-                    className="flex cursor-pointer items-center gap-1.5 rounded px-1 py-0.5 hover:bg-accent/30"
+                    className="flex cursor-pointer items-center justify-between gap-1.5 rounded px-1 py-0.5 hover:bg-accent/30"
                   >
-                    <input
-                      type="checkbox"
+                    <span className="truncate text-[10px] font-mono">{tool}</span>
+                    <ToggleSwitch
                       checked={selected.includes(tool)}
-                      onChange={() => onToggleTool(tool)}
-                      className="h-3 w-3 accent-emerald-500"
+                      onClick={() => onToggleTool(tool)}
+                      ariaLabel={tool}
                     />
-                    <span className="truncate text-[10.5px] font-mono">{tool}</span>
-                  </label>
+                  </div>
                 ))}
               </div>
               <div className="mt-2 flex items-center justify-end border-t border-border/40 pt-1.5">
@@ -1117,7 +1154,7 @@ function ServerCard({
           <Button
             variant="ghost"
             size="icon"
-            className="h-6 w-6 text-muted-foreground/60 hover:text-emerald-600 hover:bg-emerald-500/10"
+            className="h-6 w-6 text-muted-foreground/60 hover:text-violet-600 hover:bg-violet-500/10"
             disabled={testing}
             onClick={onTest}
             title={t("mcp.test")}
@@ -1185,5 +1222,39 @@ function FormField({
       </label>
       {children}
     </div>
+  );
+}
+
+function ToggleSwitch({
+  checked,
+  disabled,
+  onClick,
+  ariaLabel,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  ariaLabel: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
+        checked ? "bg-violet-500" : "bg-muted-foreground/30",
+      )}
+    >
+      <span
+        className={cn(
+          "inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform",
+          checked ? "translate-x-3.5" : "translate-x-0.5",
+        )}
+      />
+    </button>
   );
 }

@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from munchkin.agent.tools import (
+from miniUnicorn.agent.tools import (
     ArraySchema,
     IntegerSchema,
     ObjectSchema,
@@ -15,10 +15,10 @@ from munchkin.agent.tools import (
     tool_parameters,
     tool_parameters_schema,
 )
-from munchkin.agent.tools.base import Tool
-from munchkin.agent.tools.registry import ToolRegistry
-from munchkin.agent.tools.shell import ExecTool, ExecToolConfig
-from munchkin.security.network import configure_ssrf_whitelist
+from miniUnicorn.agent.tools.base import Tool
+from miniUnicorn.agent.tools.registry import ToolRegistry
+from miniUnicorn.agent.tools.shell import ExecTool, ExecToolConfig
+from miniUnicorn.security.network import configure_ssrf_whitelist
 
 
 class SampleTool(Tool):
@@ -263,22 +263,22 @@ def test_exec_extract_absolute_paths_captures_posix_absolute_paths() -> None:
 
 
 def test_exec_extract_absolute_paths_captures_home_paths() -> None:
-    cmd = "cat ~/.munchkin/config.json > ~/out.txt"
+    cmd = "cat ~/.miniUnicorn/config.json > ~/out.txt"
     paths = ExecTool._extract_absolute_paths(cmd)
-    assert "~/.munchkin/config.json" in paths
+    assert "~/.miniUnicorn/config.json" in paths
     assert "~/out.txt" in paths
 
 
 def test_exec_extract_absolute_paths_captures_quoted_paths() -> None:
-    cmd = 'cat "/tmp/data.txt" "~/.munchkin/config.json"'
+    cmd = 'cat "/tmp/data.txt" "~/.miniUnicorn/config.json"'
     paths = ExecTool._extract_absolute_paths(cmd)
     assert "/tmp/data.txt" in paths
-    assert "~/.munchkin/config.json" in paths
+    assert "~/.miniUnicorn/config.json" in paths
 
 
 def test_exec_guard_blocks_home_path_outside_workspace(tmp_path) -> None:
     tool = ExecTool(restrict_to_workspace=True)
-    error = tool._guard_command("cat ~/.munchkin/config.json", str(tmp_path))
+    error = tool._guard_command("cat ~/.miniUnicorn/config.json", str(tmp_path))
     assert error is not None
     assert error.startswith(
         "Error: Command blocked by safety guard (path outside working dir)"
@@ -288,7 +288,7 @@ def test_exec_guard_blocks_home_path_outside_workspace(tmp_path) -> None:
 
 def test_exec_guard_blocks_quoted_home_path_outside_workspace(tmp_path) -> None:
     tool = ExecTool(restrict_to_workspace=True)
-    error = tool._guard_command('cat "~/.munchkin/config.json"', str(tmp_path))
+    error = tool._guard_command('cat "~/.miniUnicorn/config.json"', str(tmp_path))
     assert error is not None
     assert error.startswith(
         "Error: Command blocked by safety guard (path outside working dir)"
@@ -302,7 +302,7 @@ def test_exec_guard_allows_media_path_outside_workspace(tmp_path, monkeypatch) -
     media_file = media_dir / "photo.jpg"
     media_file.write_text("ok", encoding="utf-8")
 
-    monkeypatch.setattr("munchkin.agent.tools.shell.get_media_dir", lambda: media_dir)
+    monkeypatch.setattr("miniUnicorn.agent.tools.shell.get_media_dir", lambda: media_dir)
 
     tool = ExecTool(restrict_to_workspace=True)
     error = tool._guard_command(f'cat "{media_file}"', str(tmp_path / "workspace"))
@@ -310,7 +310,7 @@ def test_exec_guard_allows_media_path_outside_workspace(tmp_path, monkeypatch) -
 
 
 def test_exec_guard_blocks_windows_drive_root_outside_workspace(monkeypatch) -> None:
-    import munchkin.agent.tools.shell as shell_mod
+    import miniUnicorn.agent.tools.shell as shell_mod
 
     class FakeWindowsPath:
         def __init__(self, raw: str) -> None:

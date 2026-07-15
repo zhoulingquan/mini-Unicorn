@@ -3,15 +3,15 @@
 ## Docker
 
 > [!TIP]
-> The `-v ~/.Munchkin:/home/munchkin/.munchkin` flag mounts your local config directory into the container, so your config and workspace persist across container restarts.
-> The container runs as the non-root user `Munchkin` (UID 1000) and reads config from `/home/munchkin/.munchkin`. Always mount your host config directory to `/home/munchkin/.munchkin`, not `/root/.Munchkin`.
-> If you get **Permission denied**, fix ownership on the host first: `sudo chown -R 1000:1000 ~/.Munchkin`, or pass `--user $(id -u):$(id -g)` to match your host UID. Podman users can use `--userns=keep-id` instead.
+> The `-v ~/.MiniUnicorn:/home/miniUnicorn/.miniUnicorn` flag mounts your local config directory into the container, so your config and workspace persist across container restarts.
+> The container runs as the non-root user `MiniUnicorn` (UID 1000) and reads config from `/home/miniUnicorn/.miniUnicorn`. Always mount your host config directory to `/home/miniUnicorn/.miniUnicorn`, not `/root/.MiniUnicorn`.
+> If you get **Permission denied**, fix ownership on the host first: `sudo chown -R 1000:1000 ~/.MiniUnicorn`, or pass `--user $(id -u):$(id -g)` to match your host UID. Podman users can use `--userns=keep-id` instead.
 >
 > [!IMPORTANT]
-> Official Docker usage currently means building from this repository with the included `Dockerfile`. Docker Hub images under third-party namespaces are not maintained or verified by HKUDS/Munchkin; do not mount API keys or bot tokens into them unless you trust the publisher.
+> Official Docker usage currently means building from this repository with the included `Dockerfile`. Docker Hub images under third-party namespaces are not maintained or verified by HKUDS/MiniUnicorn; do not mount API keys or bot tokens into them unless you trust the publisher.
 
 > [!IMPORTANT]
-> The gateway and WebSocket channel default to `host: "127.0.0.1"` in `config.json` (set in `munchkin/config/schema.py`). Docker `-p` port forwarding cannot reach a container's loopback interface, so for the host or LAN to reach the exposed ports you must set both binds to `0.0.0.0` in `~/.munchkin/config.json` before starting the container:
+> The gateway and WebSocket channel default to `host: "127.0.0.1"` in `config.json` (set in `miniUnicorn/config/schema.py`). Docker `-p` port forwarding cannot reach a container's loopback interface, so for the host or LAN to reach the exposed ports you must set both binds to `0.0.0.0` in `~/.miniUnicorn/config.json` before starting the container:
 >
 > ```json
 > {
@@ -25,14 +25,14 @@
 ### Docker Compose
 
 ```bash
-docker compose run --rm munchkin-cli onboard   # first-time setup
-vim ~/.munchkin/config.json                     # add API keys
-docker compose up -d munchkin-gateway           # start gateway
+docker compose run --rm miniUnicorn-cli onboard   # first-time setup
+vim ~/.miniUnicorn/config.json                     # add API keys
+docker compose up -d miniUnicorn-gateway           # start gateway
 ```
 
 ```bash
-docker compose run --rm munchkin-cli agent -m "Hello!"   # run CLI
-docker compose logs -f munchkin-gateway                   # view logs
+docker compose run --rm miniUnicorn-cli agent -m "Hello!"   # run CLI
+docker compose logs -f miniUnicorn-gateway                   # view logs
 docker compose down                                      # stop
 ```
 
@@ -40,13 +40,13 @@ docker compose down                                      # stop
 
 ```bash
 # Build the image
-docker build -t munchkin .
+docker build -t miniUnicorn .
 
 # Initialize config (first time only)
-docker run -v ~/.Munchkin:/home/munchkin/.munchkin --rm munchkin onboard
+docker run -v ~/.MiniUnicorn:/home/miniUnicorn/.miniUnicorn --rm miniUnicorn onboard
 
 # Edit config on host to add API keys
-vim ~/.munchkin/config.json
+vim ~/.miniUnicorn/config.json
 
 # Run gateway (connects to enabled channels, e.g. Telegram/Discord/Mochat).
 # Mirrors the security caps and port mappings declared in docker-compose.yml:
@@ -58,35 +58,35 @@ docker run \
   --cap-drop ALL --cap-add SYS_ADMIN \
   --security-opt apparmor=unconfined \
   --security-opt seccomp=unconfined \
-  -v ~/.Munchkin:/home/munchkin/.munchkin \
+  -v ~/.MiniUnicorn:/home/miniUnicorn/.miniUnicorn \
   -p 8765:8765 \
-  munchkin gateway
+  miniUnicorn gateway
 
 # Or run a single command
-docker run -v ~/.Munchkin:/home/munchkin/.munchkin --rm munchkin agent -m "Hello!"
-docker run -v ~/.Munchkin:/home/munchkin/.munchkin --rm munchkin status
+docker run -v ~/.MiniUnicorn:/home/miniUnicorn/.miniUnicorn --rm miniUnicorn agent -m "Hello!"
+docker run -v ~/.MiniUnicorn:/home/miniUnicorn/.miniUnicorn --rm miniUnicorn status
 ```
 
 ## Linux Service
 
 Run the gateway as a systemd user service so it starts automatically and restarts on failure.
 
-**1. Find the Munchkin binary path:**
+**1. Find the MiniUnicorn binary path:**
 
 ```bash
-which Munchkin   # e.g. /home/user/.local/bin/Munchkin
+which MiniUnicorn   # e.g. /home/user/.local/bin/MiniUnicorn
 ```
 
-**2. Create the service file** at `~/.config/systemd/user/munchkin-gateway.service` (replace `ExecStart` path if needed):
+**2. Create the service file** at `~/.config/systemd/user/miniUnicorn-gateway.service` (replace `ExecStart` path if needed):
 
 ```ini
 [Unit]
-Description=Munchkin Gateway
+Description=MiniUnicorn Gateway
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/munchkin gateway
+ExecStart=%h/.local/bin/miniUnicorn gateway
 Restart=always
 RestartSec=10
 NoNewPrivileges=yes
@@ -101,15 +101,15 @@ WantedBy=default.target
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now munchkin-gateway
+systemctl --user enable --now miniUnicorn-gateway
 ```
 
 **Common operations:**
 
 ```bash
-systemctl --user status munchkin-gateway        # check status
-systemctl --user restart munchkin-gateway       # restart after config changes
-journalctl --user -u munchkin-gateway -f        # follow logs
+systemctl --user status miniUnicorn-gateway        # check status
+systemctl --user restart miniUnicorn-gateway       # restart after config changes
+journalctl --user -u miniUnicorn-gateway -f        # follow logs
 ```
 
 If you edit the `.service` file itself, run `systemctl --user daemon-reload` before restarting.
@@ -122,17 +122,17 @@ If you edit the `.service` file itself, run `systemctl --user daemon-reload` bef
 
 ## macOS LaunchAgent
 
-Use a LaunchAgent when you want `munchkin gateway` to stay online after you log in, without keeping a terminal open.
+Use a LaunchAgent when you want `miniUnicorn gateway` to stay online after you log in, without keeping a terminal open.
 
-**1. Get the absolute `Munchkin` path:**
+**1. Get the absolute `MiniUnicorn` path:**
 
 ```bash
-which Munchkin   # e.g. /Users/youruser/.local/bin/Munchkin
+which MiniUnicorn   # e.g. /Users/youruser/.local/bin/MiniUnicorn
 ```
 
 Use that exact path in the plist. It keeps the Python environment from your install method.
 
-**2. Create `~/Library/LaunchAgents/ai.munchkin.gateway.plist`:**
+**2. Create `~/Library/LaunchAgents/ai.miniUnicorn.gateway.plist`:**
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -140,18 +140,18 @@ Use that exact path in the plist. It keeps the Python environment from your inst
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>ai.munchkin.gateway</string>
+  <string>ai.miniUnicorn.gateway</string>
 
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/youruser/.local/bin/Munchkin</string>
+    <string>/Users/youruser/.local/bin/MiniUnicorn</string>
     <string>gateway</string>
     <string>--workspace</string>
-    <string>/Users/youruser/.Munchkin/workspace</string>
+    <string>/Users/youruser/.MiniUnicorn/workspace</string>
   </array>
 
   <key>WorkingDirectory</key>
-  <string>/Users/youruser/.Munchkin/workspace</string>
+  <string>/Users/youruser/.MiniUnicorn/workspace</string>
 
   <key>RunAtLoad</key>
   <true/>
@@ -163,10 +163,10 @@ Use that exact path in the plist. It keeps the Python environment from your inst
   </dict>
 
   <key>StandardOutPath</key>
-  <string>/Users/youruser/.Munchkin/logs/gateway.log</string>
+  <string>/Users/youruser/.MiniUnicorn/logs/gateway.log</string>
 
   <key>StandardErrorPath</key>
-  <string>/Users/youruser/.Munchkin/logs/gateway.error.log</string>
+  <string>/Users/youruser/.MiniUnicorn/logs/gateway.error.log</string>
 </dict>
 </plist>
 ```
@@ -174,20 +174,20 @@ Use that exact path in the plist. It keeps the Python environment from your inst
 **3. Load and start it:**
 
 ```bash
-mkdir -p ~/Library/LaunchAgents ~/.munchkin/logs
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.munchkin.gateway.plist
-launchctl enable gui/$(id -u)/ai.munchkin.gateway
-launchctl kickstart -k gui/$(id -u)/ai.munchkin.gateway
+mkdir -p ~/Library/LaunchAgents ~/.miniUnicorn/logs
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.miniUnicorn.gateway.plist
+launchctl enable gui/$(id -u)/ai.miniUnicorn.gateway
+launchctl kickstart -k gui/$(id -u)/ai.miniUnicorn.gateway
 ```
 
 **Common operations:**
 
 ```bash
-launchctl list | grep ai.munchkin.gateway
-launchctl kickstart -k gui/$(id -u)/ai.munchkin.gateway   # restart
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ai.munchkin.gateway.plist
+launchctl list | grep ai.miniUnicorn.gateway
+launchctl kickstart -k gui/$(id -u)/ai.miniUnicorn.gateway   # restart
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ai.miniUnicorn.gateway.plist
 ```
 
 After editing the plist, run `launchctl bootout ...` and `launchctl bootstrap ...` again.
 
-> **Note:** if startup fails with "address already in use", stop the manually started `munchkin gateway` process first.
+> **Note:** if startup fails with "address already in use", stop the manually started `miniUnicorn gateway` process first.

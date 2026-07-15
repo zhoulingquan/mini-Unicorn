@@ -4,10 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from munchkin.bus.events import InboundMessage
-from munchkin.command.builtin import cmd_dream_log, cmd_dream_restore
-from munchkin.command.router import CommandContext
-from munchkin.utils.gitstore import CommitInfo
+from miniUnicorn.bus.events import InboundMessage
+from miniUnicorn.command.builtin import cmd_dream_log, cmd_dream_restore
+from miniUnicorn.command.router import CommandContext
+from miniUnicorn.utils.gitstore import CommitInfo
 
 
 class _FakeStore:

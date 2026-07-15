@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from munchkin.agent.tools.context import RequestContext
-from munchkin.agent.tools.cron import CronTool
-from munchkin.agent.tools.registry import ToolRegistry
+from miniUnicorn.agent.tools.context import RequestContext
+from miniUnicorn.agent.tools.cron import CronTool
+from miniUnicorn.agent.tools.registry import ToolRegistry
 
 
 class _SvcStub:

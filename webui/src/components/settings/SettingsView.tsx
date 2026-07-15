@@ -72,6 +72,7 @@ import {
   updateModelConfiguration,
   updateNetworkSafetySettings,
   updateProviderSettings,
+  updateRuntimeSettings,
   updateSettings,
   updateWebSearchSettings,
 } from "@/lib/api";
@@ -82,8 +83,10 @@ import {
 } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
+import type { ThemeMode } from "@/hooks/useTheme";
 import type {
   NetworkSafetySettingsUpdate,
+  RuntimeSettingsUpdate,
   SettingsPayload,
   WebSearchSettingsUpdate,
   WebuiDefaultAccessMode,
@@ -94,7 +97,6 @@ export type SettingsSectionKey =
   | "appearance"
   | "models"
   | "browser"
-  | "runtime"
   | "advanced";
 
 type LocalDensity = "comfortable" | "compact";
@@ -111,10 +113,6 @@ interface AgentSettingsDraft {
   provider: string;
   modelPreset: string;
   presetLabel: string;
-  contextWindowTokens: number;
-  timezone: string;
-  botName: string;
-  botIcon: string;
   toolHintMaxLength: number;
 }
 
@@ -135,34 +133,7 @@ type RestartAwarePayload = {
 type ProviderApiType = "auto" | "chat_completions" | "responses";
 type ProviderForm = { apiKey: string; apiBase: string; apiType: ProviderApiType; model: string };
 
-const MUNCHKIN_ICON_SRC = "/brand/munchkin_icon.png";
-const CONTEXT_WINDOW_TOKEN_OPTIONS = [65_536, 262_144] as const;
-
-const FALLBACK_TIMEZONES = [
-  "UTC",
-  "Asia/Shanghai",
-  "Asia/Hong_Kong",
-  "Asia/Tokyo",
-  "Asia/Seoul",
-  "Asia/Singapore",
-  "Asia/Taipei",
-  "Asia/Dubai",
-  "Asia/Kolkata",
-  "Europe/London",
-  "Europe/Paris",
-  "Europe/Berlin",
-  "Europe/Amsterdam",
-  "America/New_York",
-  "America/Chicago",
-  "America/Denver",
-  "America/Los_Angeles",
-  "America/Toronto",
-  "America/Sao_Paulo",
-  "Australia/Sydney",
-  "Pacific/Auckland",
-];
-
-const LOCAL_PREFS_STORAGE_KEY = "munchkin-webui.settings-preferences";
+const LOCAL_PREFS_STORAGE_KEY = "miniUnicorn-webui.settings-preferences";
 
 const DEFAULT_LOCAL_PREFS: LocalPreferences = {
   density: "comfortable",
@@ -188,14 +159,13 @@ const EMPTY_PENDING_RESTART_SECTIONS: PendingRestartSections = {
 };
 
 interface SettingsViewProps {
-  theme: "light" | "dark";
+  themeMode: ThemeMode;
   initialSection?: SettingsSectionKey;
   showSidebar?: boolean;
-  onToggleTheme: () => void;
+  onSetThemeMode: (mode: ThemeMode) => void;
   onBackToChat: () => void;
   onModelNameChange: (modelName: string | null) => void;
   onSettingsChange?: (payload: SettingsPayload) => void;
-  onWorkspaceSettingsChange?: () => void | Promise<void>;
   onLogout?: () => void;
   onRestart?: () => void;
   isRestarting?: boolean;
@@ -226,24 +196,19 @@ function defaultPreset(payload: SettingsPayload): SettingsPayload["model_presets
   return payload.model_presets.find((preset) => preset.is_default) ?? null;
 }
 
-function normalizeContextWindowTokens(value: number | null | undefined): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 65_536;
-}
-
 function editableDefaultProvider(payload: SettingsPayload): string {
   const base = defaultPreset(payload);
   return base?.provider ?? payload.agent.provider ?? payload.agent.resolved_provider ?? "";
 }
 
 export function SettingsView({
-  theme,
+  themeMode,
   initialSection = "overview",
   showSidebar = true,
-  onToggleTheme,
+  onSetThemeMode,
   onBackToChat,
   onModelNameChange,
   onSettingsChange,
-  onWorkspaceSettingsChange,
   onLogout,
   onRestart,
   isRestarting = false,
@@ -263,22 +228,19 @@ export function SettingsView({
   });
   const [providerSaving, setProviderSaving] = useState<string | null>(null);
   const [providerSaved, setProviderSaved] = useState<Record<string, boolean>>({});
-  const [providerModels, setProviderModels] = useState<Record<string, string[]>>(() => {
-    try {
-      const stored = localStorage.getItem("munchkin:providerModels");
-      return stored ? JSON.parse(stored) : {};
-    } catch {
-      return {};
-    }
-  });
+  const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
   const [providerModelsLoading, setProviderModelsLoading] = useState<string | null>(null);
   const [webSearchSaving, setWebSearchSaving] = useState(false);
   const [networkSafetySaving, setNetworkSafetySaving] = useState(false);
+  const [runtimeSaving, setRuntimeSaving] = useState(false);
+  const [runtimeForm, setRuntimeForm] = useState<RuntimeSettingsUpdate>({
+    heartbeatIntervalS: 1800,
+    dreamIntervalH: 2,
+  });
   const [hostEngineApplying, setHostEngineApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<SettingsSectionKey>(initialSection);
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
-  const [providerQuery, setProviderQuery] = useState("");
   const [providerForms, setProviderForms] = useState<Record<string, ProviderForm>>({});
   const [visibleProviderKeys, setVisibleProviderKeys] = useState<Record<string, boolean>>({});
   const [editingProviderKeys, setEditingProviderKeys] = useState<Record<string, boolean>>({});
@@ -309,10 +271,6 @@ export function SettingsView({
     provider: "",
     modelPreset: "default",
     presetLabel: "Default",
-    contextWindowTokens: 65_536,
-    timezone: "UTC",
-    botName: "Munchkin",
-    botIcon: "",
     toolHintMaxLength: 40,
   });
 
@@ -335,12 +293,6 @@ export function SettingsView({
         : activePreset?.provider ?? editableDefaultProvider(payload),
       modelPreset: activePresetName,
       presetLabel: activePreset?.label ?? activePresetName,
-      contextWindowTokens: normalizeContextWindowTokens(
-        activePreset?.context_window_tokens ?? payload.agent.context_window_tokens,
-      ),
-      timezone: payload.agent.timezone,
-      botName: payload.agent.bot_name,
-      botIcon: payload.agent.bot_icon,
       toolHintMaxLength: payload.agent.tool_hint_max_length,
     });
     setWebSearchForm((prev) => ({
@@ -354,6 +306,10 @@ export function SettingsView({
     setNetworkSafetyForm({
       webuiAllowLocalServiceAccess: payload.advanced.webui_allow_local_service_access ?? payload.advanced.allow_local_preview_access ?? true,
       webuiDefaultAccessMode: visibleWebuiDefaultAccessMode(payload.advanced.webui_default_access_mode),
+    });
+    setRuntimeForm({
+      heartbeatIntervalS: payload.runtime.heartbeat.interval_s,
+      dreamIntervalH: parseDreamIntervalHours(payload.runtime.dream.schedule),
     });
     if (payload.restart_required_sections) {
       setPendingRestartSections({
@@ -433,11 +389,11 @@ export function SettingsView({
 
   useEffect(() => {
     try {
-      localStorage.setItem("munchkin:providerModels", JSON.stringify(providerModels));
+      localStorage.removeItem("miniUnicorn:providerModels");
     } catch {
-      // ignore quota errors
+      // ignore
     }
-  }, [providerModels]);
+  }, []);
 
   const modelDirty = useMemo(() => {
     if (!settings) return false;
@@ -451,17 +407,7 @@ export function SettingsView({
       form.modelPreset !== activePresetName ||
       form.model !== selectedPreset.model ||
       form.provider !== selectedProvider ||
-      form.contextWindowTokens !== normalizeContextWindowTokens(selectedPreset.context_window_tokens) ||
       (!selectedPreset.is_default && form.presetLabel.trim() !== selectedPreset.label)
-    );
-  }, [form, settings]);
-
-  const runtimeDirty = useMemo(() => {
-    if (!settings) return false;
-    return (
-      form.timezone !== settings.agent.timezone ||
-      form.botName !== settings.agent.bot_name ||
-      form.botIcon !== settings.agent.bot_icon
     );
   }, [form, settings]);
 
@@ -475,6 +421,14 @@ export function SettingsView({
       networkSafetyForm.webuiDefaultAccessMode !== currentDefaultAccess
     );
   }, [networkSafetyForm, settings]);
+
+  const runtimeDirty = useMemo(() => {
+    if (!settings) return false;
+    return (
+      runtimeForm.heartbeatIntervalS !== settings.runtime.heartbeat.interval_s ||
+      runtimeForm.dreamIntervalH !== parseDreamIntervalHours(settings.runtime.dream.schedule)
+    );
+  }, [runtimeForm, settings]);
 
   const configuredModelProviderOptions = useMemo(
     () =>
@@ -550,23 +504,14 @@ export function SettingsView({
           label: form.presetLabel.trim(),
           model: form.model,
           provider: form.provider,
-          ...(form.contextWindowTokens !== selectedPreset.context_window_tokens
-            ? { contextWindowTokens: form.contextWindowTokens }
-            : {}),
         });
       } else {
         const defaultModel = defaultPreset(settings)?.model ?? settings.agent.model;
         const defaultProvider = editableDefaultProvider(settings);
-        const defaultContextWindowTokens = normalizeContextWindowTokens(
-          defaultPreset(settings)?.context_window_tokens ?? settings.agent.context_window_tokens,
-        );
         payload = await updateSettings(token, {
           modelPreset: form.modelPreset,
           ...(form.model !== defaultModel ? { model: form.model } : {}),
           ...(form.provider !== defaultProvider ? { provider: form.provider } : {}),
-          ...(form.contextWindowTokens !== defaultContextWindowTokens
-            ? { contextWindowTokens: form.contextWindowTokens }
-            : {}),
         });
       }
       applyPayload(payload);
@@ -618,29 +563,6 @@ export function SettingsView({
     }
   };
 
-  const saveRuntimeSettings = async () => {
-    if (!settings || !runtimeDirty || saving) return;
-    setSaving(true);
-    try {
-      const payload = await updateSettings(token, {
-        timezone: form.timezone,
-        botName: form.botName,
-        botIcon: form.botIcon,
-      });
-      applyPayload(payload);
-      if (payload.requires_restart) {
-        setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
-      }
-      await onWorkspaceSettingsChange?.();
-      await maybeRestartHostEngine(payload);
-      setError(null);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const saveNetworkSafetySettings = async () => {
     if (!settings || !networkSafetyDirty || networkSafetySaving) return;
     setNetworkSafetySaving(true);
@@ -656,6 +578,24 @@ export function SettingsView({
       setError((err as Error).message);
     } finally {
       setNetworkSafetySaving(false);
+    }
+  };
+
+  const saveRuntimeSettings = async () => {
+    if (!settings || !runtimeDirty || runtimeSaving) return;
+    setRuntimeSaving(true);
+    try {
+      const payload = await updateRuntimeSettings(token, runtimeForm);
+      applyPayload(payload);
+      if (payload.requires_restart) {
+        setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
+      }
+      await maybeRestartHostEngine(payload);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRuntimeSaving(false);
     }
   };
 
@@ -689,6 +629,7 @@ export function SettingsView({
         });
       }
       applyPayload(payload);
+      onModelNameChange(payload.agent.model || null);
       if (payload.requires_restart) {
         setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
       }
@@ -705,6 +646,12 @@ export function SettingsView({
       setVisibleProviderKeys((prev) => ({ ...prev, [providerName]: false }));
       setEditingProviderKeys((prev) => ({ ...prev, [providerName]: false }));
       setProviderSaved((prev) => ({ ...prev, [providerName]: true }));
+      setProviderModels((prev) => {
+        if (!(providerName in prev)) return prev;
+        const next = { ...prev };
+        delete next[providerName];
+        return next;
+      });
       setError(null);
     } catch (err) {
       setError((err as Error).message);
@@ -828,11 +775,27 @@ export function SettingsView({
     }));
     setVisibleProviderKeys((prev) => ({ ...prev, [providerName]: false }));
     setEditingProviderKeys((prev) => ({ ...prev, [providerName]: false }));
+    setProviderModels((prev) => {
+      if (!(providerName in prev)) return prev;
+      const next = { ...prev };
+      delete next[providerName];
+      return next;
+    });
   }, [settings]);
 
   const handleToggleProvider = useCallback((providerName: string) => {
     if (expandedProvider) resetProviderDraft(expandedProvider);
-    setExpandedProvider(expandedProvider === providerName ? null : providerName);
+    if (expandedProvider === providerName) {
+      setExpandedProvider(null);
+    } else {
+      setProviderModels((prev) => {
+        if (!(providerName in prev)) return prev;
+        const next = { ...prev };
+        delete next[providerName];
+        return next;
+      });
+      setExpandedProvider(providerName);
+    }
   }, [expandedProvider, resetProviderDraft]);
 
   const resetWebSearchDraft = useCallback(() => {
@@ -899,13 +862,18 @@ export function SettingsView({
             isRestarting={isRestarting || hostEngineApplying}
             showBrandLogos={localPrefs.brandLogos}
             onSelectSection={setActiveSection}
+            runtimeForm={runtimeForm}
+            runtimeDirty={runtimeDirty}
+            runtimeSaving={runtimeSaving}
+            onChangeRuntimeForm={setRuntimeForm}
+            onSaveRuntime={saveRuntimeSettings}
           />
         );
       case "appearance":
         return (
           <AppearanceSettings
-            theme={theme}
-            onToggleTheme={onToggleTheme}
+            themeMode={themeMode}
+            onSetThemeMode={onSetThemeMode}
             localPrefs={localPrefs}
             onChangeLocalPrefs={setLocalPrefs}
           />
@@ -935,9 +903,7 @@ export function SettingsView({
               providerSaved={providerSaved}
               providerModels={providerModels}
               providerModelsLoading={providerModelsLoading}
-              query={providerQuery}
               showBrandLogos={localPrefs.brandLogos}
-              onQueryChange={setProviderQuery}
               onToggleProvider={handleToggleProvider}
               onToggleProviderKey={toggleProviderKeyVisibility}
               onToggleProviderKeyEditing={toggleProviderKeyEditing}
@@ -983,20 +949,6 @@ export function SettingsView({
             onRestart={restartViaSettingsSurface}
             isRestarting={isRestarting || hostEngineApplying}
             requiresRestartPending={pendingRestartSections.browser}
-          />
-        );
-      case "runtime":
-        return (
-          <RuntimeSettings
-            form={form}
-            setForm={setForm}
-            settings={settings}
-            dirty={runtimeDirty}
-            saving={saving}
-            onSave={saveRuntimeSettings}
-            onRestart={restartViaSettingsSurface}
-            isRestarting={isRestarting || hostEngineApplying}
-            requiresRestartPending={pendingRestartSections.runtime}
           />
         );
       case "advanced":
@@ -1089,12 +1041,17 @@ const SETTINGS_NAV_ITEMS: Array<{ key: SettingsSectionKey; icon: LucideIcon; fal
   { key: "appearance", icon: Palette, fallback: "Appearance" },
   { key: "models", icon: SlidersHorizontal, fallback: "Models" },
   { key: "browser", icon: Globe2, fallback: "Web" },
-  { key: "runtime", icon: Server, fallback: "System" },
   { key: "advanced", icon: ShieldCheck, fallback: "Security" },
 ];
 
 function visibleWebuiDefaultAccessMode(mode: string | null | undefined): WebuiDefaultAccessMode {
   return mode === "full" ? "full" : "default";
+}
+
+function parseDreamIntervalHours(schedule: string | undefined | null): number {
+  if (!schedule) return 2;
+  const match = schedule.match(/every\s+(\d+)h/i);
+  return match ? parseInt(match[1], 10) : 2;
 }
 
 function titleForSection(section: SettingsSectionKey): string {
@@ -1186,6 +1143,11 @@ function OverviewSettings({
   isRestarting,
   onSelectSection,
   showBrandLogos,
+  runtimeForm,
+  runtimeDirty,
+  runtimeSaving,
+  onChangeRuntimeForm,
+  onSaveRuntime,
 }: {
   settings: SettingsPayload;
   requiresRestart: boolean;
@@ -1193,23 +1155,24 @@ function OverviewSettings({
   isRestarting?: boolean;
   onSelectSection: (section: SettingsSectionKey) => void;
   showBrandLogos: boolean;
+  runtimeForm: RuntimeSettingsUpdate;
+  runtimeDirty: boolean;
+  runtimeSaving: boolean;
+  onChangeRuntimeForm: Dispatch<SetStateAction<RuntimeSettingsUpdate>>;
+  onSaveRuntime: () => void;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
   const activePreset = settings.agent.model_preset || "default";
   const activeProvider = settings.agent.resolved_provider ?? settings.agent.provider;
-  const webStatus = settings.web.enable
-    ? tx("settings.values.enabled", "Enabled")
-    : tx("settings.values.disabled", "Disabled");
   return (
     <div className="space-y-7">
       <section>
         <div className="overflow-hidden rounded-[22px] border border-border/45 bg-card/86 shadow-[0_18px_65px_rgba(15,23,42,0.075)] backdrop-blur-xl dark:border-white/10 dark:shadow-[0_18px_65px_rgba(0,0,0,0.24)]">
           <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-3">
-              <MunchkinBrandLogo size="lg" testId="overview-munchkin-logo" />
               <div className="min-w-0">
-                <div className="text-[12px] font-medium text-muted-foreground">Munchkin</div>
+                <div className="text-[12px] font-medium text-muted-foreground">MiniUnicorn</div>
                 <div className="mt-0.5 truncate text-[18px] font-semibold leading-6 text-foreground">
                   {settings.agent.model}
                 </div>
@@ -1261,21 +1224,6 @@ function OverviewSettings({
       </section>
 
       <section>
-        <SettingsSectionTitle>{tx("settings.sections.capabilities", "Capabilities")}</SettingsSectionTitle>
-        <SettingsGroup>
-          <OverviewListRow
-            icon={Globe2}
-            valueLogoProvider={settings.web_search.provider}
-            title={tx("settings.overview.webSearch", "Web search")}
-            value={providerDisplayLabel(settings.web_search.providers, settings.web_search.provider)}
-            caption={webStatus}
-            showBrandLogos={showBrandLogos}
-            onClick={() => onSelectSection("browser")}
-          />
-        </SettingsGroup>
-      </section>
-
-      <section>
         <SettingsSectionTitle>{tx("settings.sections.system", "System")}</SettingsSectionTitle>
         <SettingsGroup>
           <OverviewListRow
@@ -1287,14 +1235,48 @@ function OverviewSettings({
                 ? tx("settings.values.restartPending", "Restart pending")
                 : tx("settings.values.ready", "Ready")
             }
-            onClick={() => onSelectSection("runtime")}
           />
           <OverviewListRow
             icon={HardDrive}
             title={tx("settings.overview.workspace", "Workspace")}
             value={settings.runtime.workspace_path}
-            caption={settings.runtime.config_path}
-            onClick={() => onSelectSection("runtime")}
+            caption={tx("settings.rows.configPath", "Config path")}
+          />
+          <SettingsRow
+            title={tx("settings.overview.heartbeat", "Heartbeat")}
+            description={tx("settings.help.heartbeat", "Idle check interval in seconds (60-86400).")}
+          >
+            <NumberInput
+              value={runtimeForm.heartbeatIntervalS ?? settings.runtime.heartbeat.interval_s}
+              min={60}
+              max={86400}
+              suffix="s"
+              onChange={(heartbeatIntervalS) =>
+                onChangeRuntimeForm((prev) => ({ ...prev, heartbeatIntervalS }))
+              }
+            />
+          </SettingsRow>
+          <SettingsRow
+            title={tx("settings.overview.dream", "Dream")}
+            description={tx("settings.help.dream", "Memory consolidation interval in hours (1-48).")}
+          >
+            <NumberInput
+              value={runtimeForm.dreamIntervalH ?? parseDreamIntervalHours(settings.runtime.dream.schedule)}
+              min={1}
+              max={48}
+              suffix="h"
+              onChange={(dreamIntervalH) =>
+                onChangeRuntimeForm((prev) => ({ ...prev, dreamIntervalH }))
+              }
+            />
+          </SettingsRow>
+          <RestartSettingsFooter
+            dirty={runtimeDirty}
+            saving={runtimeSaving}
+            pendingRestart={false}
+            onSave={onSaveRuntime}
+            onRestart={onRestart}
+            isRestarting={isRestarting}
           />
         </SettingsGroup>
       </section>
@@ -1303,18 +1285,23 @@ function OverviewSettings({
 }
 
 function AppearanceSettings({
-  theme,
-  onToggleTheme,
+  themeMode,
+  onSetThemeMode,
   localPrefs,
   onChangeLocalPrefs,
 }: {
-  theme: "light" | "dark";
-  onToggleTheme: () => void;
+  themeMode: ThemeMode;
+  onSetThemeMode: (mode: ThemeMode) => void;
   localPrefs: LocalPreferences;
   onChangeLocalPrefs: Dispatch<SetStateAction<LocalPreferences>>;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  const themeOptions: Array<{ value: ThemeMode; label: string }> = [
+    { value: "light", label: t("settings.values.light") },
+    { value: "dark", label: t("settings.values.dark") },
+    { value: "system", label: tx("settings.values.system", "System") },
+  ];
   return (
     <div className="space-y-7">
       <section>
@@ -1324,28 +1311,21 @@ function AppearanceSettings({
             title={t("settings.rows.theme")}
             description={t("settings.help.theme")}
           >
-            <button
-              type="button"
-              onClick={onToggleTheme}
-              className="inline-flex h-8 items-center rounded-full bg-muted p-0.5 text-[12px] font-medium text-muted-foreground"
-            >
-              <span
-                className={cn(
-                  "rounded-full px-3 py-1 transition-colors",
-                  theme === "light" && "bg-background text-foreground shadow-sm",
-                )}
-              >
-                {t("settings.values.light")}
-              </span>
-              <span
-                className={cn(
-                  "rounded-full px-3 py-1 transition-colors",
-                  theme === "dark" && "bg-background text-foreground shadow-sm",
-                )}
-              >
-                {t("settings.values.dark")}
-              </span>
-            </button>
+            <div className="inline-flex h-8 items-center rounded-full bg-muted p-0.5 text-[12px] font-medium text-muted-foreground">
+              {themeOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => onSetThemeMode(option.value)}
+                  className={cn(
+                    "rounded-full px-3 py-1 transition-colors",
+                    themeMode === option.value && "bg-background text-foreground shadow-sm",
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </SettingsRow>
 
           <SettingsRow
@@ -1399,17 +1379,6 @@ function AppearanceSettings({
               onChange={(codeWrap) => onChangeLocalPrefs((prev) => ({ ...prev, codeWrap }))}
               ariaLabel={tx("settings.rows.codeWrap", "Code wrapping")}
               label={localPrefs.codeWrap ? tx("settings.values.on", "On") : tx("settings.values.off", "Off")}
-            />
-          </SettingsRow>
-          <SettingsRow
-            title={tx("settings.rows.brandLogos", "Brand logos")}
-            description={tx("settings.help.brandLogos", "Show third-party provider and CLI logos in Settings.")}
-          >
-            <ToggleButton
-              checked={localPrefs.brandLogos}
-              onChange={(brandLogos) => onChangeLocalPrefs((prev) => ({ ...prev, brandLogos }))}
-              ariaLabel={tx("settings.rows.brandLogos", "Brand logos")}
-              label={localPrefs.brandLogos ? tx("settings.values.on", "On") : tx("settings.values.off", "Off")}
             />
           </SettingsRow>
         </SettingsGroup>
@@ -1585,7 +1554,7 @@ function ModelsSettings({
         <SettingsGroup>
           <SettingsRow
             title={tx("settings.rows.currentModel", "Current model")}
-            description={tx("settings.help.currentModel", "Choose the model Munchkin uses for new replies.")}
+            description={tx("settings.help.currentModel", "Choose the model MiniUnicorn uses for new replies.")}
           >
             <ModelPresetPicker
               presets={settings.model_presets}
@@ -1604,9 +1573,6 @@ function ModelsSettings({
                     ? editableDefaultProvider(settings)
                     : nextPreset?.provider ?? prev.provider,
                   presetLabel: nextPreset?.label ?? modelPreset,
-                  contextWindowTokens: normalizeContextWindowTokens(
-                    nextPreset?.context_window_tokens ?? prev.contextWindowTokens,
-                  ),
                 }));
               }}
               onCreateConfiguration={onCreateConfiguration}
@@ -1662,27 +1628,6 @@ function ModelsSettings({
               </Button>
             </SettingsRow>
           ) : null}
-          <SettingsRow
-            title={tx("settings.rows.contextWindow", "Context window")}
-            description={tx(
-              "settings.help.contextWindow",
-              "Choose the default context budget for this model configuration.",
-            )}
-          >
-            <SegmentedControl
-              value={String(form.contextWindowTokens)}
-              options={CONTEXT_WINDOW_TOKEN_OPTIONS.map((tokens) => ({
-                value: String(tokens),
-                label: tokens === 262_144 ? "256K" : "64K",
-              }))}
-              onChange={(value) =>
-                setForm((prev) => ({
-                  ...prev,
-                  contextWindowTokens: normalizeContextWindowTokens(Number(value)),
-                }))
-              }
-            />
-          </SettingsRow>
           <SettingsFooter
             dirty={dirty}
             saving={saving}
@@ -1711,9 +1656,7 @@ function ProvidersSettings({
   providerSaved,
   providerModels,
   providerModelsLoading,
-  query,
   showBrandLogos,
-  onQueryChange,
   onToggleProvider,
   onToggleProviderKey,
   onToggleProviderKeyEditing,
@@ -1732,9 +1675,7 @@ function ProvidersSettings({
   providerSaved: Record<string, boolean>;
   providerModels: Record<string, string[]>;
   providerModelsLoading: string | null;
-  query: string;
   showBrandLogos: boolean;
-  onQueryChange: (query: string) => void;
   onToggleProvider: (provider: string) => void;
   onToggleProviderKey: (provider: string) => void;
   onToggleProviderKeyEditing: (provider: string) => void;
@@ -1751,8 +1692,6 @@ function ProvidersSettings({
     () => orderUnconfiguredProviders(settings.providers.filter((provider) => !provider.configured)),
     [settings.providers],
   );
-  const filteredConfigured = filterProviders(configuredProviders, query);
-  const filteredUnconfigured = filterProviders(unconfiguredProviders, query);
   const renderProviderRow = (provider: SettingsPayload["providers"][number]) => {
     const expanded = expandedProvider === provider.name;
     const form = providerForms[provider.name] ?? {
@@ -2041,30 +1980,20 @@ function ProvidersSettings({
       <p className="max-w-[42rem] text-[13px] leading-6 text-muted-foreground">
         {t("settings.byok.description")}
       </p>
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-        <Input
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          placeholder={tx("settings.providers.searchPlaceholder", "Search providers")}
-          className="h-10 rounded-full pl-9 text-[13px]"
-        />
-      </div>
       <ProviderSection
         title={t("settings.byok.configuredSection")}
-        count={filteredConfigured.length}
+        count={configuredProviders.length}
         empty={t("settings.byok.noConfiguredProviders")}
       >
-        {filteredConfigured.map(renderProviderRow)}
+        {configuredProviders.map(renderProviderRow)}
       </ProviderSection>
       <ProviderSection
         title={t("settings.byok.notConfiguredSection")}
-        count={filteredUnconfigured.length}
-        empty={tx("settings.providers.noMatches", "No providers match this search.")}
+        count={unconfiguredProviders.length}
+        empty={t("settings.byok.noConfiguredProviders")}
       >
-        {filteredUnconfigured.map(renderProviderRow)}
+        {unconfiguredProviders.map(renderProviderRow)}
       </ProviderSection>
-      <ThirdPartyBrandNotice />
     </div>
   );
 }
@@ -2297,234 +2226,6 @@ function WebSettings({
     </div>
   );
 }
-function RuntimeSettings({
-  form,
-  setForm,
-  settings,
-  dirty,
-  saving,
-  onSave,
-  onRestart,
-  isRestarting,
-  requiresRestartPending,
-}: {
-  form: AgentSettingsDraft;
-  setForm: Dispatch<SetStateAction<AgentSettingsDraft>>;
-  settings: SettingsPayload;
-  dirty: boolean;
-  saving: boolean;
-  onSave: () => void;
-  onRestart?: () => void;
-  isRestarting?: boolean;
-  requiresRestartPending: boolean;
-}) {
-  const { t } = useTranslation();
-  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
-  const isNativeHost = getHostApi() !== null || (settings.surface ?? settings.runtime_surface) === "native";
-  const restartActionLabel = isNativeHost
-    ? tx("app.system.restartEngine", "Restart engine")
-    : t("app.system.restart");
-  const restartingActionLabel = isNativeHost
-    ? tx("app.system.restartingEngine", "Restarting engine...")
-    : t("app.system.restarting");
-  const [diagnosticsPath, setDiagnosticsPath] = useState<string | null>(null);
-  const [hostActionMessage, setHostActionMessage] = useState<{
-    target: "logs" | "diagnostics";
-    message: string;
-  } | null>(null);
-  const [hostActionBusy, setHostActionBusy] =
-    useState<"logs" | "diagnostics" | null>(null);
-  const hostApi = getHostApi();
-  const engineState = isRestarting
-    ? tx("settings.values.restartingEngine", "Restarting")
-    : settings.apply_state?.status === "pending"
-      ? tx("settings.values.pending", "Pending")
-      : tx("settings.values.ready", "Ready");
-  const runHostAction = async (
-    target: "logs" | "diagnostics",
-    action: () => Promise<string | void>,
-    successMessage: (result: string | void) => string,
-    failureMessage: string,
-  ) => {
-    if (!hostApi) {
-      setHostActionMessage({
-        target,
-        message: tx(
-          "settings.status.hostApiUnavailable",
-          "Host actions are only available inside the native app.",
-        ),
-      });
-      return;
-    }
-    setHostActionBusy(target);
-    setHostActionMessage(null);
-    try {
-      const result = await action();
-      setHostActionMessage({ target, message: successMessage(result) });
-    } catch {
-      setHostActionMessage({ target, message: failureMessage });
-    } finally {
-      setHostActionBusy(null);
-    }
-  };
-  return (
-    <div className="space-y-7">
-      <section>
-        <SettingsSectionTitle>{tx("settings.sections.identity", "Identity")}</SettingsSectionTitle>
-        <SettingsGroup>
-          <SettingsRow title={tx("settings.rows.botName", "Bot name")} description={tx("settings.help.botName", "Shown wherever Munchkin uses a display name.")}>
-            <Input
-              value={form.botName}
-              onChange={(event) => setForm((prev) => ({ ...prev, botName: event.target.value }))}
-              className="h-8 w-[220px] rounded-full text-[13px]"
-            />
-          </SettingsRow>
-          <SettingsRow title={tx("settings.rows.botIcon", "Bot icon")} description={tx("settings.help.botIcon", "Short emoji or text shown with the bot name.")}>
-            <Input
-              value={form.botIcon}
-              onChange={(event) => setForm((prev) => ({ ...prev, botIcon: event.target.value }))}
-              className="h-8 w-[120px] rounded-full text-center text-[13px]"
-            />
-          </SettingsRow>
-          <SettingsRow title={tx("settings.rows.timezone", "Timezone")} description={tx("settings.help.timezone", "Used for schedules and time-aware replies.")}>
-            <TimezonePicker
-              value={form.timezone}
-              onChange={(timezone) => setForm((prev) => ({ ...prev, timezone }))}
-            />
-          </SettingsRow>
-          <RestartSettingsFooter
-            dirty={dirty}
-            saving={saving}
-            pendingRestart={requiresRestartPending}
-            dirtyMessage={
-              isNativeHost
-                ? tx("settings.status.hostRestartAfterSaving", "Save changes and Munchkin will restart its engine.")
-                : tx("settings.status.restartAfterSaving", "Save changes, then restart when ready.")
-            }
-            pendingMessage={
-              isNativeHost
-                ? tx("settings.status.hostRestartPending", "Saved. Restarting engine when ready.")
-                : tx("settings.status.savedRestartApply", "Saved. Restart when ready.")
-            }
-            onSave={onSave}
-            onRestart={onRestart}
-            isRestarting={isRestarting}
-          />
-        </SettingsGroup>
-      </section>
-
-      {isNativeHost ? (
-        <section>
-          <SettingsSectionTitle>{tx("settings.sections.nativeHost", "Native host")}</SettingsSectionTitle>
-          <SettingsGroup>
-            <ReadOnlyRow title={tx("settings.rows.engine", "Engine")} value={engineState} />
-            {settings.runtime_capabilities?.can_open_logs ? (
-              <SettingsRow
-                title={tx("settings.rows.logs", "Logs")}
-                description={
-                  hostActionMessage?.target === "logs"
-                    ? hostActionMessage.message
-                    : tx("settings.help.logs", "Open the native engine log folder.")
-                }
-              >
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    void runHostAction(
-                      "logs",
-                      () => hostApi!.openLogs(),
-                      () => tx("settings.status.logsOpened", "Opened logs folder."),
-                      tx("settings.status.logsOpenFailed", "Could not open logs folder."),
-                    )
-                  }
-                  disabled={hostActionBusy !== null}
-                  className="rounded-full"
-                >
-                  {hostActionBusy === "logs"
-                    ? tx("settings.actions.opening", "Opening...")
-                    : tx("settings.actions.open", "Open")}
-                </Button>
-              </SettingsRow>
-            ) : null}
-            {settings.runtime_capabilities?.can_export_diagnostics ? (
-              <SettingsRow
-                title={tx("settings.rows.diagnostics", "Diagnostics")}
-                description={
-                  hostActionMessage?.target === "diagnostics"
-                    ? hostActionMessage.message
-                    : diagnosticsPath
-                    ? diagnosticsPath
-                    : tx("settings.help.diagnostics", "Export a small runtime report for support.")
-                }
-              >
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    void runHostAction(
-                      "diagnostics",
-                      async () => {
-                        const path = await hostApi!.exportDiagnostics();
-                        setDiagnosticsPath(path);
-                        return path;
-                      },
-                      (path) =>
-                        t("settings.status.diagnosticsExported", {
-                          path: String(path ?? ""),
-                          defaultValue: "Diagnostics exported to {{path}}.",
-                        }),
-                      tx("settings.status.diagnosticsExportFailed", "Could not export diagnostics."),
-                    )
-                  }
-                  disabled={hostActionBusy !== null}
-                  className="rounded-full"
-                >
-                  {hostActionBusy === "diagnostics"
-                    ? tx("settings.actions.exporting", "Exporting...")
-                    : tx("settings.actions.export", "Export")}
-                </Button>
-              </SettingsRow>
-            ) : null}
-          </SettingsGroup>
-        </section>
-      ) : null}
-
-      <section>
-        <SettingsSectionTitle>{t("settings.sections.system")}</SettingsSectionTitle>
-        <SettingsGroup>
-          <ReadOnlyRow
-            title={tx("settings.rows.gateway", "Gateway")}
-            value={`${settings.runtime.gateway_host}:${settings.runtime.gateway_port}`}
-          />
-          <ReadOnlyRow title={t("settings.rows.configPath")} value={settings.runtime.config_path} />
-          <ReadOnlyRow title={tx("settings.rows.workspacePath", "Default workspace")} value={settings.runtime.workspace_path} />
-          {onRestart && !requiresRestartPending ? (
-            <SettingsRow
-              title={t("settings.rows.restart")}
-              description={t("app.system.restartHint")}
-            >
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onRestart}
-                disabled={isRestarting}
-                className="rounded-full"
-              >
-                {isRestarting ? (
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
-                ) : (
-                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                )}
-                {isRestarting ? restartingActionLabel : restartActionLabel}
-              </Button>
-            </SettingsRow>
-          ) : null}
-        </SettingsGroup>
-      </section>
-    </div>
-  );
-}
 
 function AdvancedSettings({
   form,
@@ -2617,86 +2318,6 @@ function AdvancedSettings({
         )}
       </p>
     </div>
-  );
-}
-
-function TimezonePicker({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (timezone: string) => void;
-}) {
-  const { t } = useTranslation();
-  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
-  const [query, setQuery] = useState("");
-  const options = useMemo(() => timezoneOptions(value), [value]);
-  const filteredOptions = useMemo(() => filterTimezoneOptions(options, query), [options, query]);
-
-  return (
-    <DropdownMenu onOpenChange={(open) => !open && setQuery("")}>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          className={cn(
-            "h-8 w-[220px] justify-between rounded-full border-input bg-background px-3 text-[13px] font-normal shadow-none",
-            "hover:bg-accent/55 focus-visible:ring-2 focus-visible:ring-ring",
-          )}
-        >
-          <span className="truncate">{value || tx("settings.timezone.select", "Select timezone")}</span>
-          <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="w-[340px] max-w-[calc(100vw-2rem)]"
-      >
-        <div className="sticky top-0 z-10 bg-popover px-1 pb-1">
-          <div className="flex h-9 items-center gap-2 rounded-full border border-input bg-background px-3">
-            <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-            <Input
-              autoFocus
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => event.stopPropagation()}
-              placeholder={tx("settings.timezone.search", "Search timezone")}
-              className="h-7 border-0 bg-transparent px-0 text-[13px] shadow-none focus-visible:ring-0"
-            />
-          </div>
-        </div>
-        <div className="mt-1 max-h-[18rem] overflow-y-auto pr-0.5" data-testid="timezone-picker-list">
-          {filteredOptions.length ? (
-            filteredOptions.map((option) => {
-              const selected = option.name === value;
-              return (
-                <DropdownMenuItem
-                  key={option.name}
-                  onSelect={() => onChange(option.name)}
-                  className={cn(
-                    "flex h-9 cursor-default items-center justify-between gap-3 rounded-[12px] px-2.5 text-[13px]",
-                    "focus:bg-muted/85 focus:text-foreground",
-                    selected && "bg-muted/80 text-foreground focus:bg-muted",
-                  )}
-                >
-                  <span className="min-w-0 truncate font-medium text-foreground">{option.name}</span>
-                  <span className="ml-auto flex shrink-0 items-center gap-2">
-                    <span className="text-[11.5px] font-medium text-muted-foreground/80">
-                      {option.offset}
-                    </span>
-                    {selected ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
-                  </span>
-                </DropdownMenuItem>
-              );
-            })
-          ) : (
-            <div className="px-3 py-5 text-center text-[12px] text-muted-foreground">
-              {tx("settings.timezone.empty", "No matching timezones.")}
-            </div>
-          )}
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 
@@ -2876,18 +2497,6 @@ function ByokEmptyState({ children }: { children: ReactNode }) {
   );
 }
 
-function ThirdPartyBrandNotice() {
-  const { t } = useTranslation();
-  return (
-    <p className="px-1 text-[11.5px] leading-5 text-muted-foreground/75">
-      {t("settings.legal.thirdPartyBrands", {
-        defaultValue:
-          "Product names, logos, and brands are property of their respective owners. Use is for identification only and does not imply endorsement.",
-      })}
-    </p>
-  );
-}
-
 function orderUnconfiguredProviders(
   providers: SettingsPayload["providers"],
 ): SettingsPayload["providers"] {
@@ -2916,75 +2525,6 @@ function providerVisibilityRank(provider: SettingsPayload["providers"][number]):
   if (localRank !== undefined) return localRank;
   if ((provider.api_key_required ?? true) === false) return 100;
   return 200;
-}
-
-function filterProviders(
-  providers: SettingsPayload["providers"],
-  query: string,
-): SettingsPayload["providers"] {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return providers;
-  return providers.filter((provider) =>
-    `${provider.name} ${provider.label} ${provider.api_base ?? ""} ${provider.default_api_base ?? ""}`
-      .toLowerCase()
-      .includes(normalized),
-  );
-}
-
-interface TimezoneOption {
-  name: string;
-  offset: string;
-  searchText: string;
-}
-
-function timezoneOptions(current: string): TimezoneOption[] {
-  return timezonesWithCurrent(current).map((name) => {
-    const offset = timezoneOffset(name);
-    return {
-      name,
-      offset,
-      searchText: `${name} ${name.replace(/_/g, " ")} ${offset}`.toLowerCase(),
-    };
-  });
-}
-
-function timezonesWithCurrent(current: string): string[] {
-  const intl = Intl as typeof Intl & {
-    supportedValuesOf?: (key: "timeZone") => string[];
-  };
-  let values: string[] = [];
-  try {
-    values = intl.supportedValuesOf?.("timeZone") ?? [];
-  } catch {
-    values = [];
-  }
-  const deduped = new Set([...FALLBACK_TIMEZONES, ...values, current].filter(Boolean));
-  return Array.from(deduped).sort((left, right) => {
-    if (left === "UTC") return -1;
-    if (right === "UTC") return 1;
-    return left.localeCompare(right);
-  });
-}
-
-function filterTimezoneOptions(options: TimezoneOption[], query: string): TimezoneOption[] {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return options;
-  return options.filter((option) => option.searchText.includes(normalized));
-}
-
-function timezoneOffset(timezone: string): string {
-  try {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
-      timeZoneName: "shortOffset",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).formatToParts(new Date());
-    const value = parts.find((part) => part.type === "timeZoneName")?.value;
-    return value ? value.replace(/^GMT$/, "UTC").replace(/^GMT/, "UTC") : "UTC";
-  } catch {
-    return "Custom timezone";
-  }
 }
 
 function modelPresetProviderKey(
@@ -3090,32 +2630,6 @@ function ProviderIcon({
   );
 }
 
-function MunchkinBrandLogo({
-  size = "sm",
-  testId,
-}: {
-  size?: "sm" | "lg";
-  testId?: string;
-}) {
-  return (
-    <span
-      data-testid={testId}
-      className={cn(
-        "grid shrink-0 place-items-center overflow-hidden border border-border/45 bg-background shadow-[inset_0_0_0_1px_rgba(0,0,0,0.025)]",
-        size === "lg" ? "h-12 w-12 rounded-[16px]" : "h-9 w-9 rounded-[12px]",
-      )}
-      aria-hidden
-    >
-      <img
-        src={MUNCHKIN_ICON_SRC}
-        alt=""
-        className={cn("select-none object-contain", size === "lg" ? "h-10 w-10" : "h-7 w-7")}
-        draggable={false}
-      />
-    </span>
-  );
-}
-
 function OverviewRowIcon({
   icon: Icon,
 }: {
@@ -3128,58 +2642,11 @@ function OverviewRowIcon({
   );
 }
 
-function OverviewValueLogo({
-  provider,
-  showBrandLogos,
-}: {
-  provider: string | null | undefined;
-  showBrandLogos: boolean;
-}) {
-  const [logoIndex, setLogoIndex] = useState(0);
-  const brand = provider ? providerBrand(provider) : null;
-  const logoUrl = brand?.logoUrls[logoIndex];
-
-  useEffect(() => setLogoIndex(0), [provider]);
-
-  if (!provider || !showBrandLogos || !brand) return null;
-
-  if (logoUrl) {
-    return (
-      <span
-        data-testid={`overview-logo-${provider}`}
-        className="grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded-md border border-border/35 bg-background shadow-[inset_0_0_0_1px_rgba(0,0,0,0.02)]"
-        style={{ boxShadow: `inset 0 0 0 1px ${brand.color}22` }}
-        aria-hidden
-      >
-        <img
-          src={logoUrl}
-          alt=""
-          className="h-3.5 w-3.5 object-contain"
-          onError={() => setLogoIndex((index) => index + 1)}
-        />
-      </span>
-    );
-  }
-
-  return (
-    <span
-      data-testid={`overview-logo-fallback-${provider}`}
-      className="grid h-5 w-5 shrink-0 place-items-center rounded-md text-[7.5px] font-semibold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)]"
-      style={{ backgroundColor: brand.color }}
-      aria-hidden
-    >
-      {brand.initials}
-    </span>
-  );
-}
-
 function OverviewListRow({
   icon: Icon,
-  valueLogoProvider,
   title,
   value,
   caption,
-  showBrandLogos = false,
   onClick,
 }: {
   icon: LucideIcon;
@@ -3188,29 +2655,42 @@ function OverviewListRow({
   value: string;
   caption: string;
   showBrandLogos?: boolean;
-  onClick: () => void;
+  onClick?: () => void;
 }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group flex min-h-[68px] w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-muted/30 sm:px-5"
-    >
+  const content = (
+    <>
       <OverviewRowIcon icon={Icon} />
       <span className="min-w-0 flex-1">
         <span className="block text-[14px] font-medium leading-5 text-foreground">{title}</span>
         <span className="mt-0.5 block truncate text-[12px] leading-5 text-muted-foreground">{caption}</span>
       </span>
       <span className="ml-auto flex min-w-0 max-w-[48%] items-center gap-2">
-        <OverviewValueLogo provider={valueLogoProvider} showBrandLogos={showBrandLogos} />
         <span className="truncate text-right text-[13px] leading-5 text-muted-foreground">
           {value}
         </span>
-        <ChevronRight
-          className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5"
-          aria-hidden
-        />
+        {onClick ? (
+          <ChevronRight
+            className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5"
+            aria-hidden
+          />
+        ) : null}
       </span>
+    </>
+  );
+  if (!onClick) {
+    return (
+      <div className="flex min-h-[68px] w-full items-center gap-3 px-4 py-3.5 text-left sm:px-5">
+        {content}
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex min-h-[68px] w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-muted/30 sm:px-5"
+    >
+      {content}
     </button>
   );
 }
@@ -3255,23 +2735,6 @@ function SettingsRow({
   );
 }
 
-function ReadOnlyRow({
-  title,
-  value,
-  description,
-}: {
-  title: string;
-  value: string;
-  description?: string;
-}) {
-  return (
-    <SettingsRow title={title} description={description}>
-      <span className="block max-w-[320px] truncate text-right text-[13px] text-muted-foreground">
-        {value}
-      </span>
-    </SettingsRow>
-  );
-}
 
 function ModelPresetPicker({
   presets,

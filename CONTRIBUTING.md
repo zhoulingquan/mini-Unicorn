@@ -1,8 +1,8 @@
-# Contributing to Munchkin
+# Contributing to MiniUnicorn
 
 Thank you for being here.
 
-Munchkin is built with a simple belief: good tools should feel calm, clear, and humane.
+MiniUnicorn is built with a simple belief: good tools should feel calm, clear, and humane.
 We care deeply about useful features, but we also believe in achieving more with less:
 solutions should be powerful without becoming heavy, and ambitious without becoming
 needlessly complicated.
@@ -58,7 +58,7 @@ git pull --ff-only upstream main
 git switch -c your-topic-branch
 ```
 
-Use your primary HKUDS/Munchkin remote in place of `upstream` if your checkout
+Use your primary HKUDS/MiniUnicorn remote in place of `upstream` if your checkout
 uses a different remote name.
 
 Keep unrelated local changes out of the topic branch. If your checkout already has
@@ -93,8 +93,8 @@ Keep setup boring and reliable. The goal is to get you into the code quickly:
 
 ```bash
 # Clone the repository
-git clone https://github.com/HKUDS/munchkin.git
-cd munchkin
+git clone https://github.com/HKUDS/miniUnicorn.git
+cd miniUnicorn
 
 # Install with dev dependencies
 pip install -e ".[dev]"
@@ -103,10 +103,10 @@ pip install -e ".[dev]"
 pytest
 
 # Lint code
-ruff check munchkin/
+ruff check miniUnicorn/
 
 # Format code — optional. The existing tree predates `ruff format`,
-# so running it across `Munchkin/` produces a large unrelated diff
+# so running it across `MiniUnicorn/` produces a large unrelated diff
 # (E501 is ignored, so many existing lines exceed the 100-char setting).
 # Format only files you've actually touched, not the whole package.
 ruff format <files-you-changed>
@@ -119,7 +119,7 @@ and agree that it will be licensed under the project's MIT License.
 
 ## Code Style
 
-We care about more than passing lint. We want Munchkin to stay small, calm, and readable.
+We care about more than passing lint. We want MiniUnicorn to stay small, calm, and readable.
 
 When contributing, please aim for code that feels:
 
@@ -157,10 +157,10 @@ explicitly in the PR description so it can be discussed before merge.
 
 If you have questions, ideas, or half-formed insights, you are warmly welcome here.
 
-Please feel free to open an [issue](https://github.com/HKUDS/munchkin/issues), join the community, or simply reach out:
+Please feel free to open an [issue](https://github.com/HKUDS/miniUnicorn/issues), join the community, or simply reach out:
 
 - [Discord](https://discord.gg/MnCvHqpUGB)
 - [Feishu/WeChat](./COMMUNICATION.md)
 - Email: Xubin Ren (@Re-bin) — <xubinrencs@gmail.com>
 
-Thank you for spending your time and care on Munchkin. We would love for more people to participate in this community, and we genuinely welcome contributions of all sizes.
+Thank you for spending your time and care on MiniUnicorn. We would love for more people to participate in this community, and we genuinely welcome contributions of all sizes.

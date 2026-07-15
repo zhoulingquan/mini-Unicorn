@@ -7,8 +7,6 @@ import {
   CircleDashed,
   Layers,
   Search,
-  Server,
-  Terminal,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -1657,7 +1655,6 @@ function CliRunRow({ run, active }: { run: CliRunSummary; active: boolean }) {
   const args = formatCliArgs(run);
   const failed = run.status === "error";
   const rowActive = active && run.status === "running";
-  const color = failed ? "#DC2626" : "#0891B2";
   const label = t(cliRunLabelKey(run, active), {
     defaultValue: cliRunLabelDefault(run, active),
   });
@@ -1667,21 +1664,6 @@ function CliRunRow({ run, active }: { run: CliRunSummary; active: boolean }) {
       className="flex min-w-0 items-center gap-2 py-0.5 text-[13px] leading-5"
       title={`${label} @${run.name}${args ? ` ${args}` : ""}${run.error ? ` ${run.error}` : ""}`}
     >
-      <span
-        data-testid={`activity-cli-logo-${run.name.toLowerCase()}`}
-        className={cn(
-          "grid h-4 w-4 shrink-0 place-items-center overflow-hidden rounded-[4px] border text-[6.5px] font-semibold text-white",
-          rowActive && "animate-pulse",
-        )}
-        style={{
-          borderColor: alphaColor(color, 22),
-          backgroundColor: color,
-          boxShadow: rowActive ? `0 0 0 3px ${alphaColor(color, 9)}` : undefined,
-        }}
-        aria-hidden
-      >
-        <Terminal className="h-3 w-3" aria-hidden />
-      </span>
       <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
         <StreamingLabelSheen active={rowActive} className="shrink-0 font-medium text-muted-foreground/85">
           {label}
@@ -1746,7 +1728,6 @@ function McpRunRow({ run, active }: { run: McpRunSummary; active: boolean }) {
   const { t } = useTranslation();
   const failed = run.status === "error";
   const rowActive = active && run.status === "running";
-  const color = failed ? "#DC2626" : "#6D5DF6";
   const displayName = run.displayName;
   const label = t(mcpRunLabelKey(run, active), {
     defaultValue: mcpRunLabelDefault(run, active),
@@ -1757,21 +1738,6 @@ function McpRunRow({ run, active }: { run: McpRunSummary; active: boolean }) {
       className="flex min-w-0 items-center gap-2 py-0.5 text-[13px] leading-5"
       title={`${label} ${displayName} ${run.toolName}${run.argsPreview ? ` ${run.argsPreview}` : ""}${run.error ? ` ${run.error}` : ""}`}
     >
-      <span
-        data-testid={`activity-mcp-logo-${run.presetName.toLowerCase()}`}
-        className={cn(
-          "grid h-4 w-4 shrink-0 place-items-center overflow-hidden rounded-[4px] border text-[6.5px] font-semibold text-white",
-          rowActive && "animate-pulse",
-        )}
-        style={{
-          borderColor: alphaColor(color, 22),
-          backgroundColor: color,
-          boxShadow: rowActive ? `0 0 0 3px ${alphaColor(color, 9)}` : undefined,
-        }}
-        aria-hidden
-      >
-        <Server className="h-3 w-3" aria-hidden />
-      </span>
       <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
         <StreamingLabelSheen active={rowActive} className="shrink-0 font-medium text-muted-foreground/85">
           {label}
@@ -1798,16 +1764,6 @@ function McpRunRow({ run, active }: { run: McpRunSummary; active: boolean }) {
       </span>
     </li>
   );
-}
-
-function alphaColor(color: string, percent: number): string {
-  if (/^#[0-9a-f]{6}$/i.test(color)) {
-    const alpha = Math.round((percent / 100) * 255)
-      .toString(16)
-      .padStart(2, "0");
-    return `${color}${alpha}`;
-  }
-  return `color-mix(in srgb, ${color} ${percent}%, transparent)`;
 }
 
 function FileEditGroup({ edits }: { edits: FileEditSummary[] }) {

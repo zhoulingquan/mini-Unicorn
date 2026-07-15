@@ -65,14 +65,11 @@ describe("webui API helpers", () => {
       model: "deepseek/deepseek-chat",
       provider: "deepseek",
       contextWindowTokens: 262144,
-      timezone: "Asia/Shanghai",
-      botName: "Munchkin",
-      botIcon: "nb",
       toolHintMaxLength: 120,
     });
 
     expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/update?model_preset=default&model=deepseek%2Fdeepseek-chat&provider=deepseek&context_window_tokens=262144&timezone=Asia%2FShanghai&bot_name=Munchkin&bot_icon=nb&tool_hint_max_length=120",
+      "/api/settings/update?model_preset=default&model=deepseek%2Fdeepseek-chat&provider=deepseek&context_window_tokens=262144&tool_hint_max_length=120",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
@@ -129,7 +126,7 @@ describe("webui API helpers", () => {
       }),
     ).rejects.toMatchObject({
       status: 200,
-      message: "Gateway returned WebUI HTML instead of JSON. Restart Munchkin gateway and try again.",
+      message: "Gateway returned WebUI HTML instead of JSON. Restart MiniUnicorn gateway and try again.",
     });
   });
 
@@ -265,7 +262,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-Munchkin-MCP-Values": JSON.stringify({
+          "X-MiniUnicorn-MCP-Values": JSON.stringify({
             browserbase_api_key: "bb_live_test",
           }),
         }),
@@ -286,7 +283,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-Munchkin-MCP-Values": JSON.stringify({
+          "X-MiniUnicorn-MCP-Values": JSON.stringify({
             name: "docs",
             transport: "stdio",
             command: "npx",
@@ -303,7 +300,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-Munchkin-MCP-Values": JSON.stringify({
+          "X-MiniUnicorn-MCP-Values": JSON.stringify({
             config: '{"mcpServers":{"docs":{"command":"npx"}}}',
           }),
         }),
@@ -316,7 +313,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-Munchkin-MCP-Values": JSON.stringify({
+          "X-MiniUnicorn-MCP-Values": JSON.stringify({
             name: "docs",
             enabled_tools: ["search", "fetch"],
           }),
@@ -331,7 +328,7 @@ describe("webui API helpers", () => {
       pinned_keys: ["websocket:chat-1"],
       archived_keys: ["websocket:old"],
       title_overrides: { "websocket:chat-1": "Release" },
-      project_name_overrides: { "/Users/me/munchkin": "Core" },
+      project_name_overrides: { "/Users/me/miniUnicorn": "Core" },
       tags_by_key: {},
       collapsed_groups: {},
       view: {
@@ -367,7 +364,7 @@ describe("webui API helpers", () => {
     expect(JSON.parse(encodedState ?? "{}")).toMatchObject({
       pinned_keys: ["websocket:chat-1"],
       title_overrides: { "websocket:chat-1": "Release" },
-      project_name_overrides: { "/Users/me/munchkin": "Core" },
+      project_name_overrides: { "/Users/me/miniUnicorn": "Core" },
     });
   });
 
@@ -439,7 +436,7 @@ describe("webui API helpers", () => {
           },
           {
             command: "/restart",
-            title: "Restart Munchkin",
+            title: "Restart MiniUnicorn",
             description: "Restart the bot process.",
             icon: "rotate-cw",
           },

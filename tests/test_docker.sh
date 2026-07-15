@@ -2,19 +2,19 @@
 set -euo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
-IMAGE_NAME="munchkin-test"
+IMAGE_NAME="miniUnicorn-test"
 
 echo "=== Building Docker image ==="
 docker build -t "$IMAGE_NAME" .
 
 echo ""
-echo "=== Running 'munchkin onboard' ==="
-docker run --name munchkin-test-run "$IMAGE_NAME" onboard
+echo "=== Running 'miniUnicorn onboard' ==="
+docker run --name miniUnicorn-test-run "$IMAGE_NAME" onboard
 
 echo ""
-echo "=== Running 'munchkin status' ==="
-STATUS_OUTPUT=$(docker commit munchkin-test-run munchkin-test-onboarded > /dev/null && \
-    docker run --rm munchkin-test-onboarded status 2>&1) || true
+echo "=== Running 'miniUnicorn status' ==="
+STATUS_OUTPUT=$(docker commit miniUnicorn-test-run miniUnicorn-test-onboarded > /dev/null && \
+    docker run --rm miniUnicorn-test-onboarded status 2>&1) || true
 
 echo "$STATUS_OUTPUT"
 
@@ -31,7 +31,7 @@ check() {
     fi
 }
 
-check "Munchkin Status"
+check "MiniUnicorn Status"
 check "Config:"
 check "Workspace:"
 check "Model:"
@@ -50,7 +50,7 @@ fi
 # Cleanup
 echo ""
 echo "=== Cleanup ==="
-docker rm -f munchkin-test-run 2>/dev/null || true
-docker rmi -f munchkin-test-onboarded 2>/dev/null || true
+docker rm -f miniUnicorn-test-run 2>/dev/null || true
+docker rmi -f miniUnicorn-test-onboarded 2>/dev/null || true
 docker rmi -f "$IMAGE_NAME" 2>/dev/null || true
 echo "Done."

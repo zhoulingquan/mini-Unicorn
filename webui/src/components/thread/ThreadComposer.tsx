@@ -28,12 +28,21 @@ import {
   SquarePen,
   Target,
   Undo2,
+  Users,
   X,
   type LucideIcon,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   WorkspaceAccessMenu,
   WorkspaceProjectPicker,
@@ -45,17 +54,15 @@ import {
   MAX_IMAGES_PER_MESSAGE,
 } from "@/hooks/useAttachedImages";
 import { useClipboardAndDrop } from "@/hooks/useClipboardAndDrop";
-import type { SendImage, SendOptions } from "@/hooks/useMunchkinStream";
+import type { SendImage, SendOptions } from "@/hooks/useMiniUnicornStream";
 import type {
+  AgentInfo,
   GoalStateWsPayload,
   SlashCommand,
   WorkspaceScopePayload,
   WorkspacesPayload,
 } from "@/lib/types";
-import {
-  inferProviderFromModelName,
-  providerBrand,
-} from "@/lib/provider-brand";
+import { inferProviderFromModelName, providerBrand } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
 
 /** ``<input accept>``: aligned with the server's MIME whitelist. SVG is
@@ -89,6 +96,14 @@ interface ThreadComposerProps {
   workspaceScopeDisabled?: boolean;
   workspaceError?: string | null;
   onWorkspaceScopeChange?: (scope: WorkspaceScopePayload) => void;
+  /** Subagents available for ``@agent`` selection (from ``GET /api/agents``). */
+  agents?: AgentInfo[];
+  /** Currently selected subagent id (``agent.name``); routes outbound turns. */
+  selectedAgentId?: string | null;
+  /** Called when the user picks a subagent from the selector. */
+  onSelectAgent?: (agentId: string) => void;
+  /** Called when the user clears the active subagent selection. */
+  onClearAgent?: () => void;
 }
 
 const COMMAND_ICONS: Record<string, LucideIcon> = {
@@ -109,7 +124,7 @@ const SLASH_PALETTE_GAP_PX = 8;
 const SLASH_PALETTE_MAX_HEIGHT_PX = 288;
 const SLASH_PALETTE_MIN_HEIGHT_PX = 144;
 const SLASH_PALETTE_CHROME_PX = 12;
-const SLASH_RECENTS_STORAGE_KEY = "munchkin.webui.slashCommandRecents";
+const SLASH_RECENTS_STORAGE_KEY = "miniUnicorn.webui.slashCommandRecents";
 const SLASH_RECENTS_LIMIT = 5;
 
 type SlashPalettePlacement = "above" | "below";
@@ -310,10 +325,10 @@ function RunElapsedStrip({
       {goalPanelOpen && canExpandGoal && markdownBody ? (
         <div
           ref={panelRef}
-          id="munchkin-goal-panel-root"
+          id="miniUnicorn-goal-panel-root"
           role="dialog"
           aria-modal="false"
-          aria-labelledby="munchkin-goal-panel-title"
+          aria-labelledby="miniUnicorn-goal-panel-title"
           tabIndex={-1}
           className={cn(
             "absolute bottom-[calc(100%+8px)] left-3 right-3 z-[50] flex max-w-none flex-col overflow-hidden",
@@ -324,7 +339,7 @@ function RunElapsedStrip({
         >
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-black/[0.06] px-3 py-2 dark:border-white/[0.08]">
             <h2
-              id="munchkin-goal-panel-title"
+              id="miniUnicorn-goal-panel-title"
               className="min-w-0 truncate text-[13px] font-semibold tracking-tight text-foreground"
             >
               {t("thread.composer.goalStateSheetTitle")}
@@ -343,7 +358,7 @@ function RunElapsedStrip({
             </button>
           </div>
           <div
-            id="munchkin-goal-panel-scroll"
+            id="miniUnicorn-goal-panel-scroll"
             className="min-h-0 flex-1 overflow-y-auto scrollbar-thin px-3 pb-3 pt-2"
           >
             <MarkdownText className="max-w-none text-[13.5px] leading-relaxed text-foreground/90">
@@ -385,7 +400,7 @@ function RunElapsedStrip({
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             )}
             aria-expanded={goalPanelOpen}
-            aria-controls={goalPanelOpen ? "munchkin-goal-panel-root" : undefined}
+            aria-controls={goalPanelOpen ? "miniUnicorn-goal-panel-root" : undefined}
             aria-label={t("thread.composer.goalStateExpandAria")}
             title={t("thread.composer.goalStateExpandAria")}
             onClick={() => setGoalPanelOpen((o) => !o)}
@@ -421,6 +436,10 @@ export function ThreadComposer({
   workspaceScopeDisabled = false,
   workspaceError = null,
   onWorkspaceScopeChange,
+  agents = [],
+  selectedAgentId = null,
+  onSelectAgent,
+  onClearAgent,
 }: ThreadComposerProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
@@ -497,6 +516,31 @@ export function ThreadComposer({
     && !encoding
     && !hasErrors
     && (value.trim().length > 0 || readyImages.length > 0);
+
+  // Resolve the active subagent object (if any) for the chip + send metadata.
+  const selectedAgent = useMemo(
+    () =>
+      selectedAgentId
+        ? agents.find((agent) => agent.name === selectedAgentId) ?? null
+        : null,
+    [agents, selectedAgentId],
+  );
+  const showAgentSelector = agents.length > 0;
+  const handleSelectAgent = useCallback(
+    (agentId: string) => {
+      // Sentinel emitted by the "clear" menu item: delegate to onClearAgent
+      // so callers only need to implement the clear path once.
+      if (agentId === "__none__") {
+        onClearAgent?.();
+        return;
+      }
+      onSelectAgent?.(agentId);
+    },
+    [onClearAgent, onSelectAgent],
+  );
+  const handleClearAgent = useCallback(() => {
+    onClearAgent?.();
+  }, [onClearAgent]);
 
   const slashQuery = useMemo(() => {
     if (disabled || slashMenuDismissed || !value.startsWith("/")) return null;
@@ -707,7 +751,10 @@ export function ThreadComposer({
             preview: { url: img.dataUrl, name: img.file.name },
           }))
         : undefined;
-    onSend(trimmed, payload);
+    const options: SendOptions | undefined = selectedAgentId
+      ? { agentId: selectedAgentId }
+      : undefined;
+    onSend(trimmed, payload, options);
     setValue("");
     setInlineError(null);
     clear();
@@ -719,6 +766,7 @@ export function ThreadComposer({
     onSend,
     readyImages,
     resizeTextarea,
+    selectedAgentId,
     value,
   ]);
 
@@ -878,6 +926,25 @@ export function ThreadComposer({
         {runStartedAt != null || goalState?.active ? (
           <RunElapsedStrip startedAt={runStartedAt} goalState={goalState} />
         ) : null}
+        {selectedAgent ? (
+          <div
+            className={cn(
+              "flex items-center gap-2 px-3",
+              images.length > 0 || runStartedAt != null || goalState?.active
+                ? "pt-2"
+                : isHero
+                  ? "pt-3"
+                  : "pt-2.5",
+            )}
+          >
+            <AgentSelectionChip
+              description={selectedAgent.description}
+              onClear={handleClearAgent}
+              clearLabel={t("agents.clear")}
+              usingLabel={t("agents.usingAgent", { name: selectedAgent.name })}
+            />
+          </div>
+        ) : null}
         <div className="relative">
           <textarea
             ref={textareaRef}
@@ -943,6 +1010,18 @@ export function ThreadComposer({
             >
               <Plus className={cn(isHero ? "h-[18px] w-[18px]" : "h-4 w-4")} />
             </Button>
+            {showAgentSelector ? (
+              <AgentSelectorButton
+                agents={agents}
+                selectedAgentId={selectedAgentId}
+                disabled={disabled}
+                isHero={isHero}
+                onSelect={handleSelectAgent}
+                ariaLabel={t("agents.title")}
+                emptyLabel={t("agents.empty")}
+                clearLabel={t("agents.clear")}
+              />
+            ) : null}
             {workspaceScope ? (
               <WorkspaceAccessMenu
                 scope={workspaceScope}
@@ -1275,5 +1354,149 @@ function AttachmentChip({
         <X className="h-3.5 w-3.5" aria-hidden />
       </button>
     </div>
+  );
+}
+
+/* ─── Subagent Selector ─────────────────────────────────── */
+
+interface AgentSelectorButtonProps {
+  agents: AgentInfo[];
+  selectedAgentId: string | null;
+  disabled?: boolean;
+  isHero: boolean;
+  onSelect: (agentId: string) => void;
+  ariaLabel: string;
+  emptyLabel: string;
+  clearLabel: string;
+}
+
+function AgentSelectorButton({
+  agents,
+  selectedAgentId,
+  disabled,
+  isHero,
+  onSelect,
+  ariaLabel,
+  emptyLabel,
+  clearLabel,
+}: AgentSelectorButtonProps) {
+  const active = !!selectedAgentId;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          disabled={disabled}
+          aria-label={ariaLabel}
+          title={ariaLabel}
+          className={cn(
+            "rounded-full transition-colors",
+            isHero
+              ? "h-8 w-8 border border-border/55 bg-card shadow-[0_2px_8px_rgba(15,23,42,0.05)] hover:bg-card"
+              : "h-9 w-9 border border-border/55 bg-card shadow-[0_2px_8px_rgba(15,23,42,0.05)] hover:bg-card",
+            active
+              ? "text-sky-600 hover:text-sky-600 dark:text-sky-400"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Users className={cn(isHero ? "h-[18px] w-[18px]" : "h-4 w-4")} />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-[20rem] max-w-[calc(100vw-1rem)]">
+        <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          {ariaLabel}
+        </DropdownMenuLabel>
+        {agents.length === 0 ? (
+          <div className="px-2.5 py-2 text-[12px] text-muted-foreground">
+            {emptyLabel}
+          </div>
+        ) : (
+          agents.map((agent) => {
+            const selected = agent.name === selectedAgentId;
+            return (
+              <DropdownMenuItem
+                key={agent.name}
+                onSelect={() => onSelect(agent.name)}
+                className={cn(
+                  "flex flex-col items-start gap-0.5 py-2",
+                  selected && "bg-foreground/[0.055] dark:bg-white/[0.08]",
+                )}
+              >
+                <span className="flex w-full items-center gap-1.5 text-[13px] font-medium text-foreground">
+                  <Users className="h-3.5 w-3.5 shrink-0 text-sky-500" aria-hidden />
+                  <span className="truncate">{agent.name}</span>
+                  {selected ? (
+                    <span className="ml-auto shrink-0 rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-sky-600 dark:text-sky-400">
+                      ●
+                    </span>
+                  ) : null}
+                </span>
+                {agent.description ? (
+                  <span className="line-clamp-2 text-[11.5px] leading-snug text-muted-foreground/80">
+                    {agent.description}
+                  </span>
+                ) : null}
+              </DropdownMenuItem>
+            );
+          })
+        )}
+        {selectedAgentId ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={() => onSelect("__none__")}
+              className="text-[12px] text-muted-foreground"
+            >
+              <X className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+              {clearLabel}
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+interface AgentSelectionChipProps {
+  description?: string;
+  onClear: () => void;
+  clearLabel: string;
+  usingLabel: string;
+}
+
+function AgentSelectionChip({
+  description,
+  onClear,
+  clearLabel,
+  usingLabel,
+}: AgentSelectionChipProps) {
+  return (
+    <span
+      data-testid="composer-agent-chip"
+      className={cn(
+        "inline-flex min-w-0 items-center gap-1.5 rounded-full border border-sky-500/30",
+        "bg-sky-500/10 px-2 py-1 text-[11.5px] font-medium text-sky-700 dark:text-sky-300",
+      )}
+      title={description || usingLabel}
+    >
+      <Users className="h-3 w-3 shrink-0" aria-hidden />
+      <span className="truncate">{usingLabel}</span>
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label={clearLabel}
+        title={clearLabel}
+        className={cn(
+          "ml-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full",
+          "text-sky-700/70 transition-colors hover:bg-sky-500/20 hover:text-sky-700",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40",
+          "dark:text-sky-300/70 dark:hover:bg-sky-500/25 dark:hover:text-sky-300",
+        )}
+      >
+        <X className="h-3 w-3" aria-hidden />
+      </button>
+    </span>
   );
 }

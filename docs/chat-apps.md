@@ -1,13 +1,13 @@
 # Chat Apps
 
-Connect Munchkin to your favorite chat platform. Want to build your own? See the [Channel Plugin Guide](./channel-plugin-guide.md).
+Connect MiniUnicorn to your favorite chat platform. Want to build your own? See the [Channel Plugin Guide](./channel-plugin-guide.md).
 
 | Channel | What you need |
 |---------|---------------|
 | **Telegram** | Bot token from @BotFather |
 | **Discord** | Bot token + Message Content intent |
-| **WhatsApp** | QR code scan (`munchkin channels login whatsapp`) |
-| **WeChat (Weixin)** | QR code scan (`munchkin channels login weixin`) |
+| **WhatsApp** | QR code scan (`miniUnicorn channels login whatsapp`) |
+| **WeChat (Weixin)** | QR code scan (`miniUnicorn channels login weixin`) |
 | **Feishu** | App ID + App Secret |
 | **DingTalk** | App Key + App Secret |
 | **Slack** | Bot token + App-Level token |
@@ -48,13 +48,13 @@ Connect Munchkin to your favorite chat platform. Want to build your own? See the
 **3. Run**
 
 ```bash
-munchkin gateway
+miniUnicorn gateway
 ```
 
 **Webhook mode (optional)**
 
 Telegram uses long polling by default. To receive updates through a webhook, expose
-a public HTTPS URL that forwards to Munchkin's local listener and set `mode` to
+a public HTTPS URL that forwards to MiniUnicorn's local listener and set `mode` to
 `webhook`:
 
 ```json
@@ -78,14 +78,14 @@ a public HTTPS URL that forwards to Munchkin's local listener and set `mode` to
 
 > `webhookSecretToken` is required in webhook mode. Do not expose the local
 > webhook listener directly to the public internet without a reverse proxy or
-> tunnel in front of it. TLS/Host policy is handled by your proxy; Munchkin only
+> tunnel in front of it. TLS/Host policy is handled by your proxy; MiniUnicorn only
 > listens on `webhookListenHost:webhookListenPort` and validates Telegram's
-> webhook secret token. `webhookMaxConnections` defaults to `4`; Munchkin
+> webhook secret token. `webhookMaxConnections` defaults to `4`; MiniUnicorn
 > still serializes Telegram updates per conversation before forwarding them to
 > the agent.
 >
 > `webhookUrl` is the public HTTPS URL registered with Telegram.
-> `webhookPath` is the local path Munchkin listens on. They often use the same
+> `webhookPath` is the local path MiniUnicorn listens on. They often use the same
 > path, but may differ when a reverse proxy or tunnel rewrites the request path.
 
 </details>
@@ -95,30 +95,30 @@ a public HTTPS URL that forwards to Munchkin's local listener and set `mode` to
 
 Uses **Socket.IO WebSocket** by default, with HTTP polling fallback.
 
-**1. Ask Munchkin to set up Mochat for you**
+**1. Ask MiniUnicorn to set up Mochat for you**
 
-Simply send this message to Munchkin (replace `xxx@xxx` with your real email):
+Simply send this message to MiniUnicorn (replace `xxx@xxx` with your real email):
 
 ```
-Read https://raw.githubusercontent.com/HKUDS/MoChat/refs/heads/main/skills/Munchkin/skill.md and register on MoChat. My Email account is xxx@xxx Bind me as your owner and DM me on MoChat.
+Read https://raw.githubusercontent.com/HKUDS/MoChat/refs/heads/main/skills/MiniUnicorn/skill.md and register on MoChat. My Email account is xxx@xxx Bind me as your owner and DM me on MoChat.
 ```
 
-Munchkin will automatically register, configure `~/.munchkin/config.json`, and connect to Mochat.
+MiniUnicorn will automatically register, configure `~/.miniUnicorn/config.json`, and connect to Mochat.
 
 **2. Restart gateway**
 
 ```bash
-munchkin gateway
+miniUnicorn gateway
 ```
 
-That's it — Munchkin handles the rest!
+That's it — MiniUnicorn handles the rest!
 
 <br>
 
 <details>
 <summary>Manual configuration (advanced)</summary>
 
-If you prefer to configure manually, add the following to `~/.munchkin/config.json`:
+If you prefer to configure manually, add the following to `~/.miniUnicorn/config.json`:
 
 > Keep `claw_token` private. It should only be sent in `X-Claw-Token` header to your Mochat API endpoint.
 
@@ -197,7 +197,7 @@ If you prefer to configure manually, add the following to `~/.munchkin/config.js
 **6. Run**
 
 ```bash
-munchkin gateway
+miniUnicorn gateway
 ```
 
 </details>
@@ -208,7 +208,7 @@ munchkin gateway
 Install Matrix dependencies first:
 
 ```bash
-pip install munchkin-ai[matrix]
+pip install miniUnicorn-ai[matrix]
 ```
 
 > [!NOTE]
@@ -226,7 +226,7 @@ pip install munchkin-ai[matrix]
 **2. Get credentials**
 
 - You need:
-  - `userId` (example: `@Munchkin:matrix.org`)
+  - `userId` (example: `@MiniUnicorn:matrix.org`)
   - `password`
 
 (Note: `accessToken` and `deviceId` are still supported for legacy reasons, but
@@ -241,7 +241,7 @@ for reliable encryption, password login is recommended instead. If the
     "matrix": {
       "enabled": true,
       "homeserver": "https://matrix.org",
-      "userId": "@Munchkin:matrix.org",
+      "userId": "@MiniUnicorn:matrix.org",
       "password": "mypasswordhere",
       "e2eeEnabled": true,
       "allowFrom": ["@your_user:matrix.org"],
@@ -271,7 +271,7 @@ for reliable encryption, password login is recommended instead. If the
 **4. Run**
 
 ```bash
-munchkin gateway
+miniUnicorn gateway
 ```
 
 </details>
@@ -284,7 +284,7 @@ Requires **Node.js ≥18**.
 **1. Link device**
 
 ```bash
-munchkin channels login whatsapp
+miniUnicorn channels login whatsapp
 # Scan QR with WhatsApp → Settings → Linked Devices
 ```
 
@@ -305,15 +305,15 @@ munchkin channels login whatsapp
 
 ```bash
 # Terminal 1
-munchkin channels login whatsapp
+miniUnicorn channels login whatsapp
 
 # Terminal 2
-munchkin gateway
+miniUnicorn gateway
 ```
 
 > WhatsApp bridge updates are not applied automatically for existing installations.
-> After upgrading Munchkin, rebuild the local bridge with:
-> `rm -rf ~/.munchkin/bridge && munchkin channels login whatsapp`
+> After upgrading MiniUnicorn, rebuild the local bridge with:
+> `rm -rf ~/.miniUnicorn/bridge && miniUnicorn channels login whatsapp`
 
 </details>
 
@@ -327,10 +327,10 @@ Uses **WebSocket** long connection — no public IP required.
 - Create a new app → Enable **Bot** capability
 - **Permissions**:
   - `im:message` (send messages) and `im:message.p2p_msg:readonly` (receive messages)
-  - **Streaming replies** (default in Munchkin): add **`cardkit:card:write`** (often labeled **Create and update cards** in the Feishu developer console). Required for CardKit entities and streamed assistant text. Older apps may not have it yet — open **Permission management**, enable the scope, then **publish** a new app version if the console requires it.
+  - **Streaming replies** (default in MiniUnicorn): add **`cardkit:card:write`** (often labeled **Create and update cards** in the Feishu developer console). Required for CardKit entities and streamed assistant text. Older apps may not have it yet — open **Permission management**, enable the scope, then **publish** a new app version if the console requires it.
   - If you **cannot** add `cardkit:card:write`, set `"streaming": false` under `channels.feishu` (see below). The bot still works; replies use normal interactive cards without token-by-token streaming.
 - **Events**: Add `im.message.receive_v1` (receive messages)
-  - Select **Long Connection** mode (requires running Munchkin first to establish connection)
+  - Select **Long Connection** mode (requires running MiniUnicorn first to establish connection)
 - Get **App ID** and **App Secret** from "Credentials & Basic Info"
 - Publish the app
 
@@ -359,7 +359,7 @@ Uses **WebSocket** long connection — no public IP required.
 
 > `streaming` defaults to `true`. Use `false` if your app does not have **`cardkit:card:write`** (see permissions above).
 > `encryptKey` and `verificationToken` are optional for Long Connection mode.
-> `allowFrom`: Add your open_id (find it in Munchkin logs when you message the bot). Use `["*"]` to allow all users.
+> `allowFrom`: Add your open_id (find it in MiniUnicorn logs when you message the bot). Use `["*"]` to allow all users.
 > `groupPolicy`: `"mention"` (default — respond only when @mentioned), `"open"` (respond to all group messages). Private chats always respond.
 > `reactEmoji`: Emoji for "processing" status (default: `OnIt`). See [available emojis](https://open.larkoffice.com/document/server-docs/im-v1/message-reaction/emojis-introduce).
 > `doneEmoji`: Optional emoji for "completed" status (e.g., `DONE`, `OK`, `HEART`). When set, bot adds this reaction after removing `reactEmoji`.
@@ -369,7 +369,7 @@ Uses **WebSocket** long connection — no public IP required.
 **3. Run**
 
 ```bash
-munchkin gateway
+miniUnicorn gateway
 ```
 
 > [!TIP]
@@ -394,7 +394,7 @@ Uses **botpy SDK** with WebSocket — no public IP required. Currently supports 
 
 **3. Configure**
 
-> - `allowFrom`: Add your openid (find it in Munchkin logs when you message the bot). Use `["*"]` for public access.
+> - `allowFrom`: Add your openid (find it in MiniUnicorn logs when you message the bot). Use `["*"]` for public access.
 > - `msgFormat`: Optional. Use `"plain"` (default) for maximum compatibility with legacy QQ clients, or `"markdown"` for richer formatting on newer clients.
 > - For production: submit a review in the bot console and publish. See [QQ Bot Docs](https://bot.q.qq.com/wiki/) for the full publishing flow.
 
@@ -415,7 +415,7 @@ Uses **botpy SDK** with WebSocket — no public IP required. Currently supports 
 **4. Run**
 
 ```bash
-munchkin gateway
+miniUnicorn gateway
 ```
 
 Now send a message to the bot from QQ — it should respond!
@@ -456,7 +456,7 @@ Uses **Stream Mode** — no public IP required.
 **3. Run**
 
 ```bash
-munchkin gateway
+miniUnicorn gateway
 ```
 
 </details>
@@ -477,9 +477,9 @@ Uses **Socket Mode** — no public URL required.
 - **App Home**: Scroll to **Show Tabs** → Enable **Messages Tab** → Check **"Allow users to send Slash commands and messages from the messages tab"**
 - **Install App**: Click **Install to Workspace** → Authorize → copy the **Bot Token** (`xoxb-...`)
 
-> `files:read` is required to read files users send to Munchkin. `files:write` is required for Munchkin to send images, videos, and other file uploads. If you add either scope later, reinstall the Slack app to the workspace and restart Munchkin so it uses the updated bot token.
+> `files:read` is required to read files users send to MiniUnicorn. `files:write` is required for MiniUnicorn to send images, videos, and other file uploads. If you add either scope later, reinstall the Slack app to the workspace and restart MiniUnicorn so it uses the updated bot token.
 
-**3. Configure Munchkin**
+**3. Configure MiniUnicorn**
 
 ```json
 {
@@ -498,7 +498,7 @@ Uses **Socket Mode** — no public URL required.
 **4. Run**
 
 ```bash
-munchkin gateway
+miniUnicorn gateway
 ```
 
 DM the bot directly or @mention it in a channel — it should respond!
@@ -512,10 +512,10 @@ DM the bot directly or @mention it in a channel — it should respond!
 <details>
 <summary><b>Email</b></summary>
 
-Give Munchkin its own email account. It polls **IMAP** for incoming mail and replies via **SMTP** — like a personal email assistant.
+Give MiniUnicorn its own email account. It polls **IMAP** for incoming mail and replies via **SMTP** — like a personal email assistant.
 
 **1. Get credentials (Gmail example)**
-- Create a dedicated Gmail account for your bot (e.g. `my-Munchkin@gmail.com`)
+- Create a dedicated Gmail account for your bot (e.g. `my-MiniUnicorn@gmail.com`)
 - Enable 2-Step Verification → Create an [App Password](https://myaccount.google.com/apppasswords)
 - Use this app password for both IMAP and SMTP
 
@@ -537,13 +537,13 @@ Give Munchkin its own email account. It polls **IMAP** for incoming mail and rep
       "consentGranted": true,
       "imapHost": "imap.gmail.com",
       "imapPort": 993,
-      "imapUsername": "my-Munchkin@gmail.com",
+      "imapUsername": "my-MiniUnicorn@gmail.com",
       "imapPassword": "your-app-password",
       "smtpHost": "smtp.gmail.com",
       "smtpPort": 587,
-      "smtpUsername": "my-Munchkin@gmail.com",
+      "smtpUsername": "my-MiniUnicorn@gmail.com",
       "smtpPassword": "your-app-password",
-      "fromAddress": "my-Munchkin@gmail.com",
+      "fromAddress": "my-MiniUnicorn@gmail.com",
       "allowFrom": ["your-real-email@gmail.com"],
       "allowedAttachmentTypes": ["application/pdf", "image/*"]
     }
@@ -555,7 +555,7 @@ Give Munchkin its own email account. It polls **IMAP** for incoming mail and rep
 **3. Run**
 
 ```bash
-munchkin gateway
+miniUnicorn gateway
 ```
 
 </details>
@@ -568,7 +568,7 @@ Uses **HTTP long-poll** with QR-code login via the ilinkai personal WeChat API. 
 **1. Install with WeChat support**
 
 ```bash
-pip install "munchkin-ai[weixin]"
+pip install "miniUnicorn-ai[weixin]"
 ```
 
 **2. Configure**
@@ -584,28 +584,28 @@ pip install "munchkin-ai[weixin]"
 }
 ```
 
-> - `allowFrom`: Add the sender ID you see in Munchkin logs for your WeChat account. Use `["*"]` to allow all users.
-> - `token`: Optional. If omitted, log in interactively and Munchkin will save the token for you.
-> - `routeTag`: Optional. When your upstream Weixin deployment requires request routing, Munchkin will send it as the `SKRouteTag` header.
-> - `stateDir`: Optional. Defaults to Munchkin's runtime directory for Weixin state.
+> - `allowFrom`: Add the sender ID you see in MiniUnicorn logs for your WeChat account. Use `["*"]` to allow all users.
+> - `token`: Optional. If omitted, log in interactively and MiniUnicorn will save the token for you.
+> - `routeTag`: Optional. When your upstream Weixin deployment requires request routing, MiniUnicorn will send it as the `SKRouteTag` header.
+> - `stateDir`: Optional. Defaults to MiniUnicorn's runtime directory for Weixin state.
 > - `pollTimeout`: Optional long-poll timeout in seconds.
 
 **3. Login**
 
 ```bash
-munchkin channels login weixin
+miniUnicorn channels login weixin
 ```
 
 Use `--force` to re-authenticate and ignore any saved token:
 
 ```bash
-munchkin channels login weixin --force
+miniUnicorn channels login weixin --force
 ```
 
 **4. Run**
 
 ```bash
-munchkin gateway
+miniUnicorn gateway
 ```
 
 </details>
@@ -620,7 +620,7 @@ munchkin gateway
 **1. Install the optional dependency**
 
 ```bash
-pip install munchkin-ai[wecom]
+pip install miniUnicorn-ai[wecom]
 ```
 
 **2. Create a WeCom AI Bot**
@@ -645,7 +645,7 @@ Go to the WeCom admin console → Intelligent Robot → Create Robot → select 
 **4. Run**
 
 ```bash
-munchkin gateway
+miniUnicorn gateway
 ```
 
 </details>
@@ -659,7 +659,7 @@ munchkin gateway
 **1. Install the optional dependency**
 
 ```bash
-pip install munchkin-ai[msteams]
+pip install miniUnicorn-ai[msteams]
 ```
 
 **2. Create a Teams / Azure bot app registration**
@@ -693,7 +693,7 @@ Create or reuse a Microsoft Teams / Azure bot app registration. Set the bot mess
 ```
 
 > - `replyInThread: true` replies to the triggering Teams activity when a stored `activity_id` is available.
-> - `mentionOnlyResponse` controls what Munchkin receives when a user sends only a bot mention (`<at>Munchkin</at>`). Set to `""` to ignore mention-only messages.
+> - `mentionOnlyResponse` controls what MiniUnicorn receives when a user sends only a bot mention (`<at>MiniUnicorn</at>`). Set to `""` to ignore mention-only messages.
 > - `validateInboundAuth: true` enables inbound Bot Framework bearer-token validation (signature, issuer, audience, lifetime, `serviceUrl`). This is the safe default for public deployments. Only set it to `false` for local development or tightly controlled testing.
 > - `refTtlDays` (default `30`) controls how old stored conversation refs can be before they are pruned.
 > - `pruneWebChatRefs` (default `true`) drops refs with `webchat.botframework.com` service URLs.
@@ -703,7 +703,7 @@ Create or reuse a Microsoft Teams / Azure bot app registration. Set the bot mess
 **4. Run**
 
 ```bash
-munchkin gateway
+miniUnicorn gateway
 ```
 
 </details>
@@ -765,7 +765,7 @@ signal-cli -a +1234567890 daemon --http localhost:8080
 **3. Run**
 
 ```bash
-munchkin gateway
+miniUnicorn gateway
 ```
 
 > [!TIP]

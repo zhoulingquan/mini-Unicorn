@@ -1,6 +1,6 @@
 import type { BootstrapResponse } from "./types";
 
-const SECRET_STORAGE_KEY = "munchkin-webui.bootstrap-secret";
+const SECRET_STORAGE_KEY = "miniUnicorn-webui.bootstrap-secret";
 
 /** Read a previously saved bootstrap secret from localStorage. */
 export function loadSavedSecret(): string {
@@ -40,7 +40,7 @@ export async function fetchBootstrap(
 ): Promise<BootstrapResponse> {
   const headers: Record<string, string> = {};
   if (secret) {
-    headers["X-Munchkin-Auth"] = secret;
+    headers["X-MiniUnicorn-Auth"] = secret;
   }
   const res = await fetch(`${baseUrl}/webui/bootstrap`, {
     method: "GET",
@@ -70,7 +70,7 @@ export function deriveWsUrl(
   wsUrl?: string | null,
 ): string {
   const query = `?token=${encodeURIComponent(token)}`;
-  if (wsUrl && /^(wss?|munchkin-host):\/\//i.test(wsUrl)) {
+  if (wsUrl && /^(wss?|miniUnicorn-host):\/\//i.test(wsUrl)) {
     const join = wsUrl.includes("?") ? "&" : "?";
     return `${wsUrl}${join}token=${encodeURIComponent(token)}`;
   }

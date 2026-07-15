@@ -2,13 +2,13 @@ import time
 
 import pytest
 
-from munchkin.pairing import __all__ as pairing_all
-from munchkin.pairing import store
+from miniUnicorn.pairing import __all__ as pairing_all
+from miniUnicorn.pairing import store
 
 
 def test_all_exports_are_importable():
-    """Every name in __all__ must actually be importable from munchkin.pairing."""
-    import munchkin.pairing as pkg
+    """Every name in __all__ must actually be importable from miniUnicorn.pairing."""
+    import miniUnicorn.pairing as pkg
 
     for name in pairing_all:
         assert hasattr(pkg, name), f"{name} is in __all__ but not exported"

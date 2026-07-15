@@ -7,9 +7,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from munchkin.config.schema import ModelPresetConfig
-from munchkin.providers.base import LLMProvider, LLMResponse
-from munchkin.providers.fallback_provider import FallbackProvider
+from miniUnicorn.config.schema import ModelPresetConfig
+from miniUnicorn.providers.base import LLMProvider, LLMResponse
+from miniUnicorn.providers.fallback_provider import FallbackProvider
 
 
 def _make_response(
@@ -85,7 +85,7 @@ class _FakeProvider(LLMProvider):
 
 
 def test_fallback_models_default_empty() -> None:
-    from munchkin.config.schema import AgentDefaults
+    from miniUnicorn.config.schema import AgentDefaults
 
     defaults = AgentDefaults()
 
@@ -93,7 +93,7 @@ def test_fallback_models_default_empty() -> None:
 
 
 def test_fallback_models_accept_preset_refs_and_inline_configs() -> None:
-    from munchkin.config.schema import Config, InlineFallbackConfig
+    from miniUnicorn.config.schema import Config, InlineFallbackConfig
 
     config = Config.model_validate({
         "agents": {
@@ -122,7 +122,7 @@ def test_fallback_models_accept_preset_refs_and_inline_configs() -> None:
 
 
 def test_fallback_model_preset_ref_must_exist() -> None:
-    from munchkin.config.schema import Config
+    from miniUnicorn.config.schema import Config
 
     with pytest.raises(ValueError, match="fallback_models.*not found"):
         Config.model_validate({
@@ -132,8 +132,8 @@ def test_fallback_model_preset_ref_must_exist() -> None:
 
 
 def test_provider_signature_tracks_fallback_presets_and_provider_config() -> None:
-    from munchkin.config.schema import Config
-    from munchkin.providers.factory import provider_signature
+    from miniUnicorn.config.schema import Config
+    from miniUnicorn.providers.factory import provider_signature
 
     base = {
         "agents": {
@@ -178,8 +178,8 @@ def test_provider_signature_tracks_fallback_presets_and_provider_config() -> Non
 
 
 def test_provider_snapshot_uses_smallest_fallback_context_window() -> None:
-    from munchkin.config.schema import Config
-    from munchkin.providers.factory import build_provider_snapshot
+    from miniUnicorn.config.schema import Config
+    from miniUnicorn.providers.factory import build_provider_snapshot
 
     config = Config.model_validate({
         "agents": {
@@ -206,15 +206,15 @@ def test_provider_snapshot_uses_smallest_fallback_context_window() -> None:
         },
     })
 
-    with patch("munchkin.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
         snapshot = build_provider_snapshot(config)
 
     assert snapshot.context_window_tokens == 64000
 
 
 def test_inline_fallback_reasoning_effort_does_not_inherit_primary() -> None:
-    from munchkin.config.schema import Config
-    from munchkin.providers.factory import provider_signature
+    from miniUnicorn.config.schema import Config
+    from miniUnicorn.providers.factory import provider_signature
 
     config = Config.model_validate({
         "agents": {
@@ -601,7 +601,7 @@ class TestCircuitBreaker:
 
 class TestGenerationForwarded:
     def test(self) -> None:
-        from munchkin.providers.base import GenerationSettings
+        from miniUnicorn.providers.base import GenerationSettings
         primary = _FakeProvider("primary")
         primary.generation = GenerationSettings(temperature=0.5, max_tokens=1024)
         fb = FallbackProvider(

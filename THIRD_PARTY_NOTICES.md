@@ -1,14 +1,14 @@
 # Third-Party Notices
 
 The following third-party components are redistributed as part of the packaged
-Munchkin Python distribution (`pip install munchkin-ai`).
+MiniUnicorn Python distribution (`pip install miniUnicorn-ai`).
 
 ---
 
 ## KaTeX — math rendering (MIT)
 
 - **Source**: https://github.com/KaTeX/KaTeX
-- **Bundled**: `munchkin/web/dist/assets/index-*.{js,css}`
+- **Bundled**: `miniUnicorn/web/dist/assets/index-*.{js,css}`
 
 ```
 The MIT License (MIT)
@@ -39,7 +39,7 @@ SOFTWARE.
 ## KaTeX Fonts — math typography (SIL OFL 1.1)
 
 - **Source**: https://github.com/KaTeX/KaTeX/tree/main/src/fonts
-- **Bundled**: `munchkin/web/dist/assets/KaTeX_*.{woff2,woff,ttf}`
+- **Bundled**: `miniUnicorn/web/dist/assets/KaTeX_*.{woff2,woff,ttf}`
 
 The fonts are redistributed unmodified.
 

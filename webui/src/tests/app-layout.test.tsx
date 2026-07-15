@@ -35,9 +35,6 @@ function baseSettingsPayload() {
       context_window_tokens: 65536,
       temperature: 0.1,
       reasoning_effort: null,
-      timezone: "UTC",
-      bot_name: "Munchkin",
-      bot_icon: "nb",
       tool_hint_max_length: 40,
     },
     model_presets: [{
@@ -148,7 +145,7 @@ vi.mock("@/lib/bootstrap", () => ({
   clearSavedSecret: vi.fn(),
 }));
 
-vi.mock("@/lib/munchkin-client", () => {
+vi.mock("@/lib/miniUnicorn-client", () => {
   class MockClient {
     status = "idle" as const;
     defaultChatId: string | null = null;
@@ -171,7 +168,7 @@ vi.mock("@/lib/munchkin-client", () => {
     updateUrl = updateUrlSpy;
   }
 
-  return { MunchkinClient: MockClient };
+  return { MiniUnicornClient: MockClient };
 });
 
 import { deriveWsUrl, fetchBootstrap } from "@/lib/bootstrap";
@@ -188,7 +185,7 @@ describe("App layout", () => {
     toggleThemeSpy.mockReset();
     attachSpy.mockReset();
     runStatusHandlers.clear();
-    localStorage.removeItem("munchkin-webui.sidebar.completed-runs.v1");
+    localStorage.removeItem("miniUnicorn-webui.sidebar.completed-runs.v1");
     vi.mocked(fetchBootstrap).mockReset().mockResolvedValue({
       token: "tok",
       ws_path: "/",
@@ -426,7 +423,7 @@ describe("App layout", () => {
         chatId: "new",
         createdAt: "2026-04-15T12:00:00Z",
         updatedAt: "2026-04-15T12:00:00Z",
-        preview: "hi Munchkin",
+        preview: "hi MiniUnicorn",
       },
       {
         key: "websocket:alpha",
@@ -550,7 +547,7 @@ describe("App layout", () => {
       },
     ];
     localStorage.setItem(
-      "munchkin-webui.sidebar.completed-runs.v1",
+      "miniUnicorn-webui.sidebar.completed-runs.v1",
       JSON.stringify(["chat-b"]),
     );
 
@@ -594,9 +591,6 @@ describe("App layout", () => {
                 context_window_tokens: 65536,
                 temperature: 0.1,
                 reasoning_effort: null,
-                timezone: "UTC",
-                bot_name: "Munchkin",
-                bot_icon: "nb",
                 tool_hint_max_length: 40,
               },
               model_presets: [
@@ -706,13 +700,7 @@ describe("App layout", () => {
     fireEvent.click(within(sidebar).getByRole("button", { name: "Settings" }));
 
     expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
-    expect(document.title).toBe("Settings · Munchkin");
-    expect(screen.getByTestId("overview-munchkin-logo")).toBeInTheDocument();
-    expect(screen.getByTestId("overview-logo-deepseek")).toBeInTheDocument();
-    expect(screen.getByTestId("overview-logo-brave")).toBeInTheDocument();
-    expect(screen.getByTestId("overview-logo-opencode")).toBeInTheDocument();
-    expect(screen.queryByTestId("overview-logo-munchkin-gateway")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("overview-logo-munchkin-workspace")).not.toBeInTheDocument();
+    expect(document.title).toBe("Settings · MiniUnicorn");
     expect(screen.queryByRole("navigation", { name: "Sidebar navigation" })).not.toBeInTheDocument();
     const settingsNav = screen.getByRole("navigation", { name: "Settings sections" });
     expect(settingsNav.className).toContain("overflow-x-auto");
@@ -729,8 +717,6 @@ describe("App layout", () => {
     expect(within(settingsNav).getByRole("button", { name: "Security" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Appearance" }));
-    expect(screen.getByText("Brand logos")).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Brand logos" })).toBeInTheDocument();
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Models" }));
     expect(screen.queryByText("AI")).not.toBeInTheDocument();
     expect(screen.getByText("Current model")).toBeInTheDocument();
@@ -795,22 +781,16 @@ describe("App layout", () => {
     expect(screen.getByText("BSAo••••ew20")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("unsaved-brave-key")).not.toBeInTheDocument();
 
-    fireEvent.click(within(settingsNav).getByRole("button", { name: "System" }));
-    expect(screen.getByText("Bot name")).toBeInTheDocument();
+    fireEvent.click(within(settingsNav).getByRole("button", { name: "Overview" }));
+    expect(screen.queryByText("Bot name")).not.toBeInTheDocument();
     expect(screen.queryByText("Tool hint length")).not.toBeInTheDocument();
-    expect(screen.queryByText("Heartbeat")).not.toBeInTheDocument();
-    expect(screen.queryByText("Dream")).not.toBeInTheDocument();
     expect(screen.queryByText("Unified session")).not.toBeInTheDocument();
-    expect(screen.getByText("Default workspace")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-    fireEvent.pointerDown(screen.getByRole("button", { name: "UTC" }));
-    expect(screen.getByPlaceholderText("Search timezone")).toBeInTheDocument();
-    fireEvent.change(screen.getByPlaceholderText("Search timezone"), {
-      target: { value: "Shanghai" },
-    });
-    fireEvent.click(screen.getByRole("menuitem", { name: /Asia\/Shanghai/ }));
-    expect(screen.getByRole("button", { name: "Asia/Shanghai" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(screen.getByText("Gateway")).toBeInTheDocument();
+    expect(screen.getByText("Workspace")).toBeInTheDocument();
+    expect(screen.getByText("Heartbeat")).toBeInTheDocument();
+    expect(screen.getByText("Dream")).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Search timezone")).not.toBeInTheDocument();
+    expect(within(settingsNav).queryByRole("button", { name: "System" })).not.toBeInTheDocument();
   });
 
   it("opens Apps from the main sidebar without replacing the sidebar", async () => {
@@ -846,7 +826,7 @@ describe("App layout", () => {
       "aria-current",
       "page",
     );
-    expect(document.title).toBe("Apps · Munchkin");
+    expect(document.title).toBe("Apps · MiniUnicorn");
   });
 
   it("returns from settings to the blank start page when no session was active", async () => {
@@ -886,9 +866,6 @@ describe("App layout", () => {
                 context_window_tokens: 65536,
                 temperature: 0.1,
                 reasoning_effort: null,
-                timezone: "UTC",
-                bot_name: "Munchkin",
-                bot_icon: "nb",
                 tool_hint_max_length: 40,
               },
               model_presets: [
@@ -966,13 +943,13 @@ describe("App layout", () => {
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
     fireEvent.click(within(sidebar).getByRole("button", { name: "New chat" }));
-    await waitFor(() => expect(document.title).toBe("Munchkin"));
+    await waitFor(() => expect(document.title).toBe("MiniUnicorn"));
 
     fireEvent.click(within(sidebar).getByRole("button", { name: "Settings" }));
     expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
 
-    await waitFor(() => expect(document.title).toBe("Munchkin"));
+    await waitFor(() => expect(document.title).toBe("MiniUnicorn"));
     expect(screen.getByText(HERO_GREETING_PATTERN)).toBeInTheDocument();
   });
 
@@ -1152,7 +1129,7 @@ describe("App layout", () => {
     expect(within(rail).queryByRole("button", { name: "View" })).not.toBeInTheDocument();
     expect(within(rail).queryByText("Existing chat")).not.toBeInTheDocument();
 
-    fireEvent.click(within(rail).getByRole("button", { name: "Toggle sidebar" }));
+    fireEvent.click(within(rail).getByRole("button", { name: "Expand sidebar" }));
     await waitFor(() => expect(sidebarAside.style.width).toBe("272px"));
 
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });

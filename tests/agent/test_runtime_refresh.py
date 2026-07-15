@@ -2,12 +2,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from munchkin.agent.loop import AgentLoop
-from munchkin.bus.queue import MessageBus
-from munchkin.config.loader import save_config
-from munchkin.config.schema import Config
-from munchkin.providers.factory import ProviderSnapshot, load_provider_snapshot
-from munchkin.webui.settings_api import update_agent_settings
+from miniUnicorn.agent.loop import AgentLoop
+from miniUnicorn.bus.queue import MessageBus
+from miniUnicorn.config.loader import save_config
+from miniUnicorn.config.schema import Config
+from miniUnicorn.providers.factory import ProviderSnapshot, load_provider_snapshot
+from miniUnicorn.webui.settings_api import update_agent_settings
 
 
 def _provider(default_model: str, max_tokens: int = 123) -> MagicMock:
@@ -89,7 +89,7 @@ def test_settings_context_window_refreshes_runtime_state(
     config.agents.defaults.context_window_tokens = 65_536
     config.providers.openai.api_key = "sk-test"
     save_config(config, config_path)
-    monkeypatch.setattr("munchkin.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("miniUnicorn.config.loader._current_config_path", config_path)
 
     def loader(*, preset_name: str | None = None) -> ProviderSnapshot:
         return load_provider_snapshot(config_path, preset_name=preset_name)

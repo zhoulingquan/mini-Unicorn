@@ -12,7 +12,7 @@ Default thinking behavior per Xiaomi docs:
   - mimo-v2-flash: disabled
   - mimo-v2.5-pro, mimo-v2.5, mimo-v2-pro, mimo-v2-omni: enabled
 
-Without an explicit reasoning_effort, Munchkin must not send the
+Without an explicit reasoning_effort, MiniUnicorn must not send the
 thinking field so the provider default is preserved (issue #3585).
 """
 
@@ -20,9 +20,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from munchkin.config.schema import ProvidersConfig
-from munchkin.providers.openai_compat_provider import OpenAICompatProvider
-from munchkin.providers.registry import PROVIDERS
+from miniUnicorn.config.schema import ProvidersConfig
+from miniUnicorn.providers.openai_compat_provider import OpenAICompatProvider
+from miniUnicorn.providers.registry import PROVIDERS
 
 
 def _mimo_spec():

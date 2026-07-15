@@ -1,11 +1,17 @@
 import type {
+  AgentDetail,
+  AgentsPayload,
   ChatSummary,
   CliAppsPayload,
+  CronJobCreate,
+  CronJobPayload,
+  CronJobsPayload,
   McpPresetsPayload,
   ModelConfigurationCreate,
   ModelConfigurationUpdate,
   NetworkSafetySettingsUpdate,
   ProviderSettingsUpdate,
+  RuntimeSettingsUpdate,
   SettingsPayload,
   SettingsUpdate,
   SidebarStatePayload,
@@ -13,6 +19,8 @@ import type {
   SkillFilePayload,
   SkillsPayload,
   SlashCommand,
+  ToolImportResult,
+  ToolsPayload,
   WebSearchSettingsUpdate,
   WorkspacesPayload,
   WebuiThreadPersistedPayload,
@@ -52,7 +60,7 @@ async function request<T>(
     throw new ApiError(
       res.status,
       isHtml
-        ? "Gateway returned WebUI HTML instead of JSON. Restart Munchkin gateway and try again."
+        ? "Gateway returned WebUI HTML instead of JSON. Restart MiniUnicorn gateway and try again."
         : "Gateway returned a non-JSON response.",
     );
   }
@@ -71,7 +79,7 @@ function mcpValuesHeader(values: Record<string, unknown>): HeadersInit | undefin
     payload[key] = value;
   });
   if (!Object.keys(payload).length) return undefined;
-  return { "X-Munchkin-MCP-Values": JSON.stringify(payload) };
+  return { "X-MiniUnicorn-MCP-Values": JSON.stringify(payload) };
 }
 
 function splitKey(key: string): { channel: string; chatId: string } {
@@ -313,9 +321,9 @@ export async function saveSkill(
   chunkHeaderValue(content).forEach((chunk, idx) => {
     // Repeated header name; the backend joins values in order.
     if (idx === 0) {
-      headers["X-Munchkin-Skill-Content"] = chunk;
+      headers["X-MiniUnicorn-Skill-Content"] = chunk;
     } else {
-      headers[`X-Munchkin-Skill-Content-${idx}`] = chunk;
+      headers[`X-MiniUnicorn-Skill-Content-${idx}`] = chunk;
     }
   });
   return request<{ saved: boolean; name: string; path: string }>(
@@ -347,9 +355,9 @@ export async function uploadSkillZip(
     }
     const b64 = btoa(binary);
     if (headerIdx === 0) {
-      headers["X-Munchkin-Skill-Zip"] = b64;
+      headers["X-MiniUnicorn-Skill-Zip"] = b64;
     } else {
-      headers[`X-Munchkin-Skill-Zip-${headerIdx}`] = b64;
+      headers[`X-MiniUnicorn-Skill-Zip-${headerIdx}`] = b64;
     }
     headerIdx++;
   }
@@ -357,6 +365,77 @@ export async function uploadSkillZip(
     `${base}/api/skills/upload?${query}`,
     token,
     { headers },
+  );
+}
+
+export async function fetchAgents(
+  token: string,
+  base: string = "",
+): Promise<AgentsPayload> {
+  return request<AgentsPayload>(`${base}/api/agents`, token);
+}
+
+export async function readAgent(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<AgentDetail> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  return request<AgentDetail>(`${base}/api/agents/read?${query}`, token);
+}
+
+export async function saveAgent(
+  token: string,
+  name: string,
+  content: string,
+  base: string = "",
+): Promise<{ saved: boolean; name: string; path: string }> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  const headers: Record<string, string> = {};
+  chunkHeaderValue(content).forEach((chunk, idx) => {
+    if (idx === 0) {
+      headers["X-MiniUnicorn-Agent-Content"] = chunk;
+    } else {
+      headers[`X-MiniUnicorn-Agent-Content-${idx}`] = chunk;
+    }
+  });
+  return request<{ saved: boolean; name: string; path: string }>(
+    `${base}/api/agents/save?${query}`,
+    token,
+    { headers },
+  );
+}
+
+export async function deleteAgent(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<{ deleted: boolean; name: string }> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  return request<{ deleted: boolean; name: string }>(
+    `${base}/api/agents/delete?${query}`,
+    token,
+  );
+}
+
+/** AI-generate a subagent definition (.md) from a natural-language description.
+ * Returns the markdown content and the proposed agent name. */
+export async function generateAgent(
+  description: string,
+  token: string,
+  base: string = "",
+): Promise<{ content: string; name: string }> {
+  return request<{ content: string; name: string }>(
+    `${base}/api/agents/generate`,
+    token,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description }),
+    },
   );
 }
 
@@ -417,9 +496,6 @@ export async function updateSettings(
   if (update.contextWindowTokens !== undefined) {
     query.set("context_window_tokens", String(update.contextWindowTokens));
   }
-  if (update.timezone !== undefined) query.set("timezone", update.timezone);
-  if (update.botName !== undefined) query.set("bot_name", update.botName);
-  if (update.botIcon !== undefined) query.set("bot_icon", update.botIcon);
   if (update.toolHintMaxLength !== undefined) {
     query.set("tool_hint_max_length", String(update.toolHintMaxLength));
   }
@@ -552,5 +628,128 @@ export async function updateNetworkSafetySettings(
     `${base}/api/settings/network-safety/update?${query}`,
     token,
   );
+}
+
+export async function updateRuntimeSettings(
+  token: string,
+  update: RuntimeSettingsUpdate,
+  base: string = "",
+): Promise<SettingsPayload> {
+  const query = new URLSearchParams();
+  if (update.heartbeatIntervalS !== undefined) {
+    query.set("heartbeat_interval_s", String(update.heartbeatIntervalS));
+  }
+  if (update.dreamIntervalH !== undefined) {
+    query.set("dream_interval_h", String(update.dreamIntervalH));
+  }
+  return request<SettingsPayload>(
+    `${base}/api/settings/runtime/update?${query}`,
+    token,
+  );
+}
+
+export async function fetchCronJobs(
+  token: string,
+  base: string = "",
+): Promise<CronJobsPayload> {
+  return request<CronJobsPayload>(`${base}/api/cron/jobs`, token);
+}
+
+export async function createCronJob(
+  token: string,
+  job: CronJobCreate,
+  base: string = "",
+): Promise<CronJobPayload> {
+  const query = new URLSearchParams();
+  query.set("name", job.name);
+  query.set("message", job.message);
+  query.set("schedule", job.schedule);
+  if (job.schedule === "every" && job.everySeconds !== undefined) {
+    query.set("every_seconds", String(job.everySeconds));
+  }
+  if (job.schedule === "cron") {
+    if (job.cronExpr) query.set("cron_expr", job.cronExpr);
+    if (job.tz) query.set("tz", job.tz);
+  }
+  if (job.schedule === "at" && job.atMs !== undefined) {
+    query.set("at_ms", String(job.atMs));
+  }
+  if (job.deliver !== undefined) query.set("deliver", String(job.deliver));
+  if (job.deleteAfterRun !== undefined) {
+    query.set("delete_after_run", String(job.deleteAfterRun));
+  }
+  return request<CronJobPayload>(`${base}/api/cron/jobs/create?${query}`, token);
+}
+
+export async function deleteCronJob(
+  token: string,
+  jobId: string,
+  base: string = "",
+): Promise<{ removed: boolean; job_id: string }> {
+  const query = new URLSearchParams();
+  query.set("job_id", jobId);
+  return request(`${base}/api/cron/jobs/delete?${query}`, token);
+}
+
+export async function toggleCronJob(
+  token: string,
+  jobId: string,
+  enabled: boolean,
+  base: string = "",
+): Promise<CronJobPayload> {
+  const query = new URLSearchParams();
+  query.set("job_id", jobId);
+  query.set("enabled", String(enabled));
+  return request<CronJobPayload>(`${base}/api/cron/jobs/toggle?${query}`, token);
+}
+
+export async function fetchTools(
+  token: string,
+  base: string = "",
+): Promise<ToolsPayload> {
+  return request<ToolsPayload>(`${base}/api/tools`, token);
+}
+
+export async function importToolFile(
+  token: string,
+  filename: string,
+  content: string,
+  base: string = "",
+): Promise<ToolImportResult> {
+  const query = new URLSearchParams();
+  query.set("filename", filename);
+  const bytes = new TextEncoder().encode(content);
+  const CHUNK_BYTES = 4000;
+  const headers: Record<string, string> = {};
+  let headerIdx = 0;
+  for (let i = 0; i < bytes.length; i += CHUNK_BYTES) {
+    const slice = bytes.slice(i, i + CHUNK_BYTES);
+    let binary = "";
+    for (let j = 0; j < slice.length; j++) {
+      binary += String.fromCharCode(slice[j]);
+    }
+    const b64 = btoa(binary);
+    if (headerIdx === 0) {
+      headers["X-MiniUnicorn-Tool-Content"] = b64;
+    } else {
+      headers[`X-MiniUnicorn-Tool-Content-${headerIdx}`] = b64;
+    }
+    headerIdx++;
+  }
+  return request<ToolImportResult>(
+    `${base}/api/tools/import?${query}`,
+    token,
+    { headers },
+  );
+}
+
+export async function deleteTool(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<{ deleted: boolean; name: string }> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  return request(`${base}/api/tools/delete?${query}`, token);
 }
 

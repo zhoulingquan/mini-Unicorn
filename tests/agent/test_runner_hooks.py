@@ -7,16 +7,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from munchkin.config.schema import AgentDefaults
-from munchkin.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from miniUnicorn.config.schema import AgentDefaults
+from miniUnicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 
 @pytest.mark.asyncio
 async def test_runner_calls_hooks_in_order():
-    from munchkin.agent.hook import AgentHook, AgentHookContext
-    from munchkin.agent.runner import AgentRunSpec, AgentRunner
+    from miniUnicorn.agent.hook import AgentHook, AgentHookContext
+    from miniUnicorn.agent.runner import AgentRunSpec, AgentRunner
 
     provider = MagicMock(spec=LLMProvider)
     call_count = {"n": 0}
@@ -91,8 +91,8 @@ async def test_runner_calls_hooks_in_order():
 
 @pytest.mark.asyncio
 async def test_runner_streaming_hook_receives_deltas_and_end_signal():
-    from munchkin.agent.hook import AgentHook, AgentHookContext
-    from munchkin.agent.runner import AgentRunSpec, AgentRunner
+    from miniUnicorn.agent.hook import AgentHook, AgentHookContext
+    from miniUnicorn.agent.runner import AgentRunSpec, AgentRunner
 
     provider = MagicMock(spec=LLMProvider)
     streamed: list[str] = []
@@ -137,8 +137,8 @@ async def test_runner_streaming_hook_receives_deltas_and_end_signal():
 @pytest.mark.asyncio
 async def test_runner_passes_cached_tokens_to_hook_context():
     """Hook context.usage should contain cached_tokens."""
-    from munchkin.agent.hook import AgentHook, AgentHookContext
-    from munchkin.agent.runner import AgentRunSpec, AgentRunner
+    from miniUnicorn.agent.hook import AgentHook, AgentHookContext
+    from miniUnicorn.agent.runner import AgentRunSpec, AgentRunner
 
     provider = MagicMock(spec=LLMProvider)
     captured_usage: list[dict] = []

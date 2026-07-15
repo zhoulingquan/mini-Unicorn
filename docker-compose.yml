@@ -3,7 +3,7 @@ x-common-config: &common-config
     context: .
     dockerfile: Dockerfile
   volumes:
-    - ~/.munchkin:/home/munchkin/.munchkin
+    - ~/.miniUnicorn:/home/miniUnicorn/.miniUnicorn
   cap_drop:
     - ALL
   cap_add:
@@ -13,8 +13,8 @@ x-common-config: &common-config
     - seccomp=unconfined
 
 services:
-  munchkin-gateway:
-    container_name: munchkin-gateway
+  miniUnicorn-gateway:
+    container_name: miniUnicorn-gateway
     <<: *common-config
     command: ["gateway"]
     restart: unless-stopped
@@ -29,11 +29,11 @@ services:
           cpus: "0.25"
           memory: 256M
 
-  munchkin-api:
-    container_name: munchkin-api
+  miniUnicorn-api:
+    container_name: miniUnicorn-api
     <<: *common-config
     command:
-      ["serve", "--host", "0.0.0.0", "-w", "/home/munchkin/.munchkin/api-workspace"]
+      ["serve", "--host", "0.0.0.0", "-w", "/home/miniUnicorn/.miniUnicorn/api-workspace"]
     restart: unless-stopped
     ports:
       - 127.0.0.1:8900:8900
@@ -46,7 +46,7 @@ services:
           cpus: "0.25"
           memory: 256M
 
-  munchkin-cli:
+  miniUnicorn-cli:
     <<: *common-config
     profiles:
       - cli

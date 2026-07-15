@@ -1,7 +1,8 @@
-import { Menu, Moon, Sun } from "lucide-react";
+import { Menu, Monitor, Moon, Sun } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import type { ThemeMode } from "@/hooks/useTheme";
 import { inferProviderFromModelName, providerBrand } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
 
@@ -9,6 +10,7 @@ interface ThreadHeaderProps {
   title: string;
   onToggleSidebar: () => void;
   theme: "light" | "dark";
+  themeMode?: ThemeMode;
   onToggleTheme: () => void;
   onToggleLanguage: () => void;
   hideSidebarToggleForHostChrome?: boolean;
@@ -21,6 +23,7 @@ export function ThreadHeader({
   title,
   onToggleSidebar,
   theme,
+  themeMode,
   onToggleTheme,
   onToggleLanguage,
   hideSidebarToggleForHostChrome = false,
@@ -51,6 +54,7 @@ export function ThreadHeader({
           />
           <ThemeButton
             theme={theme}
+            themeMode={themeMode}
             onToggleTheme={onToggleTheme}
             label={t("thread.header.toggleTheme")}
           />
@@ -90,6 +94,7 @@ export function ThreadHeader({
           />
           <ThemeButton
             theme={theme}
+            themeMode={themeMode}
             onToggleTheme={onToggleTheme}
             label={t("thread.header.toggleTheme")}
           />
@@ -152,15 +157,18 @@ function HeaderModelBadge({
 
 function ThemeButton({
   theme,
+  themeMode,
   onToggleTheme,
   label,
   className,
 }: {
   theme: "light" | "dark";
+  themeMode?: ThemeMode;
   onToggleTheme: () => void;
   label: string;
   className?: string;
 }) {
+  const mode = themeMode ?? theme;
   return (
     <Button
       variant="ghost"
@@ -172,10 +180,12 @@ function ThemeButton({
         className,
       )}
     >
-      {theme === "dark" ? (
+      {mode === "light" ? (
         <Sun className="h-4 w-4" />
-      ) : (
+      ) : mode === "dark" ? (
         <Moon className="h-4 w-4" />
+      ) : (
+        <Monitor className="h-4 w-4" />
       )}
     </Button>
   );

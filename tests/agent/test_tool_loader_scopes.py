@@ -1,8 +1,8 @@
 import pytest
 
-from munchkin.agent.tools.base import Tool
-from munchkin.agent.tools.context import ToolContext
-from munchkin.agent.tools.loader import ToolLoader
+from miniUnicorn.agent.tools.base import Tool
+from miniUnicorn.agent.tools.context import ToolContext
+from miniUnicorn.agent.tools.loader import ToolLoader
 
 
 class _CoreOnlyTool(Tool):
@@ -64,7 +64,7 @@ class _UniversalTool(Tool):
 
 @pytest.mark.asyncio
 async def test_loader_filters_by_scope():
-    from munchkin.agent.tools.registry import ToolRegistry
+    from miniUnicorn.agent.tools.registry import ToolRegistry
 
     loader = ToolLoader(test_classes=[_CoreOnlyTool, _SubagentOnlyTool, _UniversalTool])
 

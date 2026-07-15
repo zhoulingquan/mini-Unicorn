@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from munchkin.security.workspace_policy import (
+from miniUnicorn.security.workspace_policy import (
     WorkspaceBoundaryError,
     is_path_within,
     resolve_allowed_path,

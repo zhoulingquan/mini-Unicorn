@@ -25,8 +25,8 @@ describe("ChatList", () => {
         title: "Zeta task",
         updatedAt: "2026-05-20T12:00:00Z",
         workspaceScope: {
-          project_path: "/Users/me/munchkin",
-          project_name: "Munchkin",
+          project_path: "/Users/me/miniUnicorn",
+          project_name: "MiniUnicorn",
           access_mode: "restricted",
         },
       }),
@@ -35,8 +35,8 @@ describe("ChatList", () => {
         title: "Alpha task",
         updatedAt: "2026-05-20T11:00:00Z",
         workspaceScope: {
-          project_path: "/Users/me/munchkin",
-          project_name: "Munchkin",
+          project_path: "/Users/me/miniUnicorn",
+          project_name: "MiniUnicorn",
           access_mode: "restricted",
         },
       }),
@@ -45,8 +45,8 @@ describe("ChatList", () => {
         title: "Bench task",
         updatedAt: "2026-05-21T09:00:00Z",
         workspaceScope: {
-          project_path: "/Users/me/munchkin-bench",
-          project_name: "munchkin-bench",
+          project_path: "/Users/me/miniUnicorn-bench",
+          project_name: "miniUnicorn-bench",
           access_mode: "full",
         },
       }),
@@ -67,14 +67,14 @@ describe("ChatList", () => {
       />,
     );
 
-    const munchkinSection = screen.getByRole("region", { name: "Munchkin" });
-    const munchkinText = munchkinSection.textContent ?? "";
+    const miniUnicornSection = screen.getByRole("region", { name: "MiniUnicorn" });
+    const miniUnicornText = miniUnicornSection.textContent ?? "";
 
-    expect(screen.getByRole("region", { name: "munchkin-bench" })).toBeInTheDocument();
-    expect(within(munchkinSection).getByText("Alpha task")).toBeInTheDocument();
-    expect(within(munchkinSection).getByText("Zeta task")).toBeInTheDocument();
-    expect(munchkinText.indexOf("Alpha task")).toBeLessThan(munchkinText.indexOf("Zeta task"));
-    expect(within(munchkinSection).getByLabelText("Agent running")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "miniUnicorn-bench" })).toBeInTheDocument();
+    expect(within(miniUnicornSection).getByText("Alpha task")).toBeInTheDocument();
+    expect(within(miniUnicornSection).getByText("Zeta task")).toBeInTheDocument();
+    expect(miniUnicornText.indexOf("Alpha task")).toBeLessThan(miniUnicornText.indexOf("Zeta task"));
+    expect(within(miniUnicornSection).getByLabelText("Agent running")).toBeInTheDocument();
     expect(screen.queryByText("Today")).not.toBeInTheDocument();
   });
 
@@ -85,7 +85,7 @@ describe("ChatList", () => {
         title: "Default workspace chat",
         updatedAt: "2026-05-21T10:00:00Z",
         workspaceScope: {
-          project_path: "/Users/me/.munchkin/workspace",
+          project_path: "/Users/me/.miniUnicorn/workspace",
           project_name: "workspace",
           access_mode: "restricted",
         },
@@ -95,8 +95,8 @@ describe("ChatList", () => {
         title: "Project chat",
         updatedAt: "2026-05-21T11:00:00Z",
         workspaceScope: {
-          project_path: "/Users/me/munchkin",
-          project_name: "Munchkin",
+          project_path: "/Users/me/miniUnicorn",
+          project_name: "MiniUnicorn",
           access_mode: "restricted",
         },
       }),
@@ -111,13 +111,13 @@ describe("ChatList", () => {
         onTogglePin={vi.fn()}
         onRequestRename={vi.fn()}
         onToggleArchive={vi.fn()}
-        defaultWorkspacePath="/Users/me/.munchkin/workspace"
+        defaultWorkspacePath="/Users/me/.miniUnicorn/workspace"
         showTimestamps
       />,
     );
 
     expect(screen.getByText("Projects")).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Munchkin" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "MiniUnicorn" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "workspace" })).not.toBeInTheDocument();
 
     const chatsSection = screen.getByRole("region", { name: "Chats" });
@@ -134,8 +134,8 @@ describe("ChatList", () => {
         chatId: "alpha",
         title: "Alpha task",
         workspaceScope: {
-          project_path: "/Users/me/munchkin",
-          project_name: "Munchkin",
+          project_path: "/Users/me/miniUnicorn",
+          project_name: "MiniUnicorn",
           access_mode: "restricted",
         },
       }),
@@ -153,21 +153,21 @@ describe("ChatList", () => {
         onToggleGroup={onToggleGroup}
         onRequestRenameProject={onRequestRenameProject}
         onNewChatInProject={onNewChatInProject}
-        projectNameOverrides={{ "/Users/me/munchkin": "Photos" }}
-        collapsedGroups={{ "project:/Users/me/munchkin": true }}
+        projectNameOverrides={{ "/Users/me/miniUnicorn": "Photos" }}
+        collapsedGroups={{ "project:/Users/me/miniUnicorn": true }}
       />,
     );
 
     const projectSection = screen.getByRole("region", { name: "Photos" });
     fireEvent.click(within(projectSection).getByRole("button", { name: "Photos" }));
 
-    expect(onToggleGroup).toHaveBeenCalledWith("project:/Users/me/munchkin");
+    expect(onToggleGroup).toHaveBeenCalledWith("project:/Users/me/miniUnicorn");
     expect(within(projectSection).queryByText("Alpha task")).not.toBeInTheDocument();
 
     fireEvent.click(
       within(projectSection).getByRole("button", { name: "Start a new chat in Photos" }),
     );
-    expect(onNewChatInProject).toHaveBeenCalledWith("/Users/me/munchkin", "Photos");
+    expect(onNewChatInProject).toHaveBeenCalledWith("/Users/me/miniUnicorn", "Photos");
     expect(onToggleGroup).toHaveBeenCalledTimes(1);
 
     fireEvent.pointerDown(
@@ -176,7 +176,7 @@ describe("ChatList", () => {
     );
     fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
 
-    expect(onRequestRenameProject).toHaveBeenCalledWith("/Users/me/munchkin", "Photos");
+    expect(onRequestRenameProject).toHaveBeenCalledWith("/Users/me/miniUnicorn", "Photos");
   });
 
   it("hides the completed dot for the active chat", () => {
@@ -214,7 +214,7 @@ describe("ChatList", () => {
         title: `Chat ${index}`,
         updatedAt: `2026-05-21T10:${String(index).padStart(2, "0")}:00Z`,
         workspaceScope: {
-          project_path: "/Users/me/.munchkin/workspace",
+          project_path: "/Users/me/.miniUnicorn/workspace",
           project_name: "workspace",
           access_mode: "restricted",
         },
@@ -230,7 +230,7 @@ describe("ChatList", () => {
       onRequestRename: vi.fn(),
       onToggleArchive: vi.fn(),
       onToggleGroup,
-      defaultWorkspacePath: "/Users/me/.munchkin/workspace",
+      defaultWorkspacePath: "/Users/me/.miniUnicorn/workspace",
     };
 
     const { rerender } = render(<ChatList {...baseProps} />);

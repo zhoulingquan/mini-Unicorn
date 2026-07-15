@@ -1,10 +1,10 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from munchkin.agent.loop import AgentLoop
-from munchkin.agent.tools.cron import CronTool
-from munchkin.bus.queue import MessageBus
-from munchkin.cron.service import CronService
+from miniUnicorn.agent.loop import AgentLoop
+from miniUnicorn.agent.tools.cron import CronTool
+from miniUnicorn.bus.queue import MessageBus
+from miniUnicorn.cron.service import CronService
 
 
 def test_agent_loop_registers_cron_tool_with_configured_timezone(tmp_path: Path) -> None:
@@ -24,4 +24,4 @@ def test_agent_loop_registers_cron_tool_with_configured_timezone(tmp_path: Path)
     cron_tool = loop.tools.get("cron")
 
     assert isinstance(cron_tool, CronTool)
-    assert cron_tool._default_timezone == "Asia/Shanghai"
+    assert cron_tool._default_timezone == "system"

@@ -1,17 +1,17 @@
 # Python SDK
 
-Use Munchkin as a library — no CLI, no gateway, just Python.
+Use MiniUnicorn as a library — no CLI, no gateway, just Python.
 
 ## Quick Start
 
 ```python
 import asyncio
 
-from munchkin import Munchkin
+from miniUnicorn import MiniUnicorn
 
 
 async def main() -> None:
-    bot = Munchkin.from_config()
+    bot = MiniUnicorn.from_config()
     result = await bot.run("What time is it in Tokyo?")
     print(result.content)
 
@@ -19,17 +19,17 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`Munchkin.from_config()` reuses your normal `~/.munchkin/config.json`, so the SDK follows the same provider, model, tools, and workspace defaults as the CLI unless you override them.
+`MiniUnicorn.from_config()` reuses your normal `~/.miniUnicorn/config.json`, so the SDK follows the same provider, model, tools, and workspace defaults as the CLI unless you override them.
 
 ## Common Patterns
 
 ### Use a specific config or workspace
 
 ```python
-from munchkin import Munchkin
+from miniUnicorn import MiniUnicorn
 
-bot = Munchkin.from_config(
-    config_path="~/.munchkin/config.json",
+bot = MiniUnicorn.from_config(
+    config_path="~/.miniUnicorn/config.json",
     workspace="/my/project",
 )
 ```
@@ -45,10 +45,10 @@ await bot.run("hi", session_key="task-42")
 
 ### Attach hooks for observability
 
-Hooks let you inspect tool calls, streaming, and iteration state without modifying Munchkin internals:
+Hooks let you inspect tool calls, streaming, and iteration state without modifying MiniUnicorn internals:
 
 ```python
-from munchkin.agent import AgentHook, AgentHookContext
+from miniUnicorn.agent import AgentHook, AgentHookContext
 
 
 class AuditHook(AgentHook):
@@ -62,13 +62,13 @@ result = await bot.run("Review this change", hooks=[AuditHook()])
 
 ## API Reference
 
-### `Munchkin.from_config(config_path=None, *, workspace=None)`
+### `MiniUnicorn.from_config(config_path=None, *, workspace=None)`
 
-Create a `Munchkin` instance from a config file.
+Create a `MiniUnicorn` instance from a config file.
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `config_path` | `str \| Path \| None` | `None` | Path to `config.json`. Defaults to `~/.munchkin/config.json`. |
+| `config_path` | `str \| Path \| None` | `None` | Path to `config.json`. Defaults to `~/.miniUnicorn/config.json`. |
 | `workspace` | `str \| Path \| None` | `None` | Override the workspace directory from config. |
 
 Raises `FileNotFoundError` if an explicit config path does not exist.
@@ -123,7 +123,7 @@ Useful fields on `AgentHookContext` include:
 ### Example: audit tool calls
 
 ```python
-from munchkin.agent import AgentHook, AgentHookContext
+from miniUnicorn.agent import AgentHook, AgentHookContext
 
 
 class AuditHook(AgentHook):
@@ -147,7 +147,7 @@ print(f"Tools observed: {hook.calls}")
 ### Example: receive streaming tokens
 
 ```python
-from munchkin.agent import AgentHook, AgentHookContext
+from miniUnicorn.agent import AgentHook, AgentHookContext
 
 
 class StreamingHook(AgentHook):
@@ -174,7 +174,7 @@ Async hook methods are fan-out with error isolation. `finalize_content` is a pip
 ### Example: post-process final content
 
 ```python
-from munchkin.agent import AgentHook
+from miniUnicorn.agent import AgentHook
 
 
 class Censor(AgentHook):
@@ -188,8 +188,8 @@ class Censor(AgentHook):
 import asyncio
 import time
 
-from munchkin import Munchkin
-from munchkin.agent import AgentHook, AgentHookContext
+from miniUnicorn import MiniUnicorn
+from miniUnicorn.agent import AgentHook, AgentHookContext
 
 
 class TimingHook(AgentHook):
@@ -206,7 +206,7 @@ class TimingHook(AgentHook):
 
 
 async def main() -> None:
-    bot = Munchkin.from_config(workspace="/my/project")
+    bot = MiniUnicorn.from_config(workspace="/my/project")
     result = await bot.run(
         "Explain the main function",
         session_key="sdk:demo",

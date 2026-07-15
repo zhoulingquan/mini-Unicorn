@@ -1,6 +1,6 @@
 """Tests for LLMProvider._enforce_role_alternation."""
 
-from munchkin.providers.base import LLMProvider, _SYNTHETIC_USER_CONTENT
+from miniUnicorn.providers.base import LLMProvider, _SYNTHETIC_USER_CONTENT
 
 
 class TestEnforceRoleAlternation:

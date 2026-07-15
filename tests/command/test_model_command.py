@@ -3,18 +3,18 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from munchkin.agent.loop import AgentLoop
-from munchkin.bus.events import InboundMessage
-from munchkin.bus.queue import MessageBus
-from munchkin.command.builtin import (
+from miniUnicorn.agent.loop import AgentLoop
+from miniUnicorn.bus.events import InboundMessage
+from miniUnicorn.bus.queue import MessageBus
+from miniUnicorn.command.builtin import (
     build_help_text,
     builtin_command_palette,
     cmd_goal,
     cmd_model,
     register_builtin_commands,
 )
-from munchkin.command.router import CommandContext, CommandRouter
-from munchkin.config.schema import ModelPresetConfig
+from miniUnicorn.command.router import CommandContext, CommandRouter
+from miniUnicorn.config.schema import ModelPresetConfig
 
 
 def _provider(default_model: str, max_tokens: int = 123) -> MagicMock:

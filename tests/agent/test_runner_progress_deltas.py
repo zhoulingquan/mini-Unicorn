@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from munchkin.agent.runner import AgentRunner, AgentRunSpec
-from munchkin.config.schema import AgentDefaults
-from munchkin.providers.base import LLMResponse, ToolCallRequest
+from miniUnicorn.agent.runner import AgentRunner, AgentRunSpec
+from miniUnicorn.config.schema import AgentDefaults
+from miniUnicorn.providers.base import LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 

@@ -1,7 +1,7 @@
 """Tests for the LongCat provider registration."""
 
-from munchkin.config.schema import ProvidersConfig
-from munchkin.providers.registry import PROVIDERS, find_by_name
+from miniUnicorn.config.schema import ProvidersConfig
+from miniUnicorn.providers.registry import PROVIDERS, find_by_name
 
 
 def test_longcat_config_field_exists():

@@ -69,7 +69,7 @@ function makeClient() {
 function wrap(client: ReturnType<typeof makeClient>, children: ReactNode, modelName?: string | null) {
   return (
     <ClientProvider
-      client={client as unknown as import("@/lib/munchkin-client").MunchkinClient}
+      client={client as unknown as import("@/lib/miniUnicorn-client").MiniUnicornClient}
       token="tok"
       modelName={modelName ?? null}
     >
@@ -123,9 +123,6 @@ function modelSettings(model: string, provider: string): SettingsPayload {
       context_window_tokens: 65536,
       temperature: 0.7,
       reasoning_effort: null,
-      timezone: "UTC",
-      bot_name: "Munchkin",
-      bot_icon: "",
       tool_hint_max_length: 40,
     },
     model_presets: [{
@@ -360,7 +357,7 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={null}
-            title="Munchkin"
+            title="MiniUnicorn"
             onToggleSidebar={() => {}}
             onGoHome={() => {}}
             onNewChat={onNewChat}
@@ -385,7 +382,7 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={null}
-          title="Munchkin"
+          title="MiniUnicorn"
           onToggleSidebar={() => {}}
           onGoHome={() => {}}
           onNewChat={onNewChat}
@@ -420,7 +417,7 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={null}
-          title="Munchkin"
+          title="MiniUnicorn"
           onToggleSidebar={() => {}}
           onCreateChat={onCreateChat}
         />,
@@ -489,7 +486,7 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={null}
-          title="Munchkin"
+          title="MiniUnicorn"
           onToggleSidebar={() => {}}
           onCreateChat={onCreateChat}
         />,
@@ -546,7 +543,7 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={null}
-          title="Munchkin"
+          title="MiniUnicorn"
           onToggleSidebar={() => {}}
           onGoHome={() => {}}
           onNewChat={() => {}}
@@ -755,7 +752,7 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={null}
-            title="Munchkin"
+            title="MiniUnicorn"
             onToggleSidebar={() => {}}
             onNewChat={() => {}}
           />,
@@ -918,7 +915,7 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={null}
-            title="Munchkin"
+            title="MiniUnicorn"
             onToggleSidebar={() => {}}
             onNewChat={() => {}}
           />,
@@ -986,7 +983,7 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={null}
-          title="Munchkin"
+          title="MiniUnicorn"
           onToggleSidebar={() => {}}
           onNewChat={() => {}}
         />,

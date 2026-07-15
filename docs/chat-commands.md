@@ -24,7 +24,7 @@ These commands work inside chat channels and interactive agent sessions:
 
 ## Pairing
 
-When someone sends a DM to the bot and isn't on the allowlist — whether it's a new user or an existing user on a new channel — Munchkin automatically replies with a **pairing code** (like `ABCD-EFGH`) that expires in 10 minutes. To grant them access:
+When someone sends a DM to the bot and isn't on the allowlist — whether it's a new user or an existing user on a new channel — MiniUnicorn automatically replies with a **pairing code** (like `ABCD-EFGH`) that expires in 10 minutes. To grant them access:
 
 ```text
 /pairing approve ABCD-EFGH
@@ -56,9 +56,9 @@ Preset names come from the top-level `modelPresets` config. Switching is runtime
 
 ## Periodic Tasks
 
-The gateway wakes up every 30 minutes and checks `HEARTBEAT.md` in your workspace (`~/.munchkin/workspace/HEARTBEAT.md`). If the file has tasks, the agent executes them and delivers results to your most recently active chat channel.
+The gateway wakes up every 30 minutes and checks `HEARTBEAT.md` in your workspace (`~/.miniUnicorn/workspace/HEARTBEAT.md`). If the file has tasks, the agent executes them and delivers results to your most recently active chat channel.
 
-**Setup:** edit `~/.munchkin/workspace/HEARTBEAT.md` (created automatically by `munchkin onboard`):
+**Setup:** edit `~/.miniUnicorn/workspace/HEARTBEAT.md` (created automatically by `miniUnicorn onboard`):
 
 ```markdown
 ## Periodic Tasks
@@ -69,4 +69,4 @@ The gateway wakes up every 30 minutes and checks `HEARTBEAT.md` in your workspac
 
 The agent can also manage this file itself — ask it to "add a periodic task" and it will update `HEARTBEAT.md` for you.
 
-> **Note:** The gateway must be running (`munchkin gateway`) and you must have chatted with the bot at least once so it knows which channel to deliver to.
+> **Note:** The gateway must be running (`miniUnicorn gateway`) and you must have chatted with the bot at least once so it knows which channel to deliver to.
