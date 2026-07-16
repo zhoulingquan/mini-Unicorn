@@ -6,6 +6,7 @@
 .env
 .web
 .orion
+.miniUnicorn-config/
 miniUnicorn-desktop/
 miniUnicorn-workspace/
 desktop/

@@ -26,7 +26,11 @@ WEBUI_SESSION_METADATA_KEY = "webui"
 WEBUI_TITLE_METADATA_KEY = "title"
 WEBUI_TITLE_USER_EDITED_METADATA_KEY = "title_user_edited"
 TITLE_MAX_CHARS = 60
-TITLE_GENERATION_MAX_TOKENS = 96
+# Reasoning models (e.g. Hy3, DeepSeek-R1) emit a chain-of-thought before the
+# final answer. 96 tokens is exhausted by the reasoning alone, leaving
+# ``content=None`` and ``finish_reason="length"``. 1024 leaves ample room for
+# both the reasoning trace and the 3-8 word title.
+TITLE_GENERATION_MAX_TOKENS = 1024
 TITLE_GENERATION_REASONING_EFFORT = "none"
 
 # Wall-clock turn start per ``chat_id`` (websocket only). Survives browser refresh while the
@@ -299,6 +303,7 @@ class WebuiTurnCoordinator:
         *,
         session_key: str,
         latency_ms: int | None,
+        context_usage: dict[str, int] | None = None,
     ) -> None:
         if msg.channel != "websocket":
             return
@@ -306,6 +311,13 @@ class WebuiTurnCoordinator:
         turn_metadata: dict[str, Any] = {**msg.metadata, "_turn_end": True}
         if latency_ms is not None:
             turn_metadata["latency_ms"] = int(latency_ms)
+        if context_usage:
+            turn_metadata["context_usage"] = {
+                "prompt_tokens": context_usage.get("prompt_tokens", 0),
+                "completion_tokens": context_usage.get("completion_tokens", 0),
+                "total_tokens": context_usage.get("total_tokens", 0),
+                "cached_tokens": context_usage.get("cached_tokens", 0),
+            }
         session = self.sessions.get_or_create(session_key)
         turn_metadata["goal_state"] = goal_state_ws_blob(session.metadata)
         await self.bus.publish_outbound(OutboundMessage(

@@ -10,6 +10,7 @@ import {
 } from "@/lib/tool-traces";
 import type { StreamError } from "@/lib/miniUnicorn-client";
 import type {
+  ContextUsagePayload,
   InboundEvent,
   OutboundCliAppMention,
   OutboundMcpPresetMention,
@@ -424,6 +425,8 @@ export function useMiniUnicornStream(
   runStartedAt: number | null;
   /** Latest sustained goal for this ``chatId`` (``goal_state`` WS events). */
   goalState: GoalStateWsPayload | undefined;
+  /** Token usage from the last LLM call of the most recent turn (``turn_end``). */
+  contextUsage: ContextUsagePayload | null;
   send: (content: string, images?: SendImage[], options?: SendOptions) => void;
   stop: () => void;
   setMessages: React.Dispatch<React.SetStateAction<UIMessage[]>>;
@@ -446,6 +449,7 @@ export function useMiniUnicornStream(
   /** Unix epoch seconds when the current user turn started; cleared on ``idle``. */
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   const [goalState, setGoalState] = useState<GoalStateWsPayload | undefined>(undefined);
+  const [contextUsage, setContextUsage] = useState<ContextUsagePayload | null>(null);
   const [streamError, setStreamError] = useState<StreamError | null>(null);
   const buffer = useRef<StreamBuffer | null>(null);
   const activeAssistantRef = useRef<ActiveAssistantCursor | null>(null);
@@ -672,6 +676,7 @@ export function useMiniUnicornStream(
     setStreamError(null);
     setRunStartedAt(chatId ? client.getRunStartedAt(chatId) : null);
     setGoalState(chatId ? client.getGoalState(chatId) : undefined);
+    setContextUsage(null);
     buffer.current = null;
     activeAssistantRef.current = null;
     closedAssistantStreamIdsRef.current.clear();
@@ -760,6 +765,9 @@ export function useMiniUnicornStream(
       if (ev.event === "turn_end") {
         if ("goal_state" in ev && ev.goal_state != null && typeof ev.goal_state === "object") {
           setGoalState(ev.goal_state);
+        }
+        if (ev.context_usage) {
+          setContextUsage(ev.context_usage);
         }
         setRunStartedAt(null);
         // Definitive signal that the turn is fully complete.  Cancel any
@@ -1036,6 +1044,7 @@ export function useMiniUnicornStream(
     isStreaming,
     runStartedAt,
     goalState,
+    contextUsage,
     send,
     stop,
     setMessages,

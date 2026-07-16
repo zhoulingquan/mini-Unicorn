@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from miniUnicorn.agent.agent_generator import AgentGenerator, extract_name
 from miniUnicorn.agent.tools.base import Tool, tool_parameters
-from miniUnicorn.agent.tools.schema import StringSchema, tool_parameters_schema
+from miniUnicorn.agent.tools.schema import ObjectSchema, StringSchema
 
 if TYPE_CHECKING:
     from miniUnicorn.agent.subagent_registry import SubagentRegistry
@@ -23,15 +23,17 @@ if TYPE_CHECKING:
 
 
 @tool_parameters(
-    tool_parameters_schema(
-        description=StringSchema(
-            "Natural-language description of the subagent to create: what it "
-            "should do, when the main agent should delegate to it, and any "
-            "constraints on its tools or behavior. The LLM will derive the "
-            "agent name, frontmatter, and system prompt from this description."
-        ),
+    ObjectSchema(
+        properties={
+            "description": StringSchema(
+                "Natural-language description of the subagent to create: what it "
+                "should do, when the main agent should delegate to it, and any "
+                "constraints on its tools or behavior. The LLM will derive the "
+                "agent name, frontmatter, and system prompt from this description."
+            )
+        },
         required=["description"],
-    )
+    ).to_json_schema()
 )
 class CreateAgentTool(Tool):
     """Generate a new subagent definition file via the LLM and save it."""

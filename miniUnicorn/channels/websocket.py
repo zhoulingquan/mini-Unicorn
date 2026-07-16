@@ -439,6 +439,11 @@ _MAX_IMAGES_PER_MESSAGE = 4
 _MAX_IMAGE_BYTES = 8 * 1024 * 1024
 _MAX_VIDEOS_PER_MESSAGE = 1
 _MAX_VIDEO_BYTES = 20 * 1024 * 1024
+# Documents share the 4-attachment per-message cap with images (the client
+# treats all non-video attachments as one pool). 50 MB aligns with
+# ``utils.document._MAX_EXTRACT_FILE_SIZE`` so anything the client accepts
+# can be fully extracted server-side.
+_MAX_DOCUMENT_BYTES = 50 * 1024 * 1024
 
 # Image MIME whitelist — matches the Composer's ``accept`` list. SVG is
 # explicitly excluded to avoid the XSS surface inside embedded scripts.
@@ -455,7 +460,32 @@ _VIDEO_MIME_ALLOWED: frozenset[str] = frozenset({
     "video/quicktime",
 })
 
-_UPLOAD_MIME_ALLOWED: frozenset[str] = _IMAGE_MIME_ALLOWED | _VIDEO_MIME_ALLOWED
+# Document MIME whitelist — mirrors ``utils.document.SUPPORTED_EXTENSIONS``.
+# These files are base64-encoded client-side (bypassing the image Worker's
+# magic-byte check) and have their text extracted by ``extract_documents()``.
+# ``application/octet-stream`` is admitted because browsers return it for
+# .log/.toml/.ini/.cfg and other text formats; the original filename
+# extension is preserved via ``filename_hint`` for downstream parsing.
+_DOCUMENT_MIME_ALLOWED: frozenset[str] = frozenset({
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "text/plain",
+    "text/markdown",
+    "text/csv",
+    "application/json",
+    "application/xml",
+    "text/xml",
+    "text/html",
+    "application/x-yaml",
+    "text/yaml",
+    "application/octet-stream",
+})
+
+_UPLOAD_MIME_ALLOWED: frozenset[str] = (
+    _IMAGE_MIME_ALLOWED | _VIDEO_MIME_ALLOWED | _DOCUMENT_MIME_ALLOWED
+)
 
 _DATA_URL_MIME_RE = re.compile(r"^data:([^;]+);base64,", re.DOTALL)
 
@@ -2291,7 +2321,9 @@ class WebSocketChannel(BaseChannel):
             mime = _extract_data_url_mime(item.get("data_url", "")) if isinstance(item, dict) else None
             if mime in _VIDEO_MIME_ALLOWED:
                 video_count += 1
-            elif mime in _IMAGE_MIME_ALLOWED:
+            elif mime in _IMAGE_MIME_ALLOWED or mime in _DOCUMENT_MIME_ALLOWED:
+                # Documents share the image attachment pool (client treats all
+                # non-video attachments as a single 4-item pool).
                 image_count += 1
         if image_count > _MAX_IMAGES_PER_MESSAGE:
             return [], "too_many_images"
@@ -2323,10 +2355,22 @@ class WebSocketChannel(BaseChannel):
             if mime not in _UPLOAD_MIME_ALLOWED:
                 return _abort("mime")
             is_video = mime in _VIDEO_MIME_ALLOWED
-            max_bytes = _MAX_VIDEO_BYTES if is_video else _MAX_IMAGE_BYTES
+            is_document = mime in _DOCUMENT_MIME_ALLOWED
+            if is_video:
+                max_bytes = _MAX_VIDEO_BYTES
+            elif is_document:
+                max_bytes = _MAX_DOCUMENT_BYTES
+            else:
+                max_bytes = _MAX_IMAGE_BYTES
+            # Preserve the original filename so ``save_base64_data_url`` can
+            # fall back to its extension when the MIME is ``application/octet-stream``
+            # (browsers return this for .log/.toml/.ini/.cfg and other text
+            # formats that ``extract_documents()`` parses by extension).
+            name_hint = item.get("name") if isinstance(item.get("name"), str) else None
             try:
                 saved = save_base64_data_url(
                     data_url, media_dir, max_bytes=max_bytes,
+                    filename_hint=name_hint,
                 )
             except FileSizeExceededError:
                 return _abort("size")
@@ -2585,7 +2629,14 @@ class WebSocketChannel(BaseChannel):
             lat_i = int(lat) if isinstance(lat, (int, float)) else None
             gs = msg.metadata.get("goal_state")
             gs_blob = gs if isinstance(gs, dict) else None
-            await self.send_turn_end(msg.chat_id, latency_ms=lat_i, goal_state=gs_blob)
+            cu = msg.metadata.get("context_usage")
+            cu_blob = cu if isinstance(cu, dict) else None
+            await self.send_turn_end(
+                msg.chat_id,
+                latency_ms=lat_i,
+                goal_state=gs_blob,
+                context_usage=cu_blob,
+            )
             return
         if msg.metadata.get("_session_updated"):
             scope = msg.metadata.get("_session_update_scope")
@@ -2735,6 +2786,7 @@ class WebSocketChannel(BaseChannel):
         latency_ms: int | None = None,
         *,
         goal_state: dict[str, Any] | None = None,
+        context_usage: dict[str, Any] | None = None,
     ) -> None:
         """Signal that the agent has fully finished processing the current turn."""
         conns = list(self._subs.get(chat_id, ()))
@@ -2745,6 +2797,8 @@ class WebSocketChannel(BaseChannel):
             body["latency_ms"] = int(latency_ms)
         if goal_state is not None:
             body["goal_state"] = goal_state
+        if context_usage:
+            body["context_usage"] = context_usage
         self._try_append_webui_transcript(chat_id, body)
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:

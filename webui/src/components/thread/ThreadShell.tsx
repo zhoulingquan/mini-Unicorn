@@ -21,7 +21,6 @@ import type {
 } from "@/lib/types";
 import { normalizeLegacyLongTaskMessages } from "@/lib/thread-display-compat";
 import { scrubSubagentUiMessages } from "@/lib/subagent-channel-display";
-import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
 
 function projectWebuiThreadMessages(messages: UIMessage[]): UIMessage[] {
@@ -194,6 +193,7 @@ export function ThreadShell({
     isStreaming,
     runStartedAt,
     goalState,
+    contextUsage,
     send,
     stop,
     setMessages,
@@ -206,6 +206,16 @@ export function ThreadShell({
   }, [chatId, historyKey]);
 
   const displayMessages = useMemo(() => projectWebuiThreadMessages(messages), [messages]);
+
+  // 上下文消息条数:仅统计 user/assistant 对话回合,不计入 trace(工具提示)行。
+  const conversationMessageCount = useMemo(
+    () => displayMessages.filter((m) => m.kind !== "trace").length,
+    [displayMessages],
+  );
+  const contextWindowTokens =
+    settings?.agent.resolved_context_window_tokens ??
+    settings?.agent.context_window_tokens ??
+    null;
 
   const showHeroComposer = messages.length === 0 && !loading;
   const wasShowingHeroComposerRef = useRef(showHeroComposer);
@@ -448,6 +458,9 @@ export function ThreadShell({
           selectedAgentId={selectedAgentId}
           onSelectAgent={onSelectAgent}
           onClearAgent={onClearAgent}
+          messageCount={conversationMessageCount}
+          contextWindowTokens={contextWindowTokens}
+          contextUsage={contextUsage}
         />
       ) : (
         <ThreadComposer
@@ -476,6 +489,9 @@ export function ThreadShell({
           selectedAgentId={selectedAgentId}
           onSelectAgent={onSelectAgent}
           onClearAgent={onClearAgent}
+          messageCount={conversationMessageCount}
+          contextWindowTokens={contextWindowTokens}
+          contextUsage={contextUsage}
         />
       )}
     </>
@@ -490,46 +506,6 @@ export function ThreadShell({
       <h1 className="text-balance text-[40px] font-normal leading-tight tracking-[-0.045em] text-foreground sm:text-[48px]">
         {t(heroGreetingKey)}
       </h1>
-      <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
-        {slashCommands
-          .filter((cmd) => cmd.command !== "/stop")
-          .slice(0, 4)
-          .map((cmd) => {
-            const cmdKey = cmd.command.replace(/^\//, "").replace(/-/g, "_");
-            const title = t(`thread.composer.slash.commands.${cmdKey}.title`, {
-              defaultValue: cmd.title,
-            });
-            return (
-              <button
-                key={cmd.command}
-                type="button"
-                onClick={() => {
-                  if (booting || !onCreateChat) return;
-                  setBooting(true);
-                  pendingFirstRef.current = {
-                    content: cmd.argHint ? `${cmd.command} ` : cmd.command,
-                    options: withWorkspaceScope(),
-                  };
-                  void onCreateChat(workspaceScope).then((newId) => {
-                    if (!newId) {
-                      pendingFirstRef.current = null;
-                      setBooting(false);
-                    }
-                  });
-                }}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-card/80 px-3.5 py-2",
-                  "text-[13px] font-medium text-muted-foreground shadow-[0_2px_8px_rgba(15,23,42,0.04)]",
-                  "transition-all hover:border-border hover:bg-card hover:text-foreground hover:shadow-[0_4px_16px_rgba(15,23,42,0.08)]",
-                  "active:scale-[0.97]",
-                )}
-              >
-                <span className="font-mono text-[11px] text-muted-foreground/60">{cmd.command}</span>
-                <span>{title}</span>
-              </button>
-            );
-          })}
-      </div>
     </div>
   );
 

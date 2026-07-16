@@ -65,7 +65,6 @@ _WEB_SEARCH_PROVIDER_BY_NAME = {
     provider["name"]: provider for provider in _WEB_SEARCH_PROVIDER_OPTIONS
 }
 
-_CONTEXT_WINDOW_TOKEN_OPTIONS = {65_536, 262_144, 1_000_000}
 _MODEL_CONFIGURATION_SLUG_RE = re.compile(r"[^a-z0-9_-]+")
 
 
@@ -191,9 +190,90 @@ def _parse_context_window_tokens(value: str | None) -> int | None:
         parsed = int(value)
     except ValueError:
         raise WebUISettingsError("context_window_tokens must be an integer") from None
-    if parsed not in _CONTEXT_WINDOW_TOKEN_OPTIONS:
-        raise WebUISettingsError("context_window_tokens must be 65536, 262144, or 1000000")
+    if parsed <= 0:
+        raise WebUISettingsError("context_window_tokens must be a positive integer")
     return parsed
+
+
+def _resolve_context_window_for_settings(
+    model: str, configured: int | None
+) -> dict[str, Any]:
+    """Return the effective context window size and its resolution status.
+
+    Resolution order (read-only, does NOT trigger HF queries):
+    1. Explicit user-configured value (``context_window_tokens`` in config).
+    2. Permanent learning table entry (already learned by a prior save).
+
+    Use :func:`_trigger_model_learning` to actively query HF when a model is
+    saved/selected.
+
+    Returns a dict:
+    {
+        "limit": int,                     # resolved context window size
+        "status": "configured" | "learned" | "unknown" | "default",
+        "error": str | None,              # populated when status == "unknown"
+                                          # (carries the last failure reason)
+    }
+    """
+    if isinstance(configured, int) and configured > 0:
+        return {"limit": configured, "status": "configured", "error": None}
+    if not model:
+        return {"limit": 65_536, "status": "default", "error": None}
+    try:
+        from miniUnicorn.cli.models import _load_learned_entry, _normalize_model_name
+
+        key = _normalize_model_name(model)
+        entry = _load_learned_entry(key) if key else None
+    except Exception:
+        entry = None
+
+    if entry is not None and isinstance(entry.get("limit"), int):
+        return {
+            "limit": entry["limit"],
+            "status": "learned",
+            "error": None,
+        }
+    # Not yet learned — surface the last failure reason if any.
+    error = entry.get("error") if isinstance(entry, dict) else None
+    return {
+        "limit": 65_536,
+        "status": "unknown",
+        "error": error or "尚未查询,保存模型后将自动从 HuggingFace 查询",
+    }
+
+
+def _trigger_model_learning(model: str) -> dict[str, Any]:
+    """Actively query Hugging Face for *model*'s context window.
+
+    Called by create/update model configuration handlers when a model is
+    saved or changed. Persists the result (success or failure) to the
+    learning table so subsequent page loads can display the status without
+    re-querying HF.
+    """
+    if not model:
+        return {"limit": 65_536, "status": "default", "error": None}
+    try:
+        from miniUnicorn.cli.models import learn_model_context_limit
+
+        result = learn_model_context_limit(model)
+    except Exception as exc:
+        return {"limit": 65_536, "status": "failed", "error": str(exc)}
+
+    if result.get("status") == "ok" and isinstance(result.get("limit"), int):
+        return {
+            "limit": result["limit"],
+            "status": "learned",
+            "error": None,
+        }
+    error = result.get("error") or "未知错误"
+    # Persist the failure reason so the settings page can show it.
+    try:
+        from miniUnicorn.cli.models import _save_learned_failure
+
+        _save_learned_failure(model, error)
+    except Exception:
+        pass
+    return {"limit": 65_536, "status": "failed", "error": error}
 
 
 def _model_configuration_slug(label: str) -> str:
@@ -272,6 +352,15 @@ def settings_payload(
         if search_config.provider in _WEB_SEARCH_PROVIDER_BY_NAME
         else "duckduckgo"
     )
+
+    def _ctx_fields(model: str, configured: int | None) -> dict[str, Any]:
+        info = _resolve_context_window_for_settings(model, configured)
+        return {
+            "resolved_context_window_tokens": info["limit"],
+            "resolved_context_window_status": info["status"],
+            "resolved_context_window_error": info["error"],
+        }
+
     model_presets = [
         {
             "name": "default",
@@ -282,6 +371,7 @@ def settings_payload(
             "provider": defaults.provider,
             "max_tokens": defaults.max_tokens,
             "context_window_tokens": defaults.context_window_tokens,
+            **_ctx_fields(defaults.model, defaults.context_window_tokens),
             "temperature": defaults.temperature,
             "reasoning_effort": defaults.reasoning_effort,
         }
@@ -297,6 +387,7 @@ def settings_payload(
                 "provider": preset.provider,
                 "max_tokens": preset.max_tokens,
                 "context_window_tokens": preset.context_window_tokens,
+                **_ctx_fields(preset.model, preset.context_window_tokens),
                 "temperature": preset.temperature,
                 "reasoning_effort": preset.reasoning_effort,
             }
@@ -316,6 +407,7 @@ def settings_payload(
             "model_preset": active_preset_name,
             "max_tokens": effective_preset.max_tokens,
             "context_window_tokens": effective_preset.context_window_tokens,
+            **_ctx_fields(effective_preset.model, effective_preset.context_window_tokens),
             "temperature": effective_preset.temperature,
             "reasoning_effort": effective_preset.reasoning_effort,
             "tool_hint_max_length": defaults.tool_hint_max_length,
@@ -406,6 +498,7 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
             changed = True
 
     model = _query_first(query, "model")
+    model_changed = False
     if model is not None:
         model = model.strip()
         if not model:
@@ -413,6 +506,7 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
         if defaults.model != model:
             defaults.model = model
             changed = True
+            model_changed = True
 
     provider = _query_first(query, "provider")
     if provider is not None:
@@ -453,6 +547,9 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
 
     if changed:
         save_config(config)
+    # Trigger HF learning when the default model changed.
+    if model_changed:
+        _trigger_model_learning(defaults.model)
     return settings_payload(requires_restart=restart_required)
 
 
@@ -487,6 +584,9 @@ def create_model_configuration(query: QueryParams) -> dict[str, Any]:
     )
     config.agents.defaults.model_preset = name
     save_config(config)
+    # Trigger HF learning for the newly configured model (skips if already
+    # learned successfully; retries on prior failure).
+    _trigger_model_learning(model)
     return settings_payload()
 
 
@@ -511,6 +611,7 @@ def update_model_configuration(query: QueryParams) -> dict[str, Any]:
             changed = True
 
     model = _query_first(query, "model")
+    model_changed = False
     if model is not None:
         model = model.strip()
         if not model:
@@ -518,6 +619,7 @@ def update_model_configuration(query: QueryParams) -> dict[str, Any]:
         if preset.model != model:
             preset.model = model
             changed = True
+            model_changed = True
 
     provider = _query_first(query, "provider")
     if provider is not None:
@@ -545,6 +647,10 @@ def update_model_configuration(query: QueryParams) -> dict[str, Any]:
 
     if changed:
         save_config(config)
+    # Trigger HF learning when the model name changed (skips if already
+    # learned successfully; retries on prior failure).
+    if model_changed:
+        _trigger_model_learning(preset.model)
     return settings_payload()
 
 

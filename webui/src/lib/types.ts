@@ -238,6 +238,9 @@ export interface SettingsPayload {
     model_preset: string | null;
     max_tokens: number;
     context_window_tokens: number;
+    resolved_context_window_tokens?: number;
+    resolved_context_window_status?: "configured" | "learned" | "unknown" | "failed" | "default";
+    resolved_context_window_error?: string | null;
     temperature: number;
     reasoning_effort: string | null;
     tool_hint_max_length: number;
@@ -251,6 +254,9 @@ export interface SettingsPayload {
     provider: string;
     max_tokens: number;
     context_window_tokens: number;
+    resolved_context_window_tokens?: number;
+    resolved_context_window_status?: "configured" | "learned" | "unknown" | "failed" | "default";
+    resolved_context_window_error?: string | null;
     temperature: number;
     reasoning_effort: string | null;
   }>;
@@ -694,6 +700,15 @@ export type ConnectionStatus =
   | "closed"
   | "error";
 
+/** Token usage from the last LLM call in a turn (pushed via ``turn_end``).
+ *  ``prompt_tokens`` approximates the current context window footprint. */
+export interface ContextUsagePayload {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cached_tokens: number;
+}
+
 export type InboundEvent =
   | { event: "ready"; chat_id: string; client_id: string }
   | { event: "attached"; chat_id: string }
@@ -752,6 +767,8 @@ export type InboundEvent =
       latency_ms?: number;
       /** Authoritative sustained-goal snapshot for this chat (same shape as ``goal_state`` events). */
       goal_state?: GoalStateWsPayload;
+      /** Token usage from the last LLM call in this turn. */
+      context_usage?: ContextUsagePayload;
     }
   | {
       event: "goal_status";

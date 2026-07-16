@@ -1604,6 +1604,17 @@ function ModelsSettings({
               onChange={(provider) => setForm((prev) => ({ ...prev, provider }))}
             />
           </SettingsRow>
+          <SettingsRow
+            title={t("settings.rows.contextWindow")}
+            description={t("settings.help.contextWindow")}
+          >
+            <ContextWindowBadge
+              resolved={settings.agent.resolved_context_window_tokens}
+              configured={settings.agent.context_window_tokens}
+              status={settings.agent.resolved_context_window_status}
+              error={settings.agent.resolved_context_window_error}
+            />
+          </SettingsRow>
           {selectedProviderNeedsSignIn ? (
             <SettingsRow
               title={tx("settings.oauth.signInRequired", "Sign in required")}
@@ -2732,6 +2743,85 @@ function SettingsRow({
       </div>
       {children ? <div className="shrink-0 sm:ml-6">{children}</div> : null}
     </div>
+  );
+}
+
+
+function ContextWindowBadge({
+  resolved,
+  configured,
+  status,
+  error,
+}: {
+  resolved?: number;
+  configured?: number;
+  status?: "configured" | "learned" | "unknown" | "failed" | "default";
+  error?: string | null;
+}) {
+  const { t } = useTranslation();
+  // 用户是否在 config 里显式配置了 context_window_tokens
+  const isConfigured = typeof configured === "number" && configured > 0;
+  // 显示值:优先用 resolved(后端解析后的最终值),兜底到 configured
+  const value = typeof resolved === "number" && resolved > 0 ? resolved : configured ?? 0;
+
+  // 失败状态:HF 查不到且未手动配置 → 提示需要手动设置
+  if (status === "failed" && !isConfigured) {
+    return (
+      <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="whitespace-nowrap text-[13px] font-medium text-amber-600 dark:text-amber-400">
+          {t("settings.models.contextWindowFailed")}
+        </span>
+        {error ? (
+          <span
+            className="whitespace-nowrap text-[11px] text-muted-foreground"
+            title={error}
+          >
+            {error.length > 40 ? `${error.slice(0, 40)}…` : error}
+          </span>
+        ) : null}
+      </span>
+    );
+  }
+
+  // 未知状态:尚未查询(保存后将自动查询)
+  if (status === "unknown" && !isConfigured) {
+    return (
+      <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="whitespace-nowrap text-[13px] font-medium text-muted-foreground">
+          {t("settings.models.contextWindowUnknown")}
+        </span>
+      </span>
+    );
+  }
+
+  if (!value) {
+    return (
+      <span className="text-[12px] text-muted-foreground">—</span>
+    );
+  }
+  // 格式化:1_000_000 -> "1,000,000" / 65_536 -> "65,536"
+  const formatted = value.toLocaleString();
+  // 徽章颜色:已配置=绿色;已学习(HF)=天蓝;失败/未知=不显示徽章(上面已处理)
+  const badgeClass = isConfigured
+    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+    : "bg-sky-500/10 text-sky-600 dark:text-sky-400";
+  const badgeLabel = isConfigured
+    ? t("settings.models.contextWindowConfigured")
+    : t("settings.models.contextWindowLearned");
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span className="whitespace-nowrap tabular-nums text-[13px] font-medium text-foreground">
+        {t("settings.models.contextWindowValue", { count: formatted })}
+      </span>
+      <span
+        className={cn(
+          "whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium",
+          badgeClass,
+        )}
+      >
+        {badgeLabel}
+      </span>
+    </span>
   );
 }
 

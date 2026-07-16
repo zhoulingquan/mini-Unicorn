@@ -142,6 +142,9 @@ class AgentRunResult:
     had_injections: bool = False
     budget_exceeded: bool = False
     plan: Any | None = None  # Plan | None, populated when use_planner=True
+    # Usage from the last LLM call in this run (not cumulative). Represents
+    # the actual context window footprint at the end of the turn.
+    last_call_usage: dict[str, int] = field(default_factory=dict)
 
 
 class AgentRunner:
@@ -368,6 +371,7 @@ class AgentRunner:
         final_content: str | None = None
         tools_used: list[str] = []
         usage: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
+        last_call_usage: dict[str, int] = {}
         error: str | None = None
         stop_reason = "completed"
         tool_events: list[dict[str, str]] = []
@@ -478,6 +482,8 @@ class AgentRunner:
             context.usage = dict(raw_usage)
             context.tool_calls = list(response.tool_calls)
             self._accumulate_usage(usage, raw_usage)
+            if raw_usage:
+                last_call_usage = dict(raw_usage)
             # Budget check: stop early if cumulative usage exceeds limits.
             _fc, _sr, _err = self._handle_budget_exceeded(
                 budget, raw_usage, spec.model, spec, messages,
@@ -697,6 +703,8 @@ class AgentRunner:
                 context.response = response
                 context.usage = dict(raw_usage)
                 context.tool_calls = list(response.tool_calls)
+                if retry_usage:
+                    last_call_usage = dict(retry_usage)
                 clean = hook.finalize_content(context, response.content)
 
             if response.finish_reason == "length" and not is_blank_text(clean):
@@ -884,6 +892,7 @@ class AgentRunner:
             had_injections=had_injections,
             budget_exceeded=(stop_reason == "budget_exceeded"),
             plan=plan,
+            last_call_usage=last_call_usage,
         )
 
     def _build_request_kwargs(

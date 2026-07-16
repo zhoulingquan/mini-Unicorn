@@ -101,7 +101,12 @@
       "newConfigurationHelp": "Save a provider and model as a one-click option.",
       "configurationName": "Name",
       "configurationNameHelp": "Rename this saved model configuration.",
-      "configurationNamePlaceholder": "Fast writing"
+      "configurationNamePlaceholder": "Fast writing",
+      "contextWindowConfigured": "Configured",
+      "contextWindowLearned": "Learned",
+      "contextWindowFailed": "Lookup failed, set manually",
+      "contextWindowUnknown": "Auto-query on save",
+      "contextWindowValue": "{{count}} tokens"
     },
     "rows": {
       "theme": "Theme",
@@ -115,6 +120,7 @@
       "restartState": "Restart state",
       "pendingChanges": "Pending changes",
       "currentModel": "Current model",
+      "contextWindow": "Context window",
       "selectedPreset": "Selected preset",
       "presetModel": "Preset model",
       "density": "Density",
@@ -141,6 +147,7 @@
       "model": "Set the default model name used by MiniUnicorn.",
       "configPath": "The gateway configuration file currently in use.",
       "currentModel": "Choose the model MiniUnicorn uses for new replies.",
+      "contextWindow": "Automatically queries Hugging Face for the model's context window size when saved, and persists the result permanently. Shows the learned value when not configured, or the configured value otherwise. Closed-source models not on HF require manual setup.",
       "selectedModelProvider": "Set by the selected model.",
       "selectedModelValue": "Set by the selected model.",
       "selectedPreset": "Named presets are read-only here; edit them in config.json.",
@@ -440,7 +447,17 @@
       "goalStateCloseAria": "Close goal",
       "send": "Send message",
       "stop": "Stop response",
-      "attachImage": "Attach image",
+      "attachImage": "Attach file",
+      "attachTooltipLimit": "Up to {{max}} attachments per upload",
+      "attachTooltipImages": "Images: PNG / JPEG / WebP / GIF",
+      "attachTooltipDocs": "Documents: PDF / Word / Excel / PPT / TXT / MD / CSV / JSON / XML / HTML / YAML, etc.",
+      "contextChip": {
+        "full": "{{count}} · {{ctx}} ctx",
+        "countOnly": "{{count}} msg",
+        "tooltipUsage": "Context: {{prompt}} prompt / {{completion}} completion / {{total}} total tokens ({{cached}} cached) · Window {{ctx}} · {{pct}}% used",
+        "tooltipCtxOnly": "{{count}} messages in context · {{tokens}} token context window",
+        "tooltipCount": "{{count}} messages in context"
+      },
       "tools": {
         "search": "Search",
         "reason": "Reason",

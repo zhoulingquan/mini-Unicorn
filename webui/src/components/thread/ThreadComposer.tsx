@@ -17,6 +17,7 @@ import {
   ChevronDown,
   ChevronUp,
   CircleHelp,
+  FileText,
   History,
   ImageIcon,
   Loader2,
@@ -51,12 +52,20 @@ import {
   useAttachedImages,
   type AttachedImage,
   type AttachmentError,
+  DOCUMENT_EXTENSIONS,
   MAX_IMAGES_PER_MESSAGE,
 } from "@/hooks/useAttachedImages";
 import { useClipboardAndDrop } from "@/hooks/useClipboardAndDrop";
 import type { SendImage, SendOptions } from "@/hooks/useMiniUnicornStream";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type {
   AgentInfo,
+  ContextUsagePayload,
   GoalStateWsPayload,
   SlashCommand,
   WorkspaceScopePayload,
@@ -65,9 +74,19 @@ import type {
 import { inferProviderFromModelName, providerBrand } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
 
-/** ``<input accept>``: aligned with the server's MIME whitelist. SVG is
- * deliberately excluded to avoid an embedded-script XSS surface. */
-const ACCEPT_ATTR = "image/png,image/jpeg,image/webp,image/gif";
+/** ``<input accept>``:与后端 MIME 白名单对齐。图片走 image worker,
+ * 文档走直接 base64 路径。SVG 被刻意排除以避免嵌入式脚本的 XSS 风险。 */
+const ACCEPT_ATTR =
+  "image/png,image/jpeg,image/webp,image/gif," +
+  "application/pdf," +
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document," +
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet," +
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation," +
+  "text/plain,text/markdown,text/csv," +
+  "application/json,application/xml,text/xml,text/html," +
+  "application/x-yaml,text/yaml," +
+  "application/octet-stream," +
+  DOCUMENT_EXTENSIONS;
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -104,6 +123,12 @@ interface ThreadComposerProps {
   onSelectAgent?: (agentId: string) => void;
   /** Called when the user clears the active subagent selection. */
   onClearAgent?: () => void;
+  /** 当前会话消息条数(含 user/assistant,不含 trace 行)。 */
+  messageCount?: number;
+  /** 当前模型预设的上下文窗口大小(tokens),用于显示上下文预算。 */
+  contextWindowTokens?: number | null;
+  /** 最近一轮对话最后一次 LLM 调用的 token usage(从 turn_end 推送)。 */
+  contextUsage?: ContextUsagePayload | null;
 }
 
 const COMMAND_ICONS: Record<string, LucideIcon> = {
@@ -440,6 +465,9 @@ export function ThreadComposer({
   selectedAgentId = null,
   onSelectAgent,
   onClearAgent,
+  messageCount = 0,
+  contextWindowTokens = null,
+  contextUsage = null,
 }: ThreadComposerProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
@@ -994,22 +1022,56 @@ export function ThreadComposer({
               hidden
               onChange={onFilePick}
             />
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              disabled={attachButtonDisabled}
-              aria-label={t("thread.composer.attachImage")}
-              onClick={() => fileInputRef.current?.click()}
-              className={cn(
-                "rounded-full text-muted-foreground hover:text-foreground",
-                isHero
-                  ? "h-8 w-8 border border-border/55 bg-card shadow-[0_2px_8px_rgba(15,23,42,0.05)] hover:bg-card"
-                  : "h-9 w-9 border border-border/55 bg-card shadow-[0_2px_8px_rgba(15,23,42,0.05)] hover:bg-card",
-              )}
-            >
-              <Plus className={cn(isHero ? "h-[18px] w-[18px]" : "h-4 w-4")} />
-            </Button>
+            <TooltipProvider delayDuration={200} skipDelayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    disabled={attachButtonDisabled}
+                    aria-label={t("thread.composer.attachImage")}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={cn(
+                      "rounded-full text-muted-foreground hover:text-foreground",
+                      isHero
+                        ? "h-8 w-8 border border-border/55 bg-card shadow-[0_2px_8px_rgba(15,23,42,0.05)] hover:bg-card"
+                        : "h-9 w-9 border border-border/55 bg-card shadow-[0_2px_8px_rgba(15,23,42,0.05)] hover:bg-card",
+                    )}
+                  >
+                    <Plus className={cn(isHero ? "h-[18px] w-[18px]" : "h-4 w-4")} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="top"
+                  align="center"
+                  sideOffset={8}
+                  collisionPadding={12}
+                  className={cn(
+                    "max-w-[min(22rem,calc(100vw-2rem))] rounded-[10px]",
+                    "border-border/60 bg-popover/95 px-2.5 py-1.5",
+                    "text-[11.5px] leading-snug text-popover-foreground",
+                    "shadow-md backdrop-blur",
+                  )}
+                >
+                  <ul className="flex flex-col gap-1">
+                    {[
+                      t("thread.composer.attachTooltipLimit", { max: MAX_IMAGES_PER_MESSAGE }),
+                      t("thread.composer.attachTooltipImages"),
+                      t("thread.composer.attachTooltipDocs"),
+                    ].map((line) => (
+                      <li key={line} className="flex items-start gap-1.5">
+                        <span
+                          className="mt-[0.45em] h-1 w-1 shrink-0 rounded-full bg-current opacity-50"
+                          aria-hidden
+                        />
+                        <span className="min-w-0 break-words">{line}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             {showAgentSelector ? (
               <AgentSelectorButton
                 agents={agents}
@@ -1041,6 +1103,13 @@ export function ThreadComposer({
                 isHero={isHero}
               />
             ) : null}
+            <ContextChip
+              messageCount={messageCount}
+              contextWindowTokens={contextWindowTokens}
+              contextUsage={contextUsage}
+              isHero={isHero}
+              hasInput={value.trim().length > 0}
+            />
             <Button
               type={showStopButton ? "button" : "submit"}
               size="icon"
@@ -1145,6 +1214,131 @@ function ComposerModelBadge({
         )}
       </span>
       <span className="truncate">{label}</span>
+    </span>
+  );
+}
+
+interface ContextChipProps {
+  messageCount: number;
+  contextWindowTokens?: number | null;
+  contextUsage?: ContextUsagePayload | null;
+  isHero: boolean;
+  hasInput?: boolean;
+}
+
+/** 上下文使用率对应的颜色档位。整体采用中性灰色,与 UI 主色调一致。 */
+function contextTone(ratio: number): {
+  bar: string;
+  text: string;
+  track: string;
+} {
+  if (ratio >= 0.85) {
+    return {
+      bar: "bg-red-500 dark:bg-red-400",
+      text: "text-red-600 dark:text-red-400",
+      track: "bg-red-500/15",
+    };
+  }
+  if (ratio >= 0.6) {
+    return {
+      bar: "bg-amber-500 dark:bg-amber-400",
+      text: "text-amber-600 dark:text-amber-400",
+      track: "bg-amber-500/15",
+    };
+  }
+  return {
+    bar: "bg-foreground/55 dark:bg-foreground/55",
+    text: "text-foreground/70 dark:text-foreground/70",
+    track: "bg-foreground/10",
+  };
+}
+
+function ContextChip({
+  messageCount,
+  contextWindowTokens,
+  contextUsage,
+  isHero,
+  hasInput = false,
+}: ContextChipProps) {
+  const { t } = useTranslation();
+  // 确保 contextWindow 总有值,让进度条始终显示。settings 未加载时用 64K 默认值。
+  const DEFAULT_CONTEXT_WINDOW = 65536;
+  const effectiveContextWindow = typeof contextWindowTokens === "number" && contextWindowTokens > 0
+    ? contextWindowTokens
+    : DEFAULT_CONTEXT_WINDOW;
+
+  // prompt_tokens 近似当前上下文窗口的占用(最后一次 LLM 调用发送的全部历史)。
+  const realUsedTokens = contextUsage?.prompt_tokens ?? 0;
+  const hasRealUsage = realUsedTokens > 0;
+  // 没有真实 usage 时,基于消息条数粗略估算(每条约 800 tokens)。
+  const EST_TOKENS_PER_MSG = 800;
+  const usedTokens = hasRealUsage
+    ? realUsedTokens
+    : messageCount * EST_TOKENS_PER_MSG;
+
+  const ratio = Math.min(1, usedTokens / effectiveContextWindow);
+  const tone = contextTone(ratio);
+  const pct = Math.round(ratio * 100);
+  const isActive = messageCount > 0 || hasRealUsage;
+
+  // 主页(hero)且未输入文字且无消息时:只显示上下文窗口大小的数字,不显示进度条。
+  // 其他情况(已输入文字、已有消息、流式响应中):显示进度条 + 百分比。
+  const showProgressBar = !isHero || hasInput || isActive;
+
+  // 悬停 tooltip。
+  const tooltip = hasRealUsage
+    ? t("thread.composer.contextChip.tooltipUsage", {
+        prompt: realUsedTokens.toLocaleString(),
+        completion: (contextUsage?.completion_tokens ?? 0).toLocaleString(),
+        total: (contextUsage?.total_tokens ?? 0).toLocaleString(),
+        cached: (contextUsage?.cached_tokens ?? 0).toLocaleString(),
+        ctx: effectiveContextWindow.toLocaleString(),
+        pct,
+      })
+    : t("thread.composer.contextChip.tooltipCtxOnly", {
+        count: messageCount,
+        tokens: effectiveContextWindow.toLocaleString(),
+      });
+
+  const barWidth = isHero ? 56 : 48;
+
+  return (
+    <span
+      title={tooltip}
+      aria-label={tooltip}
+      className={cn(
+        "inline-flex min-w-0 items-center gap-1.5 rounded-full border font-medium",
+        "transition-colors",
+        isHero ? "h-8 px-2 text-[11px]" : "h-9 px-2.5 text-[11.5px]",
+        isActive
+          ? "border-border/55 bg-card text-foreground/80"
+          : "border-border/40 bg-card/60 text-muted-foreground/65",
+      )}
+    >
+      {showProgressBar ? (
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className={cn(
+              "relative h-1.5 shrink-0 overflow-hidden rounded-full",
+              tone.track,
+            )}
+            style={{ width: `${barWidth}px` }}
+            aria-hidden
+          >
+            <span
+              className={cn("absolute inset-y-0 left-0 rounded-full transition-all", tone.bar)}
+              style={{ width: `${Math.max(3, pct)}%` }}
+            />
+          </span>
+          <span className={cn("shrink-0 tabular-nums", tone.text)}>
+            {pct}%
+          </span>
+        </span>
+      ) : (
+        <span className="shrink-0 tabular-nums text-foreground/55">
+          {(effectiveContextWindow / 1024).toFixed(0)}K
+        </span>
+      )}
     </span>
   );
 }
@@ -1306,7 +1500,11 @@ function AttachmentChip({
       data-testid="composer-chip"
     >
       <div className="relative h-10 w-10 overflow-hidden rounded-md bg-background">
-        {image.previewUrl ? (
+        {image.isDocument ? (
+          <div className="flex h-full w-full items-center justify-center">
+            <FileText className="h-5 w-5 text-muted-foreground" aria-hidden />
+          </div>
+        ) : image.previewUrl ? (
           <img
             src={image.previewUrl}
             alt=""

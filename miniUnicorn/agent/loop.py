@@ -243,14 +243,18 @@ class AgentLoop:
             if context_window_tokens is not None
             else defaults.context_window_tokens
         )
-        # Auto-detect from built-in model metadata table when still unset
-        # (Trae-style: built-in metadata + 65_536 fallback). Resolved here so
-        # downstream code (consolidator, _replay_token_budget, memory) always
-        # sees a concrete int.
+        # Auto-detect context window when still unset. Resolution chain:
+        # permanent learning table → Hugging Face API → fail-loud.
+        # ``raise_on_unknown=True`` enforces the user's preference: when the
+        # model is not in the learning table AND HF lookup fails, surface a
+        # clear error instead of silently defaulting to 65_536. Use the
+        # ``MINIUNICORN_NO_AUTO_LOOKUP`` env var to opt out (returns default).
         if self.context_window_tokens is None:
             from miniUnicorn.cli.models import get_model_context_limit
 
-            self.context_window_tokens = get_model_context_limit(self.model)
+            self.context_window_tokens = get_model_context_limit(
+                self.model, raise_on_unknown=True
+            )
         self.context_block_limit = context_block_limit
         self.max_tool_result_chars = (
             max_tool_result_chars
@@ -283,6 +287,7 @@ class AgentLoop:
         )
         self._start_time = time.time()
         self._last_usage: dict[str, int] = {}
+        self._last_call_usage: dict[str, int] = {}
         self._pending_turn_latency_ms: dict[str, int] = {}
         self._extra_hooks: list[AgentHook] = hooks or []
 
@@ -454,11 +459,14 @@ class AgentLoop:
         provider = snapshot.provider
         model = snapshot.model
         context_window_tokens = snapshot.context_window_tokens
-        # Auto-detect when snapshot didn't carry a concrete value (Trae-style).
+        # Auto-detect when snapshot didn't carry a concrete value.
+        # Resolution: built-in table → cache → Hugging Face API → fail-loud.
         if context_window_tokens is None:
             from miniUnicorn.cli.models import get_model_context_limit
 
-            context_window_tokens = get_model_context_limit(model)
+            context_window_tokens = get_model_context_limit(
+                model, raise_on_unknown=True
+            )
         old_model = self.model
         self.provider = provider
         self.model = model
@@ -941,6 +949,7 @@ class AgentLoop:
             reset_request_context(request_token)
             reset_file_states(file_state_token)
         self._last_usage = result.usage
+        self._last_call_usage = result.last_call_usage
         if result.stop_reason == "max_iterations":
             logger.warning("Max iterations ({}) reached", self.max_iterations)
             # Push final content through stream so streaming channels (e.g. Feishu)
@@ -1094,6 +1103,7 @@ class AgentLoop:
                             msg,
                             session_key=session_key,
                             latency_ms=turn_lat,
+                            context_usage=self._last_call_usage,
                         )
                 except asyncio.CancelledError:
                     logger.info("Task cancelled for session {}", session_key)

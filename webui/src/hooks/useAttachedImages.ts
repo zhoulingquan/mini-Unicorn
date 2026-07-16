@@ -25,6 +25,8 @@ export interface AttachedImage {
   normalized?: boolean;
   /** Human-readable validation / encoding error when ``status === "error"``. */
   error?: AttachmentError;
+  /** 是否为文档类型(非图片)。文档走直接 base64 路径,不经过 image worker。 */
+  isDocument?: boolean;
 }
 
 /** Machine-readable rejection reasons surfaced as inline chip errors.
@@ -40,13 +42,56 @@ export type AttachmentError =
 
 export const MAX_IMAGES_PER_MESSAGE = 4;
 
-/** MIME whitelist — mirrors the server's and the ``<input accept>`` attr. */
-const ACCEPTED_MIMES: ReadonlySet<string> = new Set([
+/** 文档 MIME 白名单 — 与后端 `utils/document.py` 的 `SUPPORTED_EXTENSIONS` 对齐。
+ * 这些文件不经过 image worker 的 magic-byte 检测,直接 base64 编码上传,
+ * 后端 `extract_documents()` 会自动提取文本注入对话。 */
+const DOCUMENT_MIMES: ReadonlySet<string> = new Set([
+  // Office 文档
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation", // .pptx
+  // 纯文本类(浏览器对未知后缀通常返回 application/octet-stream,这里也放行)
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "application/json",
+  "application/xml",
+  "text/xml",
+  "text/html",
+  "application/x-yaml",
+  "text/yaml",
+  // 通用二进制(依赖后端按扩展名解析)
+  "application/octet-stream",
+]);
+
+/** 图片 MIME 白名单 — 走 image worker 路径(magic-byte 校验 + 归一化)。 */
+const IMAGE_MIMES: ReadonlySet<string> = new Set([
   "image/png",
   "image/jpeg",
   "image/webp",
   "image/gif",
 ]);
+
+/** 全部接受的 MIME 白名单 — 镜像后端 `_UPLOAD_MIME_ALLOWED`。 */
+const ACCEPTED_MIMES: ReadonlySet<string> = new Set([
+  ...IMAGE_MIMES,
+  ...DOCUMENT_MIMES,
+]);
+
+/** 文档 MIME 对应的展示用扩展名(用于 chip 图标和 tooltip)。 */
+export const DOCUMENT_EXTENSIONS: string =
+  ".pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.xml,.html,.htm,.log,.yaml,.yml,.toml,.ini,.cfg";
+
+/** 判断 MIME 是否为文档类型(非图片)。 */
+export function isDocumentMime(mime: string): boolean {
+  return DOCUMENT_MIMES.has(mime);
+}
+
+/** 判断 MIME 是否为图片类型。 */
+export function isImageMime(mime: string): boolean {
+  return IMAGE_MIMES.has(mime);
+}
 
 function uuid(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -67,6 +112,41 @@ function mapEncodeFailure(reason: EncodeFailure["reason"]): AttachmentError {
     case "decode_failed":
     default:
       return "decode_failed";
+  }
+}
+
+/** 文档文件的大小上限(50MB,与后端 `_MAX_EXTRACT_FILE_SIZE` 对齐)。 */
+const MAX_DOCUMENT_BYTES = 50 * 1024 * 1024;
+
+/** 将文档文件直接 base64 编码为 data URL,不经过 image worker。
+ *
+ * 文档文件没有 magic bytes 可供图片 worker 校验,且无需归一化,
+ * 直接读取 + base64 编码即可。后端会按扩展名调用对应的解析器。 */
+async function encodeDocument(file: File): Promise<
+  | { ok: true; dataUrl: string; bytes: number }
+  | { ok: false; reason: AttachmentError }
+> {
+  if (file.size > MAX_DOCUMENT_BYTES) {
+    return { ok: false, reason: "too_large" };
+  }
+  try {
+    const buffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    // 分块 base64 编码,避免大文件导致 btoa 栈溢出
+    const CHUNK = 0x8000;
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode.apply(
+        null,
+        bytes.subarray(i, i + CHUNK) as unknown as number[],
+      );
+    }
+    const base64 = btoa(binary);
+    const mime = file.type || "application/octet-stream";
+    const dataUrl = `data:${mime};base64,${base64}`;
+    return { ok: true, dataUrl, bytes: buffer.byteLength };
+  } catch {
+    return { ok: false, reason: "io" };
   }
 }
 
@@ -135,6 +215,7 @@ export function useAttachedImages(): UseAttachedImagesApi {
           file,
           previewUrl: URL.createObjectURL(file),
           status: "encoding",
+          isDocument: isDocumentMime(file.type),
         });
       }
 
@@ -145,6 +226,34 @@ export function useAttachedImages(): UseAttachedImagesApi {
         // Fire the Worker after the commit so chips render first (good INP).
         for (const entry of toAdd) {
           queueMicrotask(() => {
+            // 文档文件走直接 base64 编码,绕过 image worker 的 magic-byte 检测
+            if (entry.isDocument) {
+              encodeDocument(entry.file).then(
+                (result) => {
+                  if (result.ok) {
+                    setEntry(entry.id, {
+                      status: "ready",
+                      dataUrl: result.dataUrl,
+                      encodedBytes: result.bytes,
+                      normalized: false,
+                    });
+                  } else {
+                    setEntry(entry.id, {
+                      status: "error",
+                      error: result.reason,
+                    });
+                  }
+                },
+                () => {
+                  setEntry(entry.id, {
+                    status: "error",
+                    error: "decode_failed",
+                  });
+                },
+              );
+              return;
+            }
+            // 图片文件走 image worker(magic-byte 校验 + 归一化)
             encodeImage(entry.file).then(
               (result) => {
                 if (result.ok) {

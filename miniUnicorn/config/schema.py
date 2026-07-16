@@ -118,14 +118,17 @@ class AgentDefaults(Base):
 
     workspace: str = "~/.miniUnicorn/workspace"
     model_preset: str | None = None  # Active preset name — takes precedence over fields below
-    model: str = "deepseek/deepseek-chat"
+    # Empty by default — the user must configure a real model before first
+    # use. Previous default "deepseek/deepseek-chat" was only a placeholder
+    # and caused HF lookups to match the wrong open-source repo.
+    model: str = ""
     provider: str = (
         "auto"  # Provider name (e.g. "anthropic", "openrouter") or "auto" for auto-detection
     )
     max_tokens: int = 8192
-    # None means auto-detect from the built-in model metadata table
+    # None means auto-detect via Hugging Face search
     # (see cli.models.get_model_context_limit). Falls back to 65_536 when
-    # the model is not in the table. Set an explicit int to override.
+    # the model is not found on HF. Set an explicit int to override.
     context_window_tokens: int | None = None
     context_block_limit: int | None = None
     temperature: float = 0.1

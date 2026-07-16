@@ -101,7 +101,12 @@
       "newConfigurationHelp": "把服务商和模型保存为一个可直接切换的选项。",
       "configurationName": "名称",
       "configurationNameHelp": "重命名这个已保存的模型配置。",
-      "configurationNamePlaceholder": "快速写作"
+      "configurationNamePlaceholder": "快速写作",
+      "contextWindowConfigured": "已配置",
+      "contextWindowLearned": "已学习",
+      "contextWindowFailed": "查询失败,需手动设置",
+      "contextWindowUnknown": "保存后自动查询",
+      "contextWindowValue": "{{count}} tokens"
     },
     "rows": {
       "theme": "主题",
@@ -115,6 +120,7 @@
       "restartState": "重启状态",
       "pendingChanges": "待处理更改",
       "currentModel": "当前模型",
+      "contextWindow": "上下文窗口",
       "selectedPreset": "选中的预设",
       "presetModel": "预设模型",
       "density": "密度",
@@ -141,6 +147,7 @@
       "model": "设置 MiniUnicorn 默认使用的模型名称。",
       "configPath": "当前网关正在使用的配置文件。",
       "currentModel": "选择 MiniUnicorn 接下来回复时使用的模型。",
+      "contextWindow": "保存模型时自动从 HuggingFace 查询上下文窗口大小并永久记录。未配置时显示已学习的结果;已配置时显示配置值。闭源模型查不到时需手动设置。",
       "selectedModelProvider": "由当前模型决定。",
       "selectedModelValue": "由当前模型决定。",
       "selectedPreset": "命名预设在这里只读；需要编辑时请改 config.json。",
@@ -445,7 +452,17 @@
       "goalStateSheetTitle": "目标",
       "send": "发送消息",
       "stop": "停止响应",
-      "attachImage": "添加图片",
+      "attachImage": "添加附件",
+      "attachTooltipLimit": "单次上传最多 {{max}} 个附件",
+      "attachTooltipImages": "图片：PNG / JPEG / WebP / GIF",
+      "attachTooltipDocs": "文档：PDF / Word / Excel / PPT / TXT / MD / CSV / JSON / XML / HTML / YAML 等",
+      "contextChip": {
+        "full": "{{count}} · {{ctx}} 上下文",
+        "countOnly": "{{count}} 条",
+        "tooltipUsage": "上下文:{{prompt}} prompt / {{completion}} completion / {{total}} total tokens({{cached}} cached)· 窗口 {{ctx}} · 已用 {{pct}}%",
+        "tooltipCtxOnly": "上下文内 {{count}} 条消息 · 上下文窗口 {{tokens}} tokens",
+        "tooltipCount": "上下文内 {{count}} 条消息"
+      },
       "tools": {
         "search": "搜索",
         "reason": "推理",
