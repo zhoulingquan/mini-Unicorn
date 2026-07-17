@@ -2590,8 +2590,11 @@ function ContextWindowBadge({
   }, [value]);
 
   const numValue = parseInt(inputValue, 10);
-  const isValid = Number.isFinite(numValue) && numValue > 0;
-  const inputChanged = inputValue !== "" && numValue !== value;
+  const isEmpty = inputValue.trim() === "";
+  const isValid = !isEmpty && Number.isFinite(numValue) && numValue > 0;
+  // 输入与当前值不一致即视为已修改(清空也算,即用户想取消已学习值)
+  const initialInputValue = value ? String(value) : "";
+  const inputChanged = inputValue !== initialInputValue;
 
   // 按钮文本:已学习且未修改 → "已学习";否则 → "保存"
   const buttonLabel = saving
