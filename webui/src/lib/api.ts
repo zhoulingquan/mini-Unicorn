@@ -1,6 +1,7 @@
 import type {
   AgentDetail,
   AgentsPayload,
+  ChannelsPayload,
   ChatSummary,
   CliAppsPayload,
   CronJobCreate,
@@ -751,5 +752,40 @@ export async function deleteTool(
   const query = new URLSearchParams();
   query.set("name", name);
   return request(`${base}/api/tools/delete?${query}`, token);
+}
+
+export async function fetchChannels(
+  token: string,
+  base: string = "",
+): Promise<ChannelsPayload> {
+  return request<ChannelsPayload>(`${base}/api/channels`, token);
+}
+
+export async function updateChannelConfig(
+  token: string,
+  name: string,
+  config: Record<string, unknown> | null,
+  enabled?: boolean,
+  base: string = "",
+): Promise<{ ok: boolean; name: string; enabled: boolean; config: Record<string, unknown> | null }> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  if (config !== null) {
+    query.set("config", JSON.stringify(config));
+  }
+  if (enabled !== undefined) {
+    query.set("enabled", enabled ? "true" : "false");
+  }
+  return request(`${base}/api/channels/update?${query}`, token);
+}
+
+export async function deleteChannelConfig(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<{ ok: boolean; name: string }> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  return request(`${base}/api/channels/delete?${query}`, token);
 }
 

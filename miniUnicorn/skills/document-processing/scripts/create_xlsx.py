@@ -30,7 +30,7 @@ def create_xlsx(
     """创建 .xlsx 文档。"""
     try:
         from openpyxl import Workbook
-        from openpyxl.styles import Font, Alignment, PatternFill
+        from openpyxl.styles import Alignment, Font, PatternFill
     except ImportError:
         print("错误:需要 openpyxl 库。安装:pip install openpyxl", file=sys.stderr)
         sys.exit(1)

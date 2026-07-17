@@ -14,40 +14,6 @@ def test_resolve_preset_returns_defaults_when_no_preset() -> None:
     assert resolved.reasoning_effort == config.agents.defaults.reasoning_effort
 
 
-def test_provider_api_type_accepts_exact_values_only() -> None:
-    config = Config.model_validate({
-        "providers": {
-            "openai": {
-                "apiKey": "sk-test",
-                "apiType": "responses",
-            }
-        }
-    })
-    assert config.providers.openai.api_type == "responses"
-
-    with pytest.raises(ValueError):
-        Config.model_validate({
-            "providers": {
-                "openai": {
-                    "apiKey": "sk-test",
-                    "apiType": "response",
-                }
-            }
-        })
-
-
-def test_provider_api_type_is_openai_only() -> None:
-    with pytest.raises(ValueError, match="only supported"):
-        Config.model_validate({
-            "providers": {
-                "custom": {
-                    "apiBase": "https://example.test/v1",
-                    "apiType": "responses",
-                }
-            }
-        })
-
-
 def test_legacy_defaults_config_without_presets_still_resolves() -> None:
     config = Config.model_validate({
         "agents": {
@@ -191,12 +157,12 @@ def test_resolve_preset_rejects_unknown_named_preset() -> None:
 def test_match_provider_uses_preset_model() -> None:
     config = Config.model_validate({
         "providers": {
-            "openai": {"apiKey": "sk-test"},
+            "custom": {"apiKey": "sk-test"},
         },
         "model_presets": {
             "fast": {
-                "model": "openai/gpt-4.1",
-                "provider": "openai",
+                "model": "deepseek/deepseek-chat",
+                "provider": "custom",
             }
         },
         "agents": {
@@ -206,42 +172,4 @@ def test_match_provider_uses_preset_model() -> None:
         },
     })
     name = config.get_provider_name()
-    assert name == "openai"
-
-
-def test_match_provider_uses_preset_provider_when_forced() -> None:
-    config = Config.model_validate({
-        "providers": {
-            "anthropic": {"apiKey": "sk-test"},
-        },
-        "model_presets": {
-            "fast": {
-                "model": "anthropic/claude-opus-4-5",
-                "provider": "anthropic",
-            }
-        },
-        "agents": {
-            "defaults": {
-                "modelPreset": "fast",
-            }
-        },
-    })
-    name = config.get_provider_name()
-    assert name == "anthropic"
-
-
-def test_match_provider_routes_forced_novita_model_api_models() -> None:
-    config = Config.model_validate({
-        "providers": {
-            "novita": {"apiKey": "sk-test"},
-        },
-        "agents": {
-            "defaults": {
-                "model": "deepseek-v4-pro",
-                "provider": "novita",
-            }
-        },
-    })
-
-    assert config.get_provider_name() == "novita"
-    assert config.get_api_base() == "https://api.novita.ai/openai"
+    assert name == "custom"

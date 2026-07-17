@@ -172,10 +172,38 @@ export function ThreadShell({
   const [heroGreetingKey, setHeroGreetingKey] = useState(randomHeroGreetingKey);
   const [scrollToBottomSignal, setScrollToBottomSignal] = useState(0);
   const pendingFirstRef = useRef<PendingFirstMessage | null>(null);
+
+  // ---------------------------------------------------------------------------
+  // Thread message cache — 6 refs that cooperate to keep per-chat in-memory
+  // thread state alive across session switches.
+  //
+  // DATA FOW
+  //   messageCacheRef  ─►  `initial` (useMemo)  ─►  useMiniUnicornStream
+  //        ▲                                              │
+  //        │                                              ▼
+  //   sync effects ◄── setMessages / messages ────────────┘
+  //
+  // Because `useMiniUnicornStream` consumes `initial` (which reads
+  // `messageCacheRef`) **and** produces `setMessages` / `messages` that the
+  // cache-sync effects write back, these refs cannot be cleanly extracted into
+  // a standalone hook without creating a circular dependency. They are kept
+  // inline and documented below.
+  //
+  // REF INVENTORY
+  //   messageCacheRef            chatId → projected UIMessage[] (live thread)
+  //   prevChatIdForCacheRef      last chatId rendered; drives cache-on-switch
+  //   skipLayoutCacheRef         suppress one cache write after a chat switch
+  //                              (the first paint still sees the old chat's
+  //                              messages from useMiniUnicornStream's reset)
+  //   appliedHistoryVersionRef   chatId → last historyVersion merged into the
+  //                              live thread (prevents re-applying stale snaps)
+  //   pendingCanonicalHydrateRef chatIds awaiting a fresh canonical replay
+  //                              (set on `session_updated`, cleared once the
+  //                              new history has been merged)
+  //   sessionKeyByChatIdRef      chatId → sessionKey mapping for telemetry
+  // ---------------------------------------------------------------------------
   const messageCacheRef = useRef<Map<string, UIMessage[]>>(new Map());
-  /** Last chatId we associated with the in-memory thread (for cache-on-switch). */
   const prevChatIdForCacheRef = useRef<string | null>(null);
-  /** Skip one message-cache write right after chatId changes (messages may not match yet). */
   const skipLayoutCacheRef = useRef(false);
   const appliedHistoryVersionRef = useRef<Map<string, number>>(new Map());
   const pendingCanonicalHydrateRef = useRef<Set<string>>(new Set());
@@ -264,6 +292,9 @@ export function ThreadShell({
     });
   }, [client, refreshModelSettings]);
 
+  // Canonical history hydration — merges fetched history into the live thread.
+  // Reads: messageCacheRef, appliedHistoryVersionRef, pendingCanonicalHydrateRef.
+  // Writes: messageCacheRef, appliedHistoryVersionRef, pendingCanonicalHydrateRef.
   useEffect(() => {
     if (!chatId || loading) return;
     const cached = messageCacheRef.current.get(chatId);
@@ -299,9 +330,11 @@ export function ThreadShell({
       if (normalizedHistory.length > 0) messageCacheRef.current.set(chatId, normalizedHistory);
       return normalizedHistory;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, chatId, historical, historyVersion]);
+  }, [loading, chatId, historical, historyVersion, setMessages]);
 
+  // Marks a chat as pending canonical hydration when the backend signals a
+  // session update, then triggers a history refresh.
+  // Writes: pendingCanonicalHydrateRef.
   useEffect(() => {
     if (!chatId) return;
     return client.onSessionUpdate((updatedChatId, scope) => {
@@ -322,6 +355,10 @@ export function ThreadShell({
     setMessages(projectWebuiThreadMessages(historical));
   }, [chatId, historical, setMessages]);
 
+  // Cache-on-switch — runs synchronously before paint to snapshot the outgoing
+  // chat's messages into messageCacheRef and arm skipLayoutCacheRef so the
+  // post-paint persist effect doesn't overwrite it with stale data.
+  // Reads: prevChatIdForCacheRef. Writes: messageCacheRef, skipLayoutCacheRef, prevChatIdForCacheRef.
   useLayoutEffect(() => {
     if (chatId) {
       const prev = prevChatIdForCacheRef.current;
@@ -461,6 +498,7 @@ export function ThreadShell({
           messageCount={conversationMessageCount}
           contextWindowTokens={contextWindowTokens}
           contextUsage={contextUsage}
+          conversationKey={historyKey}
         />
       ) : (
         <ThreadComposer

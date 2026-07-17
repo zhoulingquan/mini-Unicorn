@@ -6,10 +6,18 @@ settings payload shape and the allowlisted config mutations exposed to WebUI.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any, Literal
 
-from miniUnicorn.config.loader import get_config_path, load_config, save_config
+from loguru import logger
+
+from miniUnicorn.config.loader import (
+    DEFAULT_CONTEXT_WINDOW,
+    get_config_path,
+    load_config,
+    save_config,
+)
 from miniUnicorn.config.schema import ModelPresetConfig
 from miniUnicorn.providers.registry import PROVIDERS, find_by_name
 from miniUnicorn.security.workspace_access import workspace_sandbox_status
@@ -218,7 +226,7 @@ def _resolve_context_window_for_settings(
     if isinstance(configured, int) and configured > 0:
         return {"limit": configured, "status": "configured", "error": None}
     if not model:
-        return {"limit": 65_536, "status": "default", "error": None}
+        return {"limit": DEFAULT_CONTEXT_WINDOW, "status": "default", "error": None}
     try:
         from miniUnicorn.cli.models import _load_learned_entry, _normalize_model_name
 
@@ -236,44 +244,81 @@ def _resolve_context_window_for_settings(
     # Not yet learned — surface the last failure reason if any.
     error = entry.get("error") if isinstance(entry, dict) else None
     return {
-        "limit": 65_536,
+        "limit": DEFAULT_CONTEXT_WINDOW,
         "status": "unknown",
         "error": error or "尚未查询,保存模型后将自动从 HuggingFace 查询",
     }
 
 
-def _trigger_model_learning(model: str) -> dict[str, Any]:
-    """Actively query Hugging Face for *model*'s context window.
+async def _run_model_learning_async(model: str) -> None:
+    """Run the blocking HF context-window query in a worker thread.
 
-    Called by create/update model configuration handlers when a model is
-    saved or changed. Persists the result (success or failure) to the
-    learning table so subsequent page loads can display the status without
-    re-querying HF.
+    Persists success/failure to the learning table so the next
+    ``settings_payload`` read surfaces the result without re-querying.
+    """
+    try:
+        from miniUnicorn.cli.models import learn_model_context_limit
+
+        result = await asyncio.to_thread(learn_model_context_limit, model)
+    except Exception as exc:
+        logger.warning("Background HF learning failed for '{}': {}", model, exc)
+        _persist_learning_failure(model, str(exc))
+        return
+
+    if result.get("status") == "ok" and isinstance(result.get("limit"), int):
+        return  # Success — already persisted by learn_model_context_limit.
+    error = result.get("error") or "未知错误"
+    _persist_learning_failure(model, error)
+
+
+def _persist_learning_failure(model: str, error: str) -> None:
+    """Persist a learning failure, logging instead of silently swallowing."""
+    try:
+        from miniUnicorn.cli.models import _save_learned_failure
+
+        _save_learned_failure(model, error)
+    except Exception as exc:
+        logger.warning(
+            "Failed to persist model learning failure for '{}': {}", model, exc
+        )
+
+
+def _trigger_model_learning(model: str) -> None:
+    """Schedule Hugging Face context-window learning as a background task.
+
+    Previously this blocked the settings save response on a synchronous HF
+    query.  Now the query runs in a background task (via
+    :func:`asyncio.create_task`) so the HTTP response returns immediately;
+    the learned result is persisted to the learning table and surfaced on
+    the next settings payload read.
+
+    Falls back to an inline run when no event loop is running (e.g. CLI or
+    test context) so learning still works outside the WebUI.
     """
     if not model:
-        return {"limit": 65_536, "status": "default", "error": None}
+        return
+    try:
+        asyncio.create_task(_run_model_learning_async(model))
+    except RuntimeError:
+        # No running event loop — run synchronously as a fallback.
+        _run_model_learning_sync(model)
+
+
+def _run_model_learning_sync(model: str) -> None:
+    """Synchronous fallback for non-async contexts (CLI/tests)."""
     try:
         from miniUnicorn.cli.models import learn_model_context_limit
 
         result = learn_model_context_limit(model)
     except Exception as exc:
-        return {"limit": 65_536, "status": "failed", "error": str(exc)}
+        logger.warning("HF learning failed for '{}': {}", model, exc)
+        _persist_learning_failure(model, str(exc))
+        return
 
     if result.get("status") == "ok" and isinstance(result.get("limit"), int):
-        return {
-            "limit": result["limit"],
-            "status": "learned",
-            "error": None,
-        }
+        return
     error = result.get("error") or "未知错误"
-    # Persist the failure reason so the settings page can show it.
-    try:
-        from miniUnicorn.cli.models import _save_learned_failure
-
-        _save_learned_failure(model, error)
-    except Exception:
-        pass
-    return {"limit": 65_536, "status": "failed", "error": error}
+    _persist_learning_failure(model, error)
 
 
 def _model_configuration_slug(label: str) -> str:
@@ -302,39 +347,24 @@ def _validate_configured_provider(config: Any, provider: str) -> None:
         raise WebUISettingsError("provider is not configured")
 
 
-def settings_payload(
-    *,
-    requires_restart: bool = False,
-    surface: str | None = "browser",
-    runtime_capability_overrides: dict[str, Any] | None = None,
-    restart_required_sections: list[str] | None = None,
-    apply_state: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    config = load_config()
-    defaults = config.agents.defaults
-    active_preset_name = defaults.model_preset or "default"
-    try:
-        effective_preset = config.resolve_preset()
-    except Exception:
-        effective_preset = config.resolve_default_preset()
-        active_preset_name = "default"
+def _ctx_fields(model: str, configured: int | None) -> dict[str, Any]:
+    """Build the resolved-context-window fields for a model row."""
+    info = _resolve_context_window_for_settings(model, configured)
+    return {
+        "resolved_context_window_tokens": info["limit"],
+        "resolved_context_window_status": info["status"],
+        "resolved_context_window_error": info["error"],
+    }
 
-    provider_name = (
-        config.get_provider_name(effective_preset.model, preset=effective_preset)
-        or effective_preset.provider
-    )
-    provider = config.get_provider(effective_preset.model, preset=effective_preset)
-    selected_provider = provider_name
-    if effective_preset.provider != "auto":
-        spec = find_by_name(effective_preset.provider)
-        selected_provider = spec.name if spec else provider_name
 
-    providers = []
+def _build_providers_section(config: Any) -> list[dict[str, Any]]:
+    """Build the ``providers`` array for the settings payload."""
+    providers: list[dict[str, Any]] = []
     for spec in PROVIDERS:
         provider_config = getattr(config.providers, spec.name, None)
         if provider_config is None:
             continue
-        row = {
+        providers.append({
             "name": spec.name,
             "label": spec.label,
             "configured": _provider_configured_for_settings(spec, provider_config),
@@ -343,24 +373,16 @@ def settings_payload(
             "api_key_hint": _mask_secret_hint(provider_config.api_key),
             "api_base": provider_config.api_base,
             "default_api_base": spec.default_api_base or None,
-        }
-        providers.append(row)
+        })
+    return providers
 
-    search_config = config.tools.web.search
-    search_provider = (
-        search_config.provider
-        if search_config.provider in _WEB_SEARCH_PROVIDER_BY_NAME
-        else "duckduckgo"
-    )
 
-    def _ctx_fields(model: str, configured: int | None) -> dict[str, Any]:
-        info = _resolve_context_window_for_settings(model, configured)
-        return {
-            "resolved_context_window_tokens": info["limit"],
-            "resolved_context_window_status": info["status"],
-            "resolved_context_window_error": info["error"],
-        }
-
+def _build_model_presets_section(
+    config: Any,
+    active_preset_name: str,
+    defaults: Any,
+) -> list[dict[str, Any]]:
+    """Build the ``model_presets`` array for the settings payload."""
     model_presets = [
         {
             "name": "default",
@@ -392,7 +414,55 @@ def settings_payload(
                 "reasoning_effort": preset.reasoning_effort,
             }
         )
+    return model_presets
 
+
+def _build_search_section(config: Any) -> dict[str, Any]:
+    """Build the ``web_search`` sub-payload for the settings payload."""
+    search_config = config.tools.web.search
+    search_provider = (
+        search_config.provider
+        if search_config.provider in _WEB_SEARCH_PROVIDER_BY_NAME
+        else "duckduckgo"
+    )
+    return {
+        "provider": search_provider,
+        "api_key_hint": _mask_secret_hint(search_config.api_key),
+        "base_url": search_config.base_url or None,
+        "max_results": search_config.max_results,
+        "timeout": search_config.timeout,
+        "providers": list(_WEB_SEARCH_PROVIDER_OPTIONS),
+    }
+
+
+def settings_payload(
+    *,
+    requires_restart: bool = False,
+    surface: str | None = "browser",
+    runtime_capability_overrides: dict[str, Any] | None = None,
+    restart_required_sections: list[str] | None = None,
+    apply_state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    config = load_config()
+    defaults = config.agents.defaults
+    active_preset_name = defaults.model_preset or "default"
+    try:
+        effective_preset = config.resolve_preset()
+    except Exception:
+        effective_preset = config.resolve_default_preset()
+        active_preset_name = "default"
+
+    provider_name = (
+        config.get_provider_name(effective_preset.model, preset=effective_preset)
+        or effective_preset.provider
+    )
+    provider = config.get_provider(effective_preset.model, preset=effective_preset)
+    selected_provider = provider_name
+    if effective_preset.provider != "auto":
+        spec = find_by_name(effective_preset.provider)
+        selected_provider = spec.name if spec else provider_name
+
+    search_config = config.tools.web.search
     exec_config = config.tools.exec
     sandbox_status = workspace_sandbox_status(
         restrict_to_workspace=config.tools.restrict_to_workspace,
@@ -412,16 +482,9 @@ def settings_payload(
             "reasoning_effort": effective_preset.reasoning_effort,
             "tool_hint_max_length": defaults.tool_hint_max_length,
         },
-        "model_presets": model_presets,
-        "providers": providers,
-        "web_search": {
-            "provider": search_provider,
-            "api_key_hint": _mask_secret_hint(search_config.api_key),
-            "base_url": search_config.base_url or None,
-            "max_results": search_config.max_results,
-            "timeout": search_config.timeout,
-            "providers": list(_WEB_SEARCH_PROVIDER_OPTIONS),
-        },
+        "model_presets": _build_model_presets_section(config, active_preset_name, defaults),
+        "providers": _build_providers_section(config),
+        "web_search": _build_search_section(config),
         "web": {
             "enable": config.tools.web.enable,
             "proxy": config.tools.web.proxy,

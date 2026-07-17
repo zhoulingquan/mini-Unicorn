@@ -12,6 +12,12 @@ from pydantic import BaseModel
 
 from miniUnicorn.config.schema import Config, _resolve_tool_config_refs
 
+# Default context window (in tokens) used when no model-specific value is
+# known.  Centralised here so settings/api surfaces and runtime helpers all
+# agree on the same fallback.  Kept as a plain int (not imported from
+# ``cli.models``) to avoid a circular import.
+DEFAULT_CONTEXT_WINDOW = 65_536
+
 # Global variable to store current config path (for multi-instance support)
 _current_config_path: Path | None = None
 _schema_refs_ready = False

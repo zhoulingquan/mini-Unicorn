@@ -143,12 +143,12 @@ def test_provider_signature_tracks_fallback_presets_and_provider_config() -> Non
             }
         },
         "modelPresets": {
-            "fast": {"model": "openai/gpt-4.1", "provider": "openai"},
-            "deep": {"model": "anthropic/claude-sonnet-4-6", "provider": "anthropic"},
+            "fast": {"model": "custom-model", "provider": "custom"},
+            "deep": {"model": "deepseek/deepseek-chat", "provider": "deepseek"},
         },
         "providers": {
-            "openai": {"apiKey": "primary-key"},
-            "anthropic": {"apiKey": "fallback-key"},
+            "custom": {"apiKey": "primary-key"},
+            "deepseek": {"apiKey": "fallback-key"},
         },
     }
     changed_fallback = {
@@ -156,18 +156,18 @@ def test_provider_signature_tracks_fallback_presets_and_provider_config() -> Non
         "agents": {"defaults": {"modelPreset": "fast", "fallbackModels": ["backup"]}},
         "modelPresets": {
             **base["modelPresets"],
-            "backup": {"model": "deepseek/deepseek-chat", "provider": "deepseek"},
+            "backup": {"model": "opencode/big-pickle", "provider": "opencode"},
         },
         "providers": {
             **base["providers"],
-            "deepseek": {"apiKey": "deepseek-key"},
+            "opencode": {"apiKey": "opencode-key"},
         },
     }
     changed_key = {
         **base,
         "providers": {
-            "openai": {"apiKey": "primary-key"},
-            "anthropic": {"apiKey": "new-fallback-key"},
+            "custom": {"apiKey": "primary-key"},
+            "deepseek": {"apiKey": "new-fallback-key"},
         },
     }
 

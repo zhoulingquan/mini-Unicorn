@@ -135,7 +135,7 @@ npm audit fix
 ```
 
 **Important Notes:**
-- Keep `litellm` updated to the latest version for security fixes
+- Keep the `openai` and `anthropic` SDKs updated to the latest versions for security fixes
 - We've updated `ws` to `>=8.17.1` to fix DoS vulnerability
 - Run `pip-audit` or `npm audit` regularly
 - Subscribe to security advisories for MiniUnicorn and its dependencies
@@ -154,19 +154,21 @@ For production use:
 2. **Use a Dedicated User**
    ```bash
    sudo useradd -m -s /bin/bash miniUnicorn
-   sudo -u MiniUnicorn miniUnicorn gateway
+   sudo -u miniUnicorn miniUnicorn gateway
    ```
 
 3. **Set Proper Permissions**
    ```bash
-   chmod 700 ~/.MiniUnicorn
+   chmod 700 ~/.miniUnicorn
    chmod 600 ~/.miniUnicorn/config.json
    chmod 700 ~/.miniUnicorn/whatsapp-auth
    ```
 
 4. **Enable Logging**
    ```bash
-   # Configure log monitoring
+   # Configure log monitoring (file logging requires extra configuration;
+   # by default MiniUnicorn logs to stderr — redirect to a file or configure
+   # a log sink if you need persistent log files)
    tail -f ~/.miniUnicorn/logs/miniUnicorn.log
    ```
 
@@ -200,7 +202,7 @@ For production use:
 
 - **Logs may contain sensitive information** - secure log files appropriately
 - **LLM providers see your prompts** - review their privacy policies
-- **Chat history is stored locally** - protect the `~/.MiniUnicorn` directory
+- **Chat history is stored locally** - protect the `~/.miniUnicorn` directory
 - **API keys are in plain text** - use OS keyring for production
 
 ### 10. Incident Response
@@ -210,6 +212,8 @@ If you suspect a security breach:
 1. **Immediately revoke compromised API keys**
 2. **Review logs for unauthorized access**
    ```bash
+   # File logging requires extra configuration; by default MiniUnicorn logs
+   # to stderr. Redirect to a file or configure a log sink first.
    grep "Access denied" ~/.miniUnicorn/logs/miniUnicorn.log
    ```
 3. **Check for unexpected file modifications**

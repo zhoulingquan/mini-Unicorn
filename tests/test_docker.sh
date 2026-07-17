@@ -13,10 +13,14 @@ docker run --name miniUnicorn-test-run "$IMAGE_NAME" onboard
 
 echo ""
 echo "=== Running 'miniUnicorn status' ==="
-STATUS_OUTPUT=$(docker commit miniUnicorn-test-run miniUnicorn-test-onboarded > /dev/null && \
-    docker run --rm miniUnicorn-test-onboarded status 2>&1) || true
-
-echo "$STATUS_OUTPUT"
+if STATUS_OUTPUT=$(docker commit miniUnicorn-test-run miniUnicorn-test-onboarded > /dev/null && \
+    docker run --rm miniUnicorn-test-onboarded status 2>&1); then
+    echo "$STATUS_OUTPUT"
+else
+    STATUS_EXIT=$?
+    echo "$STATUS_OUTPUT"
+    echo "=== 'miniUnicorn status' command failed (exit $STATUS_EXIT) ==="
+fi
 
 echo ""
 echo "=== Validating output ==="
@@ -35,9 +39,9 @@ check "MiniUnicorn Status"
 check "Config:"
 check "Workspace:"
 check "Model:"
-check "OpenRouter API:"
-check "Anthropic API:"
-check "OpenAI API:"
+check "Custom:"
+check "DeepSeek:"
+check "OpenCode Zen:"
 
 echo ""
 if $PASS; then

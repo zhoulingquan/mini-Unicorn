@@ -29,6 +29,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { ErrorBanner, NoticeBanner } from "@/components/ui/banner";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -41,9 +42,7 @@ import {
 import type { AgentInfo } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// Default template used when creating a new agent via the form.
-const DEFAULT_AGENT_SYSTEM_PROMPT =
-  "You are a specialized subagent. Describe your responsibilities here.";
+// Default system prompt is sourced from i18n (agents.defaultSystemPrompt).
 
 interface AgentsViewProps {
   onBack: () => void;
@@ -65,11 +64,12 @@ const EMPTY_FORM: CreateForm = {
   description: "",
   model: "",
   tools: "",
-  systemPrompt: DEFAULT_AGENT_SYSTEM_PROMPT,
+  systemPrompt: "",
 };
 
-/** Assemble .md file content (YAML frontmatter + body) from form fields. */
-function buildAgentMarkdown(form: CreateForm): string {
+/** Assemble .md file content (YAML frontmatter + body) from form fields.
+ *  fallbackPrompt is the i18n default system prompt, used when the field is empty. */
+function buildAgentMarkdown(form: CreateForm, fallbackPrompt: string): string {
   const lines: string[] = ["---"];
   lines.push(`name: ${form.name.trim()}`);
   lines.push(`description: ${form.description.trim()}`);
@@ -80,7 +80,7 @@ function buildAgentMarkdown(form: CreateForm): string {
     lines.push(`tools: ${form.tools.trim()}`);
   }
   lines.push("---", "");
-  lines.push(form.systemPrompt.trim() || DEFAULT_AGENT_SYSTEM_PROMPT);
+  lines.push(form.systemPrompt.trim() || fallbackPrompt);
   return lines.join("\n");
 }
 
@@ -133,7 +133,7 @@ export function AgentsView({ onBack, token, onUseAgent }: AgentsViewProps) {
   }, [load]);
 
   const openCreate = () => {
-    setCreateForm(EMPTY_FORM);
+    setCreateForm({ ...EMPTY_FORM, systemPrompt: t("agents.defaultSystemPrompt") });
     setCreateError(null);
     setCreateOpen(true);
   };
@@ -155,7 +155,7 @@ export function AgentsView({ onBack, token, onUseAgent }: AgentsViewProps) {
     setCreating(true);
     setCreateError(null);
     try {
-      const content = buildAgentMarkdown(createForm);
+      const content = buildAgentMarkdown(createForm, t("agents.defaultSystemPrompt"));
       await saveAgent(token, name, content);
       setCreateOpen(false);
       setNotice(t("agents.saved"));
@@ -265,10 +265,6 @@ export function AgentsView({ onBack, token, onUseAgent }: AgentsViewProps) {
     }
   };
 
-  const handleUseAgent = (agentName: string) => {
-    onUseAgent?.(agentName);
-  };
-
   return (
     <div className="flex h-full flex-col bg-background">
       <header className="flex items-center gap-2 border-b px-4 py-3">
@@ -312,14 +308,10 @@ export function AgentsView({ onBack, token, onUseAgent }: AgentsViewProps) {
 
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {notice && (
-          <div className="mb-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
-            {notice}
-          </div>
+          <NoticeBanner className="mb-3">{notice}</NoticeBanner>
         )}
         {error && (
-          <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-            {error}
-          </div>
+          <ErrorBanner className="mb-3">{error}</ErrorBanner>
         )}
 
         {loading && agents.length === 0 ? (
@@ -339,7 +331,7 @@ export function AgentsView({ onBack, token, onUseAgent }: AgentsViewProps) {
                 agent={agent}
                 onEdit={() => openEditor(agent)}
                 onDelete={() => setDeleteTarget(agent)}
-                onUse={() => handleUseAgent(agent.name)}
+                onUseAgent={onUseAgent}
               />
             ))}
           </div>
@@ -347,7 +339,7 @@ export function AgentsView({ onBack, token, onUseAgent }: AgentsViewProps) {
       </div>
 
       {/* Create dialog (form-based) */}
-      <Dialog open={createOpen} onOpenChange={(o) => setCreateOpen(o)}>
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-sm">{t("agents.create")}</DialogTitle>
@@ -413,7 +405,7 @@ export function AgentsView({ onBack, token, onUseAgent }: AgentsViewProps) {
       </Dialog>
 
       {/* Edit dialog (raw .md editor) */}
-      <Dialog open={editorOpen} onOpenChange={(o) => setEditorOpen(o)}>
+      <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
@@ -445,7 +437,7 @@ export function AgentsView({ onBack, token, onUseAgent }: AgentsViewProps) {
       </Dialog>
 
       {/* Generate dialog (AI-powered) */}
-      <Dialog open={generateOpen} onOpenChange={(o) => setGenerateOpen(o)}>
+      <Dialog open={generateOpen} onOpenChange={setGenerateOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
@@ -514,12 +506,12 @@ function AgentCard({
   agent,
   onEdit,
   onDelete,
-  onUse,
+  onUseAgent,
 }: {
   agent: AgentInfo;
   onEdit: () => void;
   onDelete: () => void;
-  onUse: () => void;
+  onUseAgent?: (agentName: string) => void;
 }) {
   const { t } = useTranslation();
   const tools = agent.tools;
@@ -571,7 +563,7 @@ function AgentCard({
           variant="ghost"
           size="sm"
           className="h-7 gap-1 px-2 text-[10.5px] text-sky-600 hover:!bg-sky-500/10 hover:!text-sky-600 dark:text-sky-400"
-          onClick={onUse}
+          onClick={() => onUseAgent?.(agent.name)}
         >
           <Sparkles className="h-3 w-3" />
           {t("agents.useAgent")}

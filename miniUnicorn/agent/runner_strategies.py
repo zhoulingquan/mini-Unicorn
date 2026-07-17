@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from miniUnicorn.agent.context_governor import ContextStrategy, GovernanceContext
+from miniUnicorn.agent.context_governor import GovernanceContext
 
 
 class _RunnerBoundStrategy:

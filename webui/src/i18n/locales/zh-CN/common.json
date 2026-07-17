@@ -52,6 +52,7 @@
     "agents": "子代理",
     "cron": "定时任务",
     "tools": "工具",
+    "channels": "频道",
     "language": {
       "label": "语言",
       "ariaLabel": "切换语言"
@@ -452,6 +453,14 @@
       "goalStateSheetTitle": "目标",
       "send": "发送消息",
       "stop": "停止响应",
+      "sendHintEnter": "Enter 发送消息",
+      "sendHintNewline": "Shift+Enter 换行",
+      "sendHintNewlineExpanded": "Enter 换行（展开模式）",
+      "sendHintSubmitExpanded": "点击此按钮发送消息",
+      "expandInput": "展开输入框",
+      "collapseInput": "收起输入框",
+      "expandInputHint": "展开输入框（回车换行，不发送）",
+      "collapseInputHint": "收起输入框（回车发送）",
       "attachImage": "添加附件",
       "attachTooltipLimit": "单次上传最多 {{max}} 个附件",
       "attachTooltipImages": "图片：PNG / JPEG / WebP / GIF",
@@ -747,7 +756,28 @@
     "builtinReadonly": "内置技能只读，如需修改请先创建工作区副本。",
     "toggleError": "切换失败",
     "saveError": "保存失败",
-    "builtinOnlyDeleteDisabled": "内置技能无法删除"
+    "builtinOnlyDeleteDisabled": "内置技能无法删除",
+    "listView": "列表视图",
+    "gridView": "网格视图",
+    "template": {
+      "description": "一句话描述这个技能的作用。",
+      "body": "在这里编写技能内容。"
+    },
+    "skillDescriptions": {
+      "clawhub": "从 ClawHub 公共技能仓库搜索并安装 agent 技能",
+      "cron": "调度提醒和定时任务",
+      "document-processing": "创建、编辑、转换、分析文档（PDF/Word/Excel/PPT）",
+      "github": "通过 gh CLI 与 GitHub 交互，管理 issue、PR、CI 等",
+      "image-generation": "生成图片并迭代编辑已保存的图像作品",
+      "long-goal": "通过 long_task/complete_goal 管理长期目标",
+      "memory": "双层记忆系统，配合 Dream 管理知识文件",
+      "my": "检查和设置 agent 自身的运行时状态",
+      "skill-creator": "创建或更新 Agent 技能",
+      "summarize": "从 URL、播客和本地文件提取摘要或转录文本",
+      "tmux": "通过发送按键和抓取输出远程控制 tmux 会话",
+      "update-setup": "MiniUnicorn 升级技能的一次性设置向导",
+      "weather": "获取当前天气和预报（无需 API key）"
+    }
   },
   "agents": {
     "title": "子代理",
@@ -767,6 +797,7 @@
     "modelPlaceholder": "留空则使用默认模型",
     "systemPrompt": "系统提示词",
     "systemPromptPlaceholder": "编写子代理的系统提示词...",
+    "defaultSystemPrompt": "你是一个专门的子代理。在这里描述你的职责。",
     "editorPlaceholder": "在此编写 .md 内容(含 YAML frontmatter)...",
     "loading": "加载子代理中...",
     "empty": "尚未创建子代理。在 agents/ 目录下创建 .md 文件来定义子代理。",
@@ -809,6 +840,14 @@
       "every": "循环间隔",
       "cron": "Cron 表达式",
       "at": "单次定时"
+    },
+    "describeSchedule": {
+      "everyHours": "每 {{count}} 小时",
+      "everyMinutes": "每 {{count}} 分钟",
+      "everySeconds": "每 {{count}} 秒",
+      "cron": "cron: {{expr}}",
+      "cronWithTz": "cron: {{expr}} ({{tz}})",
+      "at": "于 {{timestamp}}（一次性）"
     },
     "field": {
       "name": "名称",
@@ -869,6 +908,169 @@
       "notPy": "文件必须以 .py 为扩展名",
       "emptyContent": "内容不能为空",
       "readFailed": "读取文件失败"
+    },
+    "toolDescriptions": {
+      "apply_patch": "代码编辑默认工具，支持单次调用多文件改动",
+      "complete_goal": "结束当前长期目标的收尾记录",
+      "create_agent": "从自然语言描述生成子代理定义文件",
+      "cron": "调度提醒和定时任务（增删查）",
+      "delegate": "将任务委派给专门的子代理执行",
+      "edit_file": "在单个文件中执行小范围精确替换",
+      "exec": "执行 shell 命令并返回输出",
+      "execute_plan": "通过为每个步骤生成子代理执行多步计划",
+      "find_files": "按路径片段、glob 或文件类型查找文件",
+      "grep": "用正则搜索文件内容",
+      "list_dir": "列出目录内容，支持递归",
+      "list_exec_sessions": "列出活跃的长运行 exec 会话",
+      "long_task": "将当前线程标记为长期运行任务",
+      "message": "主动向用户/频道发送消息，可带附件",
+      "my": "检查和设置 agent 自身的运行时状态",
+      "read_file": "读取文件（文本、图片或文档）",
+      "recall": "搜索过去的记忆和对话摘要",
+      "run_cli_app": "运行用户在设置中安装的 CLI 应用",
+      "spawn": "在后台生成子代理处理任务",
+      "web_fetch": "抓取 URL 并提取可读内容",
+      "web_search": "搜索网页，返回标题、链接和摘要",
+      "write_file": "创建新文件或整体替换文件内容",
+      "write_stdin": "向运行中的 exec 会话写入 stdin 或控制进程"
+    }
+  },
+  "channels": {
+    "title": "频道",
+    "loading": "加载中...",
+    "empty": "暂无可用频道。",
+    "retry": "重试",
+    "refresh": "刷新",
+    "save": "保存",
+    "delete": "删除",
+    "configLabel": "频道配置",
+    "configPlaceholder": "{\n  \"app_id\": \"...\",\n  \"app_secret\": \"...\"\n}",
+    "listPlaceholder": "每行一项",
+    "useDefault": "使用默认模板",
+    "defaultHint": "未配置：以下为默认值，编辑后点击保存生效。",
+    "badge": {
+      "configured": "已配置",
+      "unconfigured": "未配置"
+    },
+    "toggle": {
+      "aria": "切换 {{name}} 频道"
+    },
+    "toast": {
+      "toggled": "已切换 {{name}} 的状态",
+      "saved": "已保存 {{name}} 的配置",
+      "deleted": "已删除 {{name}} 的配置"
+    },
+    "channelNames": {
+      "dingtalk": "钉钉",
+      "feishu": "飞书",
+      "qq": "QQ",
+      "wecom": "企业微信",
+      "weixin": "微信"
+    },
+    "channelDescriptions": {
+      "dingtalk": "钉钉机器人频道，基于 Stream 模式接收消息",
+      "feishu": "飞书 / Lark 机器人频道，通过 WebSocket 长连接接入",
+      "qq": "QQ 频道机器人，基于官方 botpy SDK",
+      "wecom": "企业微信 AI 机器人，通过 WebSocket 长连接接入",
+      "weixin": "个人微信频道，基于 iLink 协议"
+    },
+    "channelFields": {
+      "_common": {
+        "enabled": "启用",
+        "enabled_desc": "开启后此频道将接收和发送消息",
+        "allow_from": "白名单",
+        "allow_from_desc": "允许的用户/群 ID，每行一项；留空表示允许所有"
+      },
+      "_options": {
+        "group_policy_open": "全部消息",
+        "group_policy_mention": "仅 @ 机器人",
+        "domain_feishu": "飞书（国内）",
+        "domain_lark": "Lark（国际）",
+        "msg_format_plain": "纯文本",
+        "msg_format_markdown": "Markdown"
+      },
+      "dingtalk": {
+        "client_id": "应用 ID",
+        "client_id_desc": "钉钉应用 AppKey（在钉钉开放平台创建应用后获取）",
+        "client_secret": "应用密钥",
+        "client_secret_desc": "钉钉应用 AppSecret",
+        "allow_remote_media_redirects": "允许媒体重定向",
+        "allow_remote_media_redirects_desc": "是否允许跟踪远端媒体的 HTTP 重定向",
+        "remote_media_redirect_allowed_hosts": "重定向允许域名",
+        "remote_media_redirect_allowed_hosts_desc": "媒体重定向允许访问的主机列表，每行一项",
+        "group_user_isolation": "群内用户隔离",
+        "group_user_isolation_desc": "开启后，群内每个用户拥有独立会话"
+      },
+      "feishu": {
+        "instance_id": "实例 ID",
+        "instance_id_desc": "本飞书实例的唯一标识（多账号场景使用）",
+        "name": "机器人名称",
+        "name_desc": "显示用名称",
+        "identity_key": "身份密钥",
+        "identity_key_desc": "用于跨实例区分身份的可选键",
+        "app_id": "App ID",
+        "app_id_desc": "飞书应用 App ID（在飞书开放平台创建应用后获取）",
+        "app_secret": "App Secret",
+        "app_secret_desc": "飞书应用 App Secret",
+        "encrypt_key": "加密密钥",
+        "encrypt_key_desc": "事件订阅的 Encrypt Key（可选）",
+        "verification_token": "校验 Token",
+        "verification_token_desc": "事件订阅的 Verification Token（可选）",
+        "react_emoji": "回应表情",
+        "react_emoji_desc": "收到消息时回应的 emoji 名称（如 THUMBSUP）",
+        "done_emoji": "完成表情",
+        "done_emoji_desc": "任务完成时回应的 emoji 名称（留空不回应）",
+        "tool_hint_prefix": "工具提示前缀",
+        "tool_hint_prefix_desc": "调用工具时内联提示的前缀",
+        "group_policy": "群聊策略",
+        "group_policy_desc": "open=所有消息都处理，mention=仅处理 @ 机器人的消息",
+        "reply_to_message": "回复引用",
+        "reply_to_message_desc": "开启后机器人回复将引用用户原始消息",
+        "streaming": "流式输出",
+        "streaming_desc": "开启后回复将以流式方式推送",
+        "domain": "域名",
+        "domain_desc": "feishu=飞书国内域名，lark=Lark 国际域名",
+        "topic_isolation": "话题隔离",
+        "topic_isolation_desc": "开启后群聊中每个话题拥有独立会话"
+      },
+      "qq": {
+        "app_id": "应用 ID",
+        "app_id_desc": "QQ 机器人 AppID（在 QQ 开放平台创建机器人后获取）",
+        "secret": "应用密钥",
+        "secret_desc": "QQ 机器人 AppSecret",
+        "msg_format": "消息格式",
+        "msg_format_desc": "发送消息使用的格式：plain=纯文本，markdown=Markdown",
+        "ack_message": "确认消息",
+        "ack_message_desc": "收到消息时立即回复的占位文案",
+        "media_dir": "媒体目录",
+        "media_dir_desc": "保存接收附件的目录（留空使用默认路径）",
+        "download_chunk_size": "下载分块大小",
+        "download_chunk_size_desc": "下载附件时的分块字节数",
+        "download_max_bytes": "下载大小上限",
+        "download_max_bytes_desc": "单个附件下载的最大字节数"
+      },
+      "wecom": {
+        "bot_id": "机器人 ID",
+        "bot_id_desc": "企业微信 AI Bot 的 ID（在企业微信管理后台创建后获取）",
+        "secret": "密钥",
+        "secret_desc": "企业微信 AI Bot 的 Secret",
+        "welcome_message": "欢迎消息",
+        "welcome_message_desc": "用户进入聊天时发送的欢迎文案（留空不发送）"
+      },
+      "weixin": {
+        "base_url": "API 基址",
+        "base_url_desc": "iLink API 的基础 URL",
+        "cdn_base_url": "CDN 基址",
+        "cdn_base_url_desc": "媒体 CDN 的基础 URL",
+        "route_tag": "路由标签",
+        "route_tag_desc": "iLink 路由标签（通常留空）",
+        "token": "Token",
+        "token_desc": "登录凭证（可手动填写或扫码后自动获取）",
+        "state_dir": "状态目录",
+        "state_dir_desc": "保存登录态的目录（留空使用默认 ~/.miniUnicorn/weixin/）",
+        "poll_timeout": "长轮询超时",
+        "poll_timeout_desc": "长轮询超时秒数"
+      }
     }
   }
 }

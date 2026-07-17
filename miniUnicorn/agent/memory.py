@@ -42,6 +42,13 @@ class MemoryStore:
     """Pure file I/O for memory files: MEMORY.md, history.jsonl, SOUL.md, USER.md."""
 
     _DEFAULT_MAX_HISTORY = 1000
+    # Episodic/procedural/reflections 文件条数上限：超出时截断最旧条目。
+    # episodic 是事件流（按时间），procedural 是教训（Dream 提炼），
+    # reflections 是一句话反思（Reflection 写入，Dream 消费）。
+    # 这些文件只增不减会导致长期使用后磁盘膨胀，故设上限。
+    _MAX_EPISODIC_ENTRIES = 500
+    _MAX_PROCEDURAL_ENTRIES = 300
+    _MAX_SHARED_PROCEDURAL_ENTRIES = 200
     _LEGACY_ENTRY_START_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2}[^\]]*)\]\s*")
     _LEGACY_TIMESTAMP_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]\s*")
     _LEGACY_RAW_MESSAGE_RE = re.compile(
@@ -73,6 +80,11 @@ class MemoryStore:
         self.shared_procedural_file = self.shared_dir / "procedural_shared.jsonl"
         self._corruption_logged = False  # rate-limit non-int cursor warning
         self._oversize_logged = False  # rate-limit oversized-entry warning
+        # 文件内容缓存：key=Path, value=(st_mtime_ns, st_size, content)。
+        # build_system_prompt 每次 turn 都会读取 MEMORY.md/SOUL.md/USER.md，
+        # 这些文件在单次 turn 内不会变化（只有 Dream 会改写，且 Dream 独占运行）。
+        # 通过 mtime+size 校验避免重复磁盘 IO。写入时调用 _invalidate_cache。
+        self._file_cache: dict[Path, tuple[int, int, str]] = {}
         self._git = GitStore(workspace, tracked_files=[
             "SOUL.md", "USER.md", "memory/MEMORY.md", "memory/.dream_cursor",
             "memory/episodic.jsonl", "memory/procedural.jsonl",
@@ -213,7 +225,7 @@ class MemoryStore:
 
     def read_shared_memory(self) -> str:
         """Read global shared semantic memory (cross-session facts)."""
-        return self.read_file(self.shared_memory_file)
+        return self._cached_read(self.shared_memory_file)
 
     def read_shared_procedural(self, limit: int = 50) -> list[dict[str, Any]]:
         """Read global shared procedural lessons (cross-session experience).
@@ -239,6 +251,82 @@ class MemoryStore:
         except Exception:
             return []
         return entries[-limit:] if limit > 0 else entries
+
+    # -- JSONL 文件截断（防膨胀） -------------------------------------------
+    # episodic/procedural/shared_procedural 都是 append-only JSONL，长期使用
+    # 会无限增长。这些方法按条数上限截断最旧条目，在 Dream 末尾调用。
+
+    @staticmethod
+    def _truncate_jsonl_tail(path: Path, max_entries: int) -> int:
+        """截断 JSONL 文件，只保留最后 *max_entries* 行。
+
+        原子写入（tmp + os.replace），失败时返回 0 且不修改文件。
+        返回截断的行数。
+        """
+        if max_entries <= 0 or not path.exists():
+            return 0
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception:
+            return 0
+        if len(lines) <= max_entries:
+            return 0
+        kept = lines[-max_entries:]
+        tmp = path.with_suffix(".tmp")
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.writelines(kept)
+            os.replace(tmp, path)
+        except Exception:
+            logger.exception("_truncate_jsonl_tail write failed for {}", path)
+            return 0
+        pruned = len(lines) - len(kept)
+        logger.info(
+            "Pruned {} old entries from {}, {} remaining",
+            pruned, path.name, len(kept),
+        )
+        return pruned
+
+    def prune_episodic_if_needed(self) -> int:
+        """截断 episodic.jsonl 到 _MAX_EPISODIC_ENTRIES 条。"""
+        return self._truncate_jsonl_tail(self._episodic_file, self._MAX_EPISODIC_ENTRIES)
+
+    def prune_procedural_if_needed(self) -> int:
+        """截断 procedural.jsonl 到 _MAX_PROCEDURAL_ENTRIES 条。"""
+        return self._truncate_jsonl_tail(self.procedural_file, self._MAX_PROCEDURAL_ENTRIES)
+
+    def prune_shared_procedural_if_needed(self) -> int:
+        """截断 shared/procedural_shared.jsonl 到 _MAX_SHARED_PROCEDURAL_ENTRIES 条。"""
+        return self._truncate_jsonl_tail(self.shared_procedural_file, self._MAX_SHARED_PROCEDURAL_ENTRIES)
+
+    def run_memory_hygiene(self) -> dict[str, int]:
+        """执行全部文件层 + 向量库清理，返回各部分清理统计。
+
+        在 Dream.run() 末尾调用，也可由 Consolidator 在归档后节流调用。
+        包含：
+        - reflections.jsonl 截断已处理条目
+        - episodic/procedural/shared_procedural 按上限截断
+        - 向量库 importance 衰减 + 低重要性归档
+        """
+        result: dict[str, int] = {
+            "reflections": self.prune_reflections_after_cursor(),
+            "episodic": self.prune_episodic_if_needed(),
+            "procedural": self.prune_procedural_if_needed(),
+            "shared_procedural": self.prune_shared_procedural_if_needed(),
+        }
+        # 向量库维护：decay + archive。即使 Dream 关闭，只要本方法被调用
+        # （如 Consolidator 节流触发），向量库也能得到清理。
+        try:
+            vs = self._vector_store
+            if vs is not None and getattr(vs, "enabled", False):
+                decayed = vs.decay_importance(days_threshold=30, decay_factor=0.9)
+                archived = vs.archive_low_importance(threshold=0.2, min_age_days=60)
+                result["vec_decayed"] = decayed
+                result["vec_archived"] = archived
+        except Exception:
+            logger.debug("Vector hygiene failed", exc_info=True)
+        return result
 
     def get_last_reflections_cursor(self) -> int:
         """Get the last processed reflection cursor (line number)."""
@@ -286,6 +374,46 @@ class MemoryStore:
             return []
         return results
 
+    def prune_reflections_after_cursor(self) -> int:
+        """截断已被 Dream 处理的 reflections 条目。
+
+        Dream 成功处理 reflections 后调用。删除 cursor 之前的所有行（已消费），
+        并将 cursor 重置为 0。截断后文件只剩未处理条目，行号从 1 重新开始。
+        这样 reflections.jsonl 不会无限增长（Reflection 写入 + Dream 消费）。
+
+        返回截断的行数。失败时返回 0 且不修改文件。
+        """
+        rf = self.memory_dir / "reflections.jsonl"
+        cursor = self.get_last_reflections_cursor()
+        if cursor <= 0 or not rf.exists():
+            return 0
+        try:
+            with open(rf, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception:
+            return 0
+        # cursor 是 1-based 行号，保留 cursor 之后（未处理）的行
+        kept = lines[cursor:]
+        if len(kept) == len(lines):
+            # 没有可截断的（cursor 超出文件范围等）
+            return 0
+        tmp = rf.with_suffix(".tmp")
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.writelines(kept)
+            os.replace(tmp, rf)
+        except Exception:
+            logger.exception("prune_reflections_after_cursor write failed")
+            return 0
+        # 重置 cursor：截断后未处理条目从行 1 开始
+        self.set_last_reflections_cursor(0)
+        pruned = len(lines) - len(kept)
+        logger.info(
+            "Pruned {} processed reflection(s), {} remaining",
+            pruned, len(kept),
+        )
+        return pruned
+
     @staticmethod
     def _count_lines(path: Path) -> int:
         try:
@@ -327,6 +455,37 @@ class MemoryStore:
             return path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return ""
+
+    def _cached_read(self, path: Path) -> str:
+        """带 mtime+size 校验的缓存读取。
+
+        build_system_prompt 每次 turn 都会读 MEMORY/SOUL/USER.md 等文件，
+        这些文件在 turn 内不变（Dream 独占运行时才会改写）。命中缓存时
+        避免一次磁盘 IO；未命中或 mtime/size 变化时回源读取。
+        """
+        try:
+            st = path.stat()
+        except (FileNotFoundError, OSError):
+            # 文件不存在时清掉旧缓存（防止"曾经存在"的残留），返回空。
+            self._file_cache.pop(path, None)
+            return ""
+        key = (st.st_mtime_ns, st.st_size)
+        cached = self._file_cache.get(path)
+        if cached is not None and (cached[0], cached[1]) == key:
+            return cached[2]
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            return ""
+        self._file_cache[path] = (st.st_mtime_ns, st.st_size, content)
+        return content
+
+    def _invalidate_cache(self, path: Path | None = None) -> None:
+        """写入后调用，清除单文件或全部缓存。"""
+        if path is None:
+            self._file_cache.clear()
+        else:
+            self._file_cache.pop(path, None)
 
     def _maybe_migrate_legacy_history(self) -> None:
         """One-time upgrade from legacy HISTORY.md to history.jsonl.
@@ -452,26 +611,29 @@ class MemoryStore:
     # -- MEMORY.md (long-term facts) -----------------------------------------
 
     def read_memory(self) -> str:
-        return self.read_file(self.memory_file)
+        return self._cached_read(self.memory_file)
 
     def write_memory(self, content: str) -> None:
         self.memory_file.write_text(content, encoding="utf-8")
+        self._invalidate_cache(self.memory_file)
 
     # -- SOUL.md -------------------------------------------------------------
 
     def read_soul(self) -> str:
-        return self.read_file(self.soul_file)
+        return self._cached_read(self.soul_file)
 
     def write_soul(self, content: str) -> None:
         self.soul_file.write_text(content, encoding="utf-8")
+        self._invalidate_cache(self.soul_file)
 
     # -- USER.md -------------------------------------------------------------
 
     def read_user(self) -> str:
-        return self.read_file(self.user_file)
+        return self._cached_read(self.user_file)
 
     def write_user(self, content: str) -> None:
         self.user_file.write_text(content, encoding="utf-8")
+        self._invalidate_cache(self.user_file)
 
     # -- context injection (used by context.py) ------------------------------
 
@@ -697,6 +859,11 @@ class Consolidator:
 
     _SAFETY_BUFFER = 1024  # extra headroom for tokenizer estimation drift
 
+    # 每 N 次归档后触发一次 memory hygiene（文件截断 + 向量库 decay/archive）。
+    # 这样即使 Dream 关闭，向量库也能得到定期清理，不会无限膨胀。
+    # 20 次 ≈ 每隔数十轮对话清理一次，开销可忽略。
+    _HYGIENE_THROTTLE = 20
+
     def __init__(
         self,
         store: MemoryStore,
@@ -721,6 +888,8 @@ class Consolidator:
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
             weakref.WeakValueDictionary()
         )
+        # 归档计数器：每 _HYGIENE_THROTTLE 次归档触发一次 memory hygiene。
+        self._archive_count_since_hygiene = 0
 
     def set_provider(
         self,
@@ -919,6 +1088,18 @@ class Consolidator:
                 )
             except Exception:
                 logger.debug("Vector indexing of archive summary failed", exc_info=True)
+            # 节流触发 memory hygiene：每 _HYGIENE_THROTTLE 次归档后清理一次
+            # 文件截断 + 向量库 decay/archive。这样 Dream 关闭时向量库也能
+            # 得到定期维护，避免无限膨胀。
+            self._archive_count_since_hygiene += 1
+            if self._archive_count_since_hygiene >= self._HYGIENE_THROTTLE:
+                self._archive_count_since_hygiene = 0
+                try:
+                    pruned = self.store.run_memory_hygiene()
+                    if any(v > 0 for v in pruned.values()):
+                        logger.debug("Consolidator throttled hygiene: {}", pruned)
+                except Exception:
+                    logger.debug("Consolidator hygiene failed", exc_info=True)
             return summary
         except Exception:
             logger.warning("Consolidation LLM call failed, raw-dumping to history")
@@ -1464,24 +1645,20 @@ class Dream:
                 reason,
             )
 
-        # Memory hygiene (P3): decay importance of stale entries and archive
-        # low-importance ones so the vector index stays focused on what
-        # matters. Run after every successful Dream cycle; failures here are
-        # non-fatal — Dream's commit/cursor advance have already happened.
-        try:
-            vs = self.store.vector_store
-            if vs is not None and getattr(vs, "enabled", False):
-                decayed = vs.decay_importance(days_threshold=30, decay_factor=0.9)
-                archived = vs.archive_low_importance(threshold=0.2, min_age_days=60)
-                if decayed or archived:
-                    logger.info(
-                        "Dream memory hygiene: decayed={}, archived={}",
-                        decayed, archived,
-                    )
-        except Exception:
-            logger.debug("Memory hygiene failed", exc_info=True)
+        # Memory hygiene (P3): decay + archive 已移入 run_memory_hygiene，
+        # 与文件层截断一起在下方统一执行。
 
         self.store.compact_history()
+
+        # 文件层 + 向量库清理：截断 episodic/procedural/shared_procedural/reflections
+        # 中已处理或过旧的条目，避免 append-only 文件无限增长。
+        # 放在 compact_history 之后、git commit 之前，这样截断也会被 commit 记录。
+        try:
+            pruned = self.store.run_memory_hygiene()
+            if any(v > 0 for v in pruned.values()):
+                logger.info("Dream file hygiene: {}", pruned)
+        except Exception:
+            logger.debug("File hygiene failed", exc_info=True)
 
         # Git auto-commit (only when there are actual changes)
         if changelog and self.store.git.is_initialized():
@@ -1491,5 +1668,11 @@ class Dream:
             sha = self.store.git.auto_commit(commit_msg)
             if sha:
                 logger.info("Dream commit: {}", sha)
+                # 本次 Dream 产生了新 commit，顺带做 GC 回收 loose objects，
+                # 避免 .git/objects 长期累积膨胀。失败不影响 Dream 主流程。
+                try:
+                    self.store.git.gc()
+                except Exception:
+                    logger.debug("Dream gc skipped", exc_info=True)
 
         return True

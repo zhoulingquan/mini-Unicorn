@@ -21,6 +21,16 @@ _BLOCKED_NETWORKS = [
     ipaddress.ip_network("fe80::/10"),         # link-local v6
 ]
 
+# Networks that are ALWAYS blocked, even if the operator adds them to the
+# SSRF whitelist via ``configure_ssrf_whitelist``.  These cover cloud metadata
+# endpoints (169.254.0.0/16 — AWS/GCP/Azure IMDS) and loopback (127.0.0.0/8,
+# ::1) which must never be reachable from a server-side fetch context.
+_HARD_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),   # link-local / cloud metadata
+    ipaddress.ip_network("::1/128"),
+]
+
 _URL_RE = re.compile(r"https?://[^\s\"'`;|<>]+", re.IGNORECASE)
 
 _allowed_networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
@@ -53,6 +63,11 @@ def _normalize_addr(
 
 def _is_private(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     normalized = _normalize_addr(addr)
+    # Hard-blocked networks (cloud metadata, loopback) can never be bypassed
+    # by the SSRF whitelist — this prevents an operator mistake from exposing
+    # IMDS endpoints to server-side fetches.
+    if any(normalized in net for net in _HARD_BLOCKED_NETWORKS):
+        return True
     if _allowed_networks and any(normalized in net for net in _allowed_networks):
         return False
     return any(normalized in net for net in _BLOCKED_NETWORKS)

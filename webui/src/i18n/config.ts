@@ -1,4 +1,6 @@
-export const LOCALE_STORAGE_KEY = "miniUnicorn.locale";
+import { STORAGE_KEYS } from "@/lib/storage";
+
+export const LOCALE_STORAGE_KEY = STORAGE_KEYS.locale;
 
 export const supportedLocales = [
   { code: "en", label: "English", nativeLabel: "English" },

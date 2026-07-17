@@ -147,6 +147,42 @@ class AgentRunResult:
     last_call_usage: dict[str, int] = field(default_factory=dict)
 
 
+@dataclass(slots=True)
+class _RunState:
+    """Mutable state shared across the run() state-machine phases.
+
+    Grouped in a dataclass so extracted phase methods (_setup_run_state,
+    _govern_iteration_messages, _execute_tool_branch, _handle_final_response,
+    _handle_max_iterations) can mutate shared counters (retries, injection
+    cycles, usage) without a long parameter list on each helper.
+    """
+    final_content: str | None = None
+    tools_used: list[str] = field(default_factory=list)
+    usage: dict[str, int] = field(default_factory=lambda: {"prompt_tokens": 0, "completion_tokens": 0})
+    last_call_usage: dict[str, int] = field(default_factory=dict)
+    error: str | None = None
+    stop_reason: str = "completed"
+    tool_events: list[dict[str, str]] = field(default_factory=list)
+    external_lookup_counts: dict[str, int] = field(default_factory=dict)
+    # Per-turn throttle for repeated attempts against the same outside target.
+    workspace_violation_counts: dict[str, int] = field(default_factory=dict)
+    empty_content_retries: int = 0
+    length_recovery_count: int = 0
+    had_injections: bool = False
+    injection_cycles: int = 0
+    # Optional per-turn budget tracking. Only enforced when the caller
+    # explicitly passes a TurnBudget via spec.turn_budget; when None,
+    # behavior is identical to the legacy unbounded loop.
+    budget: Any | None = None
+    # Plan-and-Execute / Reflection (Typed as Any to avoid importing at
+    # module load time, keeping runner.py import-light).
+    plan: Any | None = None
+    planner: Any | None = None
+    planner_task_text: str | None = None
+    planner_tools_summary: str | None = None
+    reflection: Any | None = None
+
+
 class AgentRunner:
     """Run a tool-capable LLM loop without product-layer concerns."""
 
@@ -155,6 +191,19 @@ class AgentRunner:
         # Lazily-constructed default ContextGovernor; built on first use so
         # that entry-point plugins are loaded at most once per runner.
         self._default_governor: Any | None = None
+        # Strong references to fire-and-forget background tasks (e.g. periodic
+        # reflection) so the GC cannot reclaim them before completion.
+        self._background_tasks: set[asyncio.Task] = set()
+        # Incremental scan cache for _microcompact: (list_id, length, indices).
+        # Avoids rescanning the whole messages list on every iteration when the
+        # list only grew (common case). Reset per turn in run().
+        self._microcompact_cache: tuple[int, int, list[int]] | None = None
+        # Incremental per-message token estimate cache for _snip_history:
+        # (list_id, length, [tokens_per_index]). When the same messages list
+        # grows between calls within a turn, only the newly-appended tail is
+        # re-estimated; a new or truncated list triggers a full rescan.
+        # Reset per turn in run().
+        self._snip_history_cache: tuple[int, int, list[int]] | None = None
 
     def _get_governor(self, spec: AgentRunSpec) -> Any:
         """Resolve the context governor: spec-provided override or default.
@@ -368,24 +417,38 @@ class AgentRunner:
     async def run(self, spec: AgentRunSpec) -> AgentRunResult:
         hook = spec.hook or AgentHook()
         messages = list(spec.initial_messages)
-        final_content: str | None = None
-        tools_used: list[str] = []
-        usage: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
-        last_call_usage: dict[str, int] = {}
-        error: str | None = None
-        stop_reason = "completed"
-        tool_events: list[dict[str, str]] = []
-        external_lookup_counts: dict[str, int] = {}
-        # Per-turn throttle for repeated attempts against the same outside target.
-        workspace_violation_counts: dict[str, int] = {}
-        empty_content_retries = 0
-        length_recovery_count = 0
-        had_injections = False
-        injection_cycles = 0
-        # Optional per-turn budget tracking. Only enforced when the caller
-        # explicitly passes a TurnBudget via spec.turn_budget; when None,
-        # behavior is identical to the legacy unbounded loop.
-        budget = getattr(spec, "turn_budget", None)
+        # Reset the incremental microcompact cache for this turn so stale
+        # indices from a previous turn (different messages list) are dropped.
+        self._microcompact_cache = None
+        # Reset the per-message token estimate cache for the same reason.
+        self._snip_history_cache = None
+        state = await self._setup_run_state(spec)
+
+        for iteration in range(spec.max_iterations):
+            should_break = await self._run_iteration(spec, messages, state, iteration, hook)
+            if should_break:
+                break
+        else:
+            await self._handle_max_iterations(spec, messages, state)
+
+        return AgentRunResult(
+            final_content=state.final_content,
+            messages=messages,
+            tools_used=state.tools_used,
+            usage=state.usage,
+            stop_reason=state.stop_reason,
+            error=state.error,
+            tool_events=state.tool_events,
+            had_injections=state.had_injections,
+            budget_exceeded=(state.stop_reason == "budget_exceeded"),
+            plan=state.plan,
+            last_call_usage=state.last_call_usage,
+        )
+
+    async def _setup_run_state(self, spec: AgentRunSpec) -> _RunState:
+        """Initialize run state: budget, planner, and reflection."""
+        state = _RunState()
+        state.budget = getattr(spec, "turn_budget", None)
         # Plan-and-Execute mode: when spec.use_planner is True, the runner
         # first decomposes the task into ordered steps via a Planner LLM call,
         # then drives each step through the existing ReAct loop below. When
@@ -393,507 +456,540 @@ class AgentRunner:
         # runs unchanged. Typed as Any to avoid importing planner at module
         # load time (keeps runner.py import-light).
         use_planner = getattr(spec, "use_planner", False)
-        plan: Any | None = None
-        planner: Any | None = None
-        planner_task_text: str | None = None
-        planner_tools_summary: str | None = None
-
         if use_planner:
             from miniUnicorn.agent.planner import Planner as _Planner
             planner_model = getattr(spec, "planner_model", None) or spec.model
-            planner = _Planner(self.provider, planner_model)
-            planner_task_text = self._extract_task_from_messages(spec.initial_messages)
-            planner_tools_summary = self._build_tools_summary(spec.tools)
+            state.planner = _Planner(self.provider, planner_model)
+            state.planner_task_text = self._extract_task_from_messages(spec.initial_messages)
+            state.planner_tools_summary = self._build_tools_summary(spec.tools)
             try:
-                plan = await planner.create_plan(
-                    task=planner_task_text,
-                    tools_summary=planner_tools_summary,
+                state.plan = await state.planner.create_plan(
+                    task=state.planner_task_text,
+                    tools_summary=state.planner_tools_summary,
                 )
-                plan.max_replans = getattr(spec, "planner_max_replans", 3)
+                state.plan.max_replans = getattr(spec, "planner_max_replans", 3)
                 logger.info(
                     "Planner produced {} steps for: {}",
-                    len(plan.steps), plan.goal,
+                    len(state.plan.steps), state.plan.goal,
                 )
             except Exception:
                 logger.exception("Planner.create_plan failed; falling back to ReAct-only")
-                plan = None
-                planner = None
+                state.plan = None
+                state.planner = None
 
         # Optional reflection: produces "lesson learned" entries on failure or
         # every reflection_interval iterations. Default False keeps the legacy
         # behavior with zero reflection overhead.
         enable_reflection = getattr(spec, "enable_reflection", False)
-        reflection: Any | None = None
         if enable_reflection:
             from miniUnicorn.agent.reflection import Reflection
-            reflection = Reflection(self.provider, spec.model, spec.workspace)
+            state.reflection = Reflection(self.provider, spec.model, spec.workspace)
+        return state
 
-        for iteration in range(spec.max_iterations):
-            try:
-                # Keep the persisted conversation untouched. Context governance
-                # may repair or compact historical messages for the model, but
-                # those synthetic edits must not shift the append boundary used
-                # later when the caller saves only the new turn.
-                # The governor runs an ordered list of ContextStrategy; the
-                # default pipeline reproduces the legacy hardcoded steps
-                # (drop_orphan -> backfill -> microcompact -> budget -> snip
-                # -> drop_orphan -> backfill) and falls back to minimal repair
-                # on failure. Spec-provided governors override the default.
-                from miniUnicorn.agent.context_governor import GovernanceContext
-                governor = self._get_governor(spec)
-                ctx_gov = GovernanceContext(
-                    spec=spec,
-                    tools=spec.tools,
-                    provider=self.provider,
-                    iteration=iteration,
-                    runner=self,
-                )
-                messages_for_model = governor.govern(messages, ctx_gov)
-            except Exception:
-                logger.exception(
-                    "Context governance failed on turn {} for {}; using raw messages",
-                    iteration,
-                    spec.session_key or "default",
-                )
-                messages_for_model = messages
-            # Plan-and-Execute: inject current step as guidance before LLM call.
-            # We do this AFTER governance so the governor's prior edits to
-            # historical messages are preserved; only the last user message is
-            # appended with step context (non-destructively) to focus the model
-            # on the current step. Each step still flows through the full ReAct
-            # loop (_request_model + _execute_tools), so context governor and
-            # turn budget remain in effect per step.
-            if plan is not None and plan.current_step is not None:
-                from miniUnicorn.agent.planner import StepStatus as _StepStatus
-                step = plan.current_step
-                step.status = _StepStatus.IN_PROGRESS
-                step.iterations_used += 1
-                guidance = (
-                    f"\n\n[Current Plan Step {step.id}/{len(plan.steps)}: {step.action}]\n"
-                    f"Done when: {step.done_criteria or 'step goal achieved'}\n"
-                    f"Focus on this step. Use tool_hint={step.tool_hint} if applicable."
-                )
-                messages_for_model = self._inject_step_guidance(messages_for_model, guidance)
-            context = AgentHookContext(iteration=iteration, messages=messages)
-            await hook.before_iteration(context)
-            response = await self._request_model(spec, messages_for_model, hook, context)
-            raw_usage = self._usage_dict(response.usage)
-            context.response = response
-            context.usage = dict(raw_usage)
-            context.tool_calls = list(response.tool_calls)
-            self._accumulate_usage(usage, raw_usage)
-            if raw_usage:
-                last_call_usage = dict(raw_usage)
-            # Budget check: stop early if cumulative usage exceeds limits.
-            _fc, _sr, _err = self._handle_budget_exceeded(
-                budget, raw_usage, spec.model, spec, messages,
-                iteration, context, hook,
-            )
-            if _fc is not None:
-                final_content, stop_reason, error = _fc, _sr, _err
-                await hook.after_iteration(context)
-                break
-
-            reasoning_text, cleaned_content = extract_reasoning(
-                response.reasoning_content,
-                response.thinking_blocks,
-                response.content,
-            )
-            response.content = cleaned_content
-            if reasoning_text and not context.streamed_reasoning:
-                await hook.emit_reasoning(reasoning_text)
-                await hook.emit_reasoning_end()
-                context.streamed_reasoning = True
-
-            if response.should_execute_tools:
-                context.tool_calls = list(response.tool_calls)
-                if hook.wants_streaming():
-                    await hook.on_stream_end(context, resuming=True)
-
-                assistant_message = build_assistant_message(
-                    response.content or "",
-                    tool_calls=[tc.to_openai_tool_call() for tc in response.tool_calls],
-                    reasoning_content=response.reasoning_content,
-                    thinking_blocks=response.thinking_blocks,
-                )
-                messages.append(assistant_message)
-                tools_used.extend(tc.name for tc in response.tool_calls)
-                await self._emit_checkpoint(
-                    spec,
-                    {
-                        "phase": "awaiting_tools",
-                        "iteration": iteration,
-                        "model": spec.model,
-                        "assistant_message": assistant_message,
-                        "completed_tool_results": [],
-                        "pending_tool_calls": [tc.to_openai_tool_call() for tc in response.tool_calls],
-                    },
-                )
-
-                await hook.before_execute_tools(context)
-
-                results, new_events, fatal_error = await self._execute_tools(
-                    spec,
-                    response.tool_calls,
-                    external_lookup_counts,
-                    workspace_violation_counts,
-                )
-                tool_events.extend(new_events)
-                context.tool_results = list(results)
-                context.tool_events = list(new_events)
-                completed_tool_results: list[dict[str, Any]] = []
-                for tool_call, result in zip(response.tool_calls, results):
-                    tool_message = {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": tool_call.name,
-                        "content": self._normalize_tool_result(
-                            spec,
-                            tool_call.id,
-                            tool_call.name,
-                            result,
-                        ),
-                    }
-                    messages.append(tool_message)
-                    completed_tool_results.append(tool_message)
-                if fatal_error is not None:
-                    # Plan-and-Execute: mark current step failed and trigger
-                    # replan with the failure reason. Successful steps are
-                    # preserved by the planner; the failed step is excluded
-                    # from the new plan's approach. When replans are exhausted
-                    # we fall through to the normal break below.
-                    if plan is not None and planner is not None and plan.current_step is not None:
-                        from miniUnicorn.agent.planner import StepStatus as _StepStatus
-                        failed_step = plan.current_step
-                        failed_step.status = _StepStatus.FAILED
-                        failed_step.failure_reason = str(fatal_error)
-                        if plan.can_replan:
-                            logger.info(
-                                "Step {} failed ({}); triggering replan {}/{}",
-                                failed_step.id,
-                                failed_step.action,
-                                plan.replan_count + 1,
-                                plan.max_replans,
-                            )
-                            plan = await planner.replan(
-                                plan, failed_step, str(fatal_error),
-                                planner_task_text or "",
-                                planner_tools_summary or "",
-                            )
-                            # Drain tool-result messages are already appended;
-                            # fall through to continue the loop, which picks up
-                            # the new plan's first pending step.
-                            await hook.after_iteration(context)
-                            continue
-                        logger.warning(
-                            "Step {} failed and max_replans reached; failing turn",
-                            failed_step.id,
-                        )
-                        stop_reason = "plan_failed"
-                    error = f"Error: {type(fatal_error).__name__}: {fatal_error}"
-                    final_content = error
-                    if stop_reason != "plan_failed":
-                        stop_reason = "tool_error"
-                    self._append_final_message(messages, final_content)
-                    context.final_content = final_content
-                    context.error = error
-                    context.stop_reason = stop_reason
-                    # Reflection: capture lesson learned on fatal tool/plan error.
-                    if reflection is not None:
-                        await reflection.reflect(
-                            trigger=(
-                                "plan_failed"
-                                if stop_reason == "plan_failed"
-                                else "tool_error"
-                            ),
-                            iteration=iteration,
-                            context_summary=error,
-                            messages=messages,
-                            session_key=spec.session_key,
-                        )
-                    await hook.after_iteration(context)
-                    should_continue, injection_cycles = await self._try_drain_injections(
-                        spec, messages, None, injection_cycles,
-                        phase="after tool error",
-                    )
-                    if should_continue:
-                        had_injections = True
-                        continue
-                    break
-                await self._emit_checkpoint(
-                    spec,
-                    {
-                        "phase": "tools_completed",
-                        "iteration": iteration,
-                        "model": spec.model,
-                        "assistant_message": assistant_message,
-                        "completed_tool_results": completed_tool_results,
-                        "pending_tool_calls": [],
-                    },
-                )
-                empty_content_retries = 0
-                length_recovery_count = 0
-                # Checkpoint 1: drain injections after tools, before next LLM call
-                _drained, injection_cycles = await self._try_drain_injections(
-                    spec, messages, None, injection_cycles,
-                    phase="after tool execution",
-                )
-                if _drained:
-                    had_injections = True
-                await hook.after_iteration(context)
-                # Periodic reflection (every reflection_interval iterations).
-                # Non-blocking: fire-and-forget so the main loop isn't slowed.
-                if (
-                    reflection is not None
-                    and (iteration + 1) % getattr(spec, "reflection_interval", 5) == 0
-                ):
-                    asyncio.create_task(reflection.reflect(
-                        trigger="periodic",
-                        iteration=iteration,
-                        context_summary=f"Periodic reflection at iteration {iteration}",
-                        messages=messages,
-                        session_key=spec.session_key,
-                    ))
-                continue
-
-            if response.has_tool_calls:
-                logger.warning(
-                    "Ignoring tool calls under finish_reason='{}' for {}",
-                    response.finish_reason,
-                    spec.session_key or "default",
-                )
-
-            clean = hook.finalize_content(context, response.content)
-            if response.finish_reason != "error" and is_blank_text(clean):
-                empty_content_retries += 1
-                if empty_content_retries < _MAX_EMPTY_RETRIES:
-                    logger.warning(
-                        "Empty response on turn {} for {} ({}/{}); retrying",
-                        iteration,
-                        spec.session_key or "default",
-                        empty_content_retries,
-                        _MAX_EMPTY_RETRIES,
-                    )
-                    if hook.wants_streaming():
-                        await hook.on_stream_end(context, resuming=False)
-                    await hook.after_iteration(context)
-                    continue
-                logger.warning(
-                    "Empty response on turn {} for {} after {} retries; attempting finalization",
-                    iteration,
-                    spec.session_key or "default",
-                    empty_content_retries,
-                )
-                if hook.wants_streaming():
-                    await hook.on_stream_end(context, resuming=False)
-                response = await self._request_finalization_retry(spec, messages_for_model)
-                retry_usage = self._usage_dict(response.usage)
-                self._accumulate_usage(usage, retry_usage)
-                # Budget check: stop early if cumulative usage exceeds limits.
-                _fc, _sr, _err = self._handle_budget_exceeded(
-                    budget, retry_usage, spec.model, spec, messages,
-                    iteration, context, hook,
-                )
-                if _fc is not None:
-                    final_content, stop_reason, error = _fc, _sr, _err
-                    self._append_final_message(messages, final_content)
-                    await hook.after_iteration(context)
-                    break
-                raw_usage = self._merge_usage(raw_usage, retry_usage)
-                context.response = response
-                context.usage = dict(raw_usage)
-                context.tool_calls = list(response.tool_calls)
-                if retry_usage:
-                    last_call_usage = dict(retry_usage)
-                clean = hook.finalize_content(context, response.content)
-
-            if response.finish_reason == "length" and not is_blank_text(clean):
-                length_recovery_count += 1
-                if length_recovery_count <= _MAX_LENGTH_RECOVERIES:
-                    logger.info(
-                        "Output truncated on turn {} for {} ({}/{}); continuing",
-                        iteration,
-                        spec.session_key or "default",
-                        length_recovery_count,
-                        _MAX_LENGTH_RECOVERIES,
-                    )
-                    if hook.wants_streaming():
-                        await hook.on_stream_end(context, resuming=True)
-                    messages.append(build_assistant_message(
-                        clean,
-                        reasoning_content=response.reasoning_content,
-                        thinking_blocks=response.thinking_blocks,
-                    ))
-                    messages.append(build_length_recovery_message())
-                    await hook.after_iteration(context)
-                    continue
-
-            assistant_message: dict[str, Any] | None = None
-            if response.finish_reason != "error" and not is_blank_text(clean):
-                assistant_message = build_assistant_message(
-                    clean,
-                    reasoning_content=response.reasoning_content,
-                    thinking_blocks=response.thinking_blocks,
-                )
-
-            # Check for mid-turn injections BEFORE signaling stream end.
-            # If injections are found we keep the stream alive (resuming=True)
-            # so streaming channels don't prematurely finalize the card.
-            should_continue, injection_cycles = await self._try_drain_injections(
-                spec, messages, assistant_message, injection_cycles,
-                phase="after final response",
+    async def _govern_iteration_messages(
+        self, spec: AgentRunSpec, messages: list[dict[str, Any]],
+        iteration: int, state: _RunState,
+    ) -> list[dict[str, Any]]:
+        """Run context governance and inject plan-step guidance."""
+        try:
+            # Keep the persisted conversation untouched. Context governance
+            # may repair or compact historical messages for the model, but
+            # those synthetic edits must not shift the append boundary used
+            # later when the caller saves only the new turn.
+            # The governor runs an ordered list of ContextStrategy; the
+            # default pipeline reproduces the legacy hardcoded steps
+            # (drop_orphan -> backfill -> microcompact -> budget -> snip
+            # -> drop_orphan -> backfill) and falls back to minimal repair
+            # on failure. Spec-provided governors override the default.
+            from miniUnicorn.agent.context_governor import GovernanceContext
+            governor = self._get_governor(spec)
+            ctx_gov = GovernanceContext(
+                spec=spec,
+                tools=spec.tools,
+                provider=self.provider,
                 iteration=iteration,
-                allow_goal_continue=True,
+                runner=self,
             )
-            if should_continue:
-                had_injections = True
-
-            if hook.wants_streaming():
-                await hook.on_stream_end(context, resuming=should_continue)
-
-            if should_continue:
-                await hook.after_iteration(context)
-                continue
-
-            if response.finish_reason == "error":
-                if LLMProvider.is_arrearage_response(response):
-                    final_content = _ARREARAGE_ERROR_MESSAGE
-                else:
-                    final_content = clean or spec.error_message or _DEFAULT_ERROR_MESSAGE
-                stop_reason = "error"
-                error = final_content
-                self._append_model_error_placeholder(messages)
-                context.final_content = final_content
-                context.error = error
-                context.stop_reason = stop_reason
-                # Reflection: capture lesson learned on LLM error.
-                if reflection is not None:
-                    await reflection.reflect(
-                        trigger="llm_error",
-                        iteration=iteration,
-                        context_summary=final_content or "LLM error",
-                        messages=messages,
-                        session_key=spec.session_key,
-                    )
-                await hook.after_iteration(context)
-                should_continue, injection_cycles = await self._try_drain_injections(
-                    spec, messages, None, injection_cycles,
-                    phase="after LLM error",
-                )
-                if should_continue:
-                    had_injections = True
-                    continue
-                break
-            if is_blank_text(clean):
-                final_content = EMPTY_FINAL_RESPONSE_MESSAGE
-                stop_reason = "empty_final_response"
-                error = final_content
-                self._append_final_message(messages, final_content)
-                context.final_content = final_content
-                context.error = error
-                context.stop_reason = stop_reason
-                await hook.after_iteration(context)
-                should_continue, injection_cycles = await self._try_drain_injections(
-                    spec, messages, None, injection_cycles,
-                    phase="after empty response",
-                )
-                if should_continue:
-                    had_injections = True
-                    continue
-                break
-
-            messages.append(assistant_message or build_assistant_message(
-                clean,
-                reasoning_content=response.reasoning_content,
-                thinking_blocks=response.thinking_blocks,
-            ))
-            await self._emit_checkpoint(
-                spec,
-                {
-                    "phase": "final_response",
-                    "iteration": iteration,
-                    "model": spec.model,
-                    "assistant_message": messages[-1],
-                    "completed_tool_results": [],
-                    "pending_tool_calls": [],
-                },
+            messages_for_model = governor.govern(messages, ctx_gov)
+        except Exception:
+            logger.exception(
+                "Context governance failed on turn {} for {}; using raw messages",
+                iteration,
+                spec.session_key or "default",
             )
-            # Plan-and-Execute: the LLM produced a non-tool response, which
-            # we interpret as "current step done". Mark it COMPLETED. If more
-            # pending steps remain, continue to the next step (the response
-            # stays in messages as a step result). Only when all steps are
-            # done (or no plan) do we set final_content and break — the last
-            # step's response becomes the turn's final_content.
-            if plan is not None and plan.current_step is not None:
-                from miniUnicorn.agent.planner import StepStatus as _StepStatus
-                completed_step = plan.current_step
-                completed_step.status = _StepStatus.COMPLETED
-                if plan.current_step is not None:
-                    logger.info(
-                        "Step {} completed ({}); {} steps remaining",
-                        completed_step.id, completed_step.action,
-                        len(plan.pending_steps),
-                    )
-                    context.final_content = clean
-                    context.stop_reason = stop_reason
-                    await hook.after_iteration(context)
-                    continue
-                logger.info(
-                    "All plan steps completed (last: {})",
-                    completed_step.action,
-                )
-            final_content = clean
-            context.final_content = final_content
-            context.stop_reason = stop_reason
+            messages_for_model = messages
+        # Plan-and-Execute: inject current step as guidance before LLM call.
+        # We do this AFTER governance so the governor's prior edits to
+        # historical messages are preserved; only the last user message is
+        # appended with step context (non-destructively) to focus the model
+        # on the current step. Each step still flows through the full ReAct
+        # loop (_request_model + _execute_tools), so context governor and
+        # turn budget remain in effect per step.
+        if state.plan is not None and state.plan.current_step is not None:
+            from miniUnicorn.agent.planner import StepStatus as _StepStatus
+            step = state.plan.current_step
+            step.status = _StepStatus.IN_PROGRESS
+            step.iterations_used += 1
+            guidance = (
+                f"\n\n[Current Plan Step {step.id}/{len(state.plan.steps)}: {step.action}]\n"
+                f"Done when: {step.done_criteria or 'step goal achieved'}\n"
+                f"Focus on this step. Use tool_hint={step.tool_hint} if applicable."
+            )
+            messages_for_model = self._inject_step_guidance(messages_for_model, guidance)
+        return messages_for_model
+
+    async def _run_iteration(
+        self, spec: AgentRunSpec, messages: list[dict[str, Any]],
+        state: _RunState, iteration: int, hook: AgentHook,
+    ) -> bool:
+        """Execute one iteration of the run loop.
+
+        Returns True to break the loop, False to continue to the next iteration.
+        """
+        messages_for_model = await self._govern_iteration_messages(
+            spec, messages, iteration, state,
+        )
+        context = AgentHookContext(iteration=iteration, messages=messages)
+        await hook.before_iteration(context)
+        response = await self._request_model(spec, messages_for_model, hook, context)
+        raw_usage = self._usage_dict(response.usage)
+        context.response = response
+        context.usage = dict(raw_usage)
+        context.tool_calls = list(response.tool_calls)
+        self._accumulate_usage(state.usage, raw_usage)
+        if raw_usage:
+            state.last_call_usage = dict(raw_usage)
+        # Budget check: stop early if cumulative usage exceeds limits.
+        _fc, _sr, _err = self._handle_budget_exceeded(
+            state.budget, raw_usage, spec.model, spec, messages,
+            iteration, context, hook,
+        )
+        if _fc is not None:
+            state.final_content, state.stop_reason, state.error = _fc, _sr, _err
             await hook.after_iteration(context)
-            break
-        else:
-            stop_reason = "max_iterations"
-            if spec.max_iterations_message:
-                final_content = spec.max_iterations_message.format(
-                    max_iterations=spec.max_iterations,
+            return True
+
+        reasoning_text, cleaned_content = extract_reasoning(
+            response.reasoning_content,
+            response.thinking_blocks,
+            response.content,
+        )
+        response.content = cleaned_content
+        if reasoning_text and not context.streamed_reasoning:
+            await hook.emit_reasoning(reasoning_text)
+            await hook.emit_reasoning_end()
+            context.streamed_reasoning = True
+
+        if response.should_execute_tools:
+            return await self._execute_tool_branch(
+                spec, response, messages, state, iteration, context, hook,
+            )
+        return await self._handle_final_response(
+            spec, response, messages, messages_for_model, raw_usage,
+            state, iteration, context, hook,
+        )
+
+    async def _execute_tool_branch(
+        self, spec: AgentRunSpec, response: Any,
+        messages: list[dict[str, Any]], state: _RunState,
+        iteration: int, context: AgentHookContext, hook: AgentHook,
+    ) -> bool:
+        """Execute tool calls from the model response.
+
+        Returns True to break the iteration loop, False to continue.
+        """
+        context.tool_calls = list(response.tool_calls)
+        if hook.wants_streaming():
+            await hook.on_stream_end(context, resuming=True)
+
+        assistant_message = build_assistant_message(
+            response.content or "",
+            tool_calls=[tc.to_openai_tool_call() for tc in response.tool_calls],
+            reasoning_content=response.reasoning_content,
+            thinking_blocks=response.thinking_blocks,
+        )
+        messages.append(assistant_message)
+        state.tools_used.extend(tc.name for tc in response.tool_calls)
+        await self._emit_checkpoint(
+            spec,
+            {
+                "phase": "awaiting_tools",
+                "iteration": iteration,
+                "model": spec.model,
+                "assistant_message": assistant_message,
+                "completed_tool_results": [],
+                "pending_tool_calls": [tc.to_openai_tool_call() for tc in response.tool_calls],
+            },
+        )
+
+        await hook.before_execute_tools(context)
+
+        results, new_events, fatal_error = await self._execute_tools(
+            spec,
+            response.tool_calls,
+            state.external_lookup_counts,
+            state.workspace_violation_counts,
+        )
+        state.tool_events.extend(new_events)
+        context.tool_results = list(results)
+        context.tool_events = list(new_events)
+        completed_tool_results: list[dict[str, Any]] = []
+        for tool_call, result in zip(response.tool_calls, results):
+            tool_message = {
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "name": tool_call.name,
+                "content": self._normalize_tool_result(
+                    spec,
+                    tool_call.id,
+                    tool_call.name,
+                    result,
+                ),
+            }
+            messages.append(tool_message)
+            completed_tool_results.append(tool_message)
+        if fatal_error is not None:
+            # Plan-and-Execute: mark current step failed and trigger
+            # replan with the failure reason. Successful steps are
+            # preserved by the planner; the failed step is excluded
+            # from the new plan's approach. When replans are exhausted
+            # we fall through to the normal break below.
+            if state.plan is not None and state.planner is not None and state.plan.current_step is not None:
+                from miniUnicorn.agent.planner import StepStatus as _StepStatus
+                failed_step = state.plan.current_step
+                failed_step.status = _StepStatus.FAILED
+                failed_step.failure_reason = str(fatal_error)
+                if state.plan.can_replan:
+                    logger.info(
+                        "Step {} failed ({}); triggering replan {}/{}",
+                        failed_step.id,
+                        failed_step.action,
+                        state.plan.replan_count + 1,
+                        state.plan.max_replans,
+                    )
+                    state.plan = await state.planner.replan(
+                        state.plan, failed_step, str(fatal_error),
+                        state.planner_task_text or "",
+                        state.planner_tools_summary or "",
+                    )
+                    # Drain tool-result messages are already appended;
+                    # fall through to continue the loop, which picks up
+                    # the new plan's first pending step.
+                    await hook.after_iteration(context)
+                    return False
+                logger.warning(
+                    "Step {} failed and max_replans reached; failing turn",
+                    failed_step.id,
                 )
-            else:
-                final_content = render_template(
-                    "agent/max_iterations_message.md",
-                    strip=True,
-                    max_iterations=spec.max_iterations,
-                )
-            self._append_final_message(messages, final_content)
-            # Reflection: capture lesson learned on max_iterations exhaustion.
-            if reflection is not None:
-                await reflection.reflect(
-                    trigger="max_iterations",
-                    iteration=spec.max_iterations - 1,
-                    context_summary=f"Hit max_iterations ({spec.max_iterations})",
+                state.stop_reason = "plan_failed"
+            state.error = f"Error: {type(fatal_error).__name__}: {fatal_error}"
+            state.final_content = state.error
+            if state.stop_reason != "plan_failed":
+                state.stop_reason = "tool_error"
+            self._append_final_message(messages, state.final_content)
+            context.final_content = state.final_content
+            context.error = state.error
+            context.stop_reason = state.stop_reason
+            # Reflection: capture lesson learned on fatal tool/plan error.
+            if state.reflection is not None:
+                await state.reflection.reflect(
+                    trigger=(
+                        "plan_failed"
+                        if state.stop_reason == "plan_failed"
+                        else "tool_error"
+                    ),
+                    iteration=iteration,
+                    context_summary=state.error,
                     messages=messages,
                     session_key=spec.session_key,
                 )
-            # Drain any remaining injections so they are appended to the
-            # conversation history instead of being re-published as
-            # independent inbound messages by _dispatch's finally block.
-            # We ignore should_continue here because the for-loop has already
-            # exhausted all iterations.
-            drained_after_max_iterations, injection_cycles = await self._try_drain_injections(
-                spec, messages, None, injection_cycles,
-                phase="after max_iterations",
+            await hook.after_iteration(context)
+            should_continue, state.injection_cycles = await self._try_drain_injections(
+                spec, messages, None, state.injection_cycles,
+                phase="after tool error",
             )
-            if drained_after_max_iterations:
-                had_injections = True
-
-        return AgentRunResult(
-            final_content=final_content,
-            messages=messages,
-            tools_used=tools_used,
-            usage=usage,
-            stop_reason=stop_reason,
-            error=error,
-            tool_events=tool_events,
-            had_injections=had_injections,
-            budget_exceeded=(stop_reason == "budget_exceeded"),
-            plan=plan,
-            last_call_usage=last_call_usage,
+            if should_continue:
+                state.had_injections = True
+                return False
+            return True
+        await self._emit_checkpoint(
+            spec,
+            {
+                "phase": "tools_completed",
+                "iteration": iteration,
+                "model": spec.model,
+                "assistant_message": assistant_message,
+                "completed_tool_results": completed_tool_results,
+                "pending_tool_calls": [],
+            },
         )
+        state.empty_content_retries = 0
+        state.length_recovery_count = 0
+        # Checkpoint 1: drain injections after tools, before next LLM call
+        _drained, state.injection_cycles = await self._try_drain_injections(
+            spec, messages, None, state.injection_cycles,
+            phase="after tool execution",
+        )
+        if _drained:
+            state.had_injections = True
+        await hook.after_iteration(context)
+        # Periodic reflection (every reflection_interval iterations).
+        # Non-blocking: fire-and-forget so the main loop isn't slowed.
+        if (
+            state.reflection is not None
+            and (iteration + 1) % getattr(spec, "reflection_interval", 5) == 0
+        ):
+            task = asyncio.create_task(state.reflection.reflect(
+                trigger="periodic",
+                iteration=iteration,
+                context_summary=f"Periodic reflection at iteration {iteration}",
+                messages=messages,
+                session_key=spec.session_key,
+            ))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+        return False
+
+    async def _handle_final_response(
+        self, spec: AgentRunSpec, response: Any,
+        messages: list[dict[str, Any]], messages_for_model: list[dict[str, Any]],
+        raw_usage: dict[str, int], state: _RunState,
+        iteration: int, context: AgentHookContext, hook: AgentHook,
+    ) -> bool:
+        """Handle a non-tool final response from the model.
+
+        Returns True to break the iteration loop, False to continue.
+        """
+        if response.has_tool_calls:
+            logger.warning(
+                "Ignoring tool calls under finish_reason='{}' for {}",
+                response.finish_reason,
+                spec.session_key or "default",
+            )
+
+        clean = hook.finalize_content(context, response.content)
+        if response.finish_reason != "error" and is_blank_text(clean):
+            state.empty_content_retries += 1
+            if state.empty_content_retries < _MAX_EMPTY_RETRIES:
+                logger.warning(
+                    "Empty response on turn {} for {} ({}/{}); retrying",
+                    iteration,
+                    spec.session_key or "default",
+                    state.empty_content_retries,
+                    _MAX_EMPTY_RETRIES,
+                )
+                if hook.wants_streaming():
+                    await hook.on_stream_end(context, resuming=False)
+                await hook.after_iteration(context)
+                return False
+            logger.warning(
+                "Empty response on turn {} for {} after {} retries; attempting finalization",
+                iteration,
+                spec.session_key or "default",
+                state.empty_content_retries,
+                _MAX_EMPTY_RETRIES,
+            )
+            if hook.wants_streaming():
+                await hook.on_stream_end(context, resuming=False)
+            response = await self._request_finalization_retry(spec, messages_for_model)
+            retry_usage = self._usage_dict(response.usage)
+            self._accumulate_usage(state.usage, retry_usage)
+            # Budget check: stop early if cumulative usage exceeds limits.
+            _fc, _sr, _err = self._handle_budget_exceeded(
+                state.budget, retry_usage, spec.model, spec, messages,
+                iteration, context, hook,
+            )
+            if _fc is not None:
+                state.final_content, state.stop_reason, state.error = _fc, _sr, _err
+                self._append_final_message(messages, state.final_content)
+                await hook.after_iteration(context)
+                return True
+            raw_usage = self._merge_usage(raw_usage, retry_usage)
+            context.response = response
+            context.usage = dict(raw_usage)
+            context.tool_calls = list(response.tool_calls)
+            if retry_usage:
+                state.last_call_usage = dict(retry_usage)
+            clean = hook.finalize_content(context, response.content)
+
+        if response.finish_reason == "length" and not is_blank_text(clean):
+            state.length_recovery_count += 1
+            if state.length_recovery_count <= _MAX_LENGTH_RECOVERIES:
+                logger.info(
+                    "Output truncated on turn {} for {} ({}/{}); continuing",
+                    iteration,
+                    spec.session_key or "default",
+                    state.length_recovery_count,
+                    _MAX_LENGTH_RECOVERIES,
+                )
+                if hook.wants_streaming():
+                    await hook.on_stream_end(context, resuming=True)
+                messages.append(build_assistant_message(
+                    clean,
+                    reasoning_content=response.reasoning_content,
+                    thinking_blocks=response.thinking_blocks,
+                ))
+                messages.append(build_length_recovery_message())
+                await hook.after_iteration(context)
+                return False
+
+        assistant_message: dict[str, Any] | None = None
+        if response.finish_reason != "error" and not is_blank_text(clean):
+            assistant_message = build_assistant_message(
+                clean,
+                reasoning_content=response.reasoning_content,
+                thinking_blocks=response.thinking_blocks,
+            )
+
+        # Check for mid-turn injections BEFORE signaling stream end.
+        # If injections are found we keep the stream alive (resuming=True)
+        # so streaming channels don't prematurely finalize the card.
+        should_continue, state.injection_cycles = await self._try_drain_injections(
+            spec, messages, assistant_message, state.injection_cycles,
+            phase="after final response",
+            iteration=iteration,
+            allow_goal_continue=True,
+        )
+        if should_continue:
+            state.had_injections = True
+
+        if hook.wants_streaming():
+            await hook.on_stream_end(context, resuming=should_continue)
+
+        if should_continue:
+            await hook.after_iteration(context)
+            return False
+
+        if response.finish_reason == "error":
+            if LLMProvider.is_arrearage_response(response):
+                state.final_content = _ARREARAGE_ERROR_MESSAGE
+            else:
+                state.final_content = clean or spec.error_message or _DEFAULT_ERROR_MESSAGE
+            state.stop_reason = "error"
+            state.error = state.final_content
+            self._append_model_error_placeholder(messages)
+            context.final_content = state.final_content
+            context.error = state.error
+            context.stop_reason = state.stop_reason
+            # Reflection: capture lesson learned on LLM error.
+            if state.reflection is not None:
+                await state.reflection.reflect(
+                    trigger="llm_error",
+                    iteration=iteration,
+                    context_summary=state.final_content or "LLM error",
+                    messages=messages,
+                    session_key=spec.session_key,
+                )
+            await hook.after_iteration(context)
+            should_continue, state.injection_cycles = await self._try_drain_injections(
+                spec, messages, None, state.injection_cycles,
+                phase="after LLM error",
+            )
+            if should_continue:
+                state.had_injections = True
+                return False
+            return True
+        if is_blank_text(clean):
+            state.final_content = EMPTY_FINAL_RESPONSE_MESSAGE
+            state.stop_reason = "empty_final_response"
+            state.error = state.final_content
+            self._append_final_message(messages, state.final_content)
+            context.final_content = state.final_content
+            context.error = state.error
+            context.stop_reason = state.stop_reason
+            await hook.after_iteration(context)
+            should_continue, state.injection_cycles = await self._try_drain_injections(
+                spec, messages, None, state.injection_cycles,
+                phase="after empty response",
+            )
+            if should_continue:
+                state.had_injections = True
+                return False
+            return True
+
+        messages.append(assistant_message or build_assistant_message(
+            clean,
+            reasoning_content=response.reasoning_content,
+            thinking_blocks=response.thinking_blocks,
+        ))
+        await self._emit_checkpoint(
+            spec,
+            {
+                "phase": "final_response",
+                "iteration": iteration,
+                "model": spec.model,
+                "assistant_message": messages[-1],
+                "completed_tool_results": [],
+                "pending_tool_calls": [],
+            },
+        )
+        # Plan-and-Execute: the LLM produced a non-tool response, which
+        # we interpret as "current step done". Mark it COMPLETED. If more
+        # pending steps remain, continue to the next step (the response
+        # stays in messages as a step result). Only when all steps are
+        # done (or no plan) do we set final_content and break — the last
+        # step's response becomes the turn's final_content.
+        if state.plan is not None and state.plan.current_step is not None:
+            from miniUnicorn.agent.planner import StepStatus as _StepStatus
+            completed_step = state.plan.current_step
+            completed_step.status = _StepStatus.COMPLETED
+            if state.plan.current_step is not None:
+                logger.info(
+                    "Step {} completed ({}); {} steps remaining",
+                    completed_step.id, completed_step.action,
+                    len(state.plan.pending_steps),
+                )
+                context.final_content = clean
+                context.stop_reason = state.stop_reason
+                await hook.after_iteration(context)
+                return False
+            logger.info(
+                "All plan steps completed (last: {})",
+                completed_step.action,
+            )
+        state.final_content = clean
+        context.final_content = state.final_content
+        context.stop_reason = state.stop_reason
+        await hook.after_iteration(context)
+        return True
+
+    async def _handle_max_iterations(
+        self, spec: AgentRunSpec, messages: list[dict[str, Any]],
+        state: _RunState,
+    ) -> None:
+        """Handle max_iterations exhaustion (the for-loop else branch)."""
+        state.stop_reason = "max_iterations"
+        if spec.max_iterations_message:
+            state.final_content = spec.max_iterations_message.format(
+                max_iterations=spec.max_iterations,
+            )
+        else:
+            state.final_content = render_template(
+                "agent/max_iterations_message.md",
+                strip=True,
+                max_iterations=spec.max_iterations,
+            )
+        self._append_final_message(messages, state.final_content)
+        # Reflection: capture lesson learned on max_iterations exhaustion.
+        if state.reflection is not None:
+            await state.reflection.reflect(
+                trigger="max_iterations",
+                iteration=spec.max_iterations - 1,
+                context_summary=f"Hit max_iterations ({spec.max_iterations})",
+                messages=messages,
+                session_key=spec.session_key,
+            )
+        # Drain any remaining injections so they are appended to the
+        # conversation history instead of being re-published as
+        # independent inbound messages by _dispatch's finally block.
+        # We ignore should_continue here because the for-loop has already
+        # exhausted all iterations.
+        drained_after_max_iterations, state.injection_cycles = await self._try_drain_injections(
+            spec, messages, None, state.injection_cycles,
+            phase="after max_iterations",
+        )
+        if drained_after_max_iterations:
+            state.had_injections = True
 
     def _build_request_kwargs(
         self,
@@ -1531,8 +1627,8 @@ class AgentRunner:
             offset += 1
         return updated
 
-    @staticmethod
     def _microcompact(
+        self,
         messages: list[dict[str, Any]],
         tools: ToolRegistry | None = None,
     ) -> list[dict[str, Any]]:
@@ -1541,22 +1637,12 @@ class AgentRunner:
         A tool result is compactable if the tool declares compactable=True OR
         the tool name is in the legacy ``_COMPACTABLE_TOOLS`` whitelist, AND
         the tool's importance is below 1.0 (never drop critical results).
+
+        Uses an incremental scan cache (``_microcompact_cache``) keyed on the
+        messages list identity so repeated calls per turn only scan newly
+        appended messages instead of the whole history.
         """
-        compactable_indices: list[int] = []
-        for idx, msg in enumerate(messages):
-            if msg.get("role") != "tool":
-                continue
-            name = msg.get("name")
-            if not name:
-                continue
-            # Prefer tool metadata when available; fall back to legacy whitelist
-            tool = tools.get(name) if tools else None
-            if tool is not None:
-                if not tool.compactable or tool.importance >= 1.0:
-                    continue
-            elif name not in _COMPACTABLE_TOOLS:
-                continue
-            compactable_indices.append(idx)
+        compactable_indices = self._scan_compactable(messages, tools)
 
         if len(compactable_indices) <= _MICROCOMPACT_KEEP_RECENT:
             return messages
@@ -1575,6 +1661,52 @@ class AgentRunner:
             updated[idx]["content"] = summary
 
         return updated if updated is not None else messages
+
+    def _scan_compactable(
+        self,
+        messages: list[dict[str, Any]],
+        tools: ToolRegistry | None,
+    ) -> list[int]:
+        """Return indices of compactable tool results using an incremental cache.
+
+        The cache is keyed by (list identity, length). When the same list object
+        grows between calls (the common case within a turn), only the newly
+        appended tail is scanned; a new or truncated list triggers a full rescan.
+        """
+        list_id = id(messages)
+        length = len(messages)
+        cached = self._microcompact_cache
+        if (
+            cached is not None
+            and cached[0] == list_id
+            and cached[1] <= length
+        ):
+            # Same list, grown — scan only the tail beyond the cached length.
+            start = cached[1]
+            base = list(cached[2])
+        else:
+            # New list or truncated — full rescan.
+            start = 0
+            base = []
+
+        for idx in range(start, length):
+            msg = messages[idx]
+            if msg.get("role") != "tool":
+                continue
+            name = msg.get("name")
+            if not name:
+                continue
+            # Prefer tool metadata when available; fall back to legacy whitelist
+            tool = tools.get(name) if tools else None
+            if tool is not None:
+                if not tool.compactable or tool.importance >= 1.0:
+                    continue
+            elif name not in _COMPACTABLE_TOOLS:
+                continue
+            base.append(idx)
+
+        self._microcompact_cache = (list_id, length, base)
+        return base
 
     def _apply_tool_result_budget(
         self,
@@ -1624,12 +1756,39 @@ class AgentRunner:
         if estimate <= budget:
             return messages
 
-        system_messages = [dict(msg) for msg in messages if msg.get("role") == "system"]
-        non_system = [dict(msg) for msg in messages if msg.get("role") != "system"]
+        # Incremental per-message token estimates: when the same messages
+        # list grows between calls within a turn (the common case — each loop
+        # iteration appends new tool calls/results), only the newly-appended
+        # tail is re-estimated. A new or truncated list triggers a full rescan.
+        list_id = id(messages)
+        length = len(messages)
+        cached = self._snip_history_cache
+        if cached is not None and cached[0] == list_id and cached[1] <= length:
+            prev_length = cached[1]
+            per_msg_tokens = list(cached[2])
+            for idx in range(prev_length, length):
+                per_msg_tokens.append(estimate_message_tokens(messages[idx]))
+        else:
+            per_msg_tokens = [estimate_message_tokens(msg) for msg in messages]
+        self._snip_history_cache = (list_id, length, per_msg_tokens)
+
+        # Single pass: partition messages and record original indices so we
+        # can look up cached token estimates without re-estimating.
+        system_messages: list[dict[str, Any]] = []
+        non_system: list[dict[str, Any]] = []
+        system_indices: list[int] = []
+        non_system_indices: list[int] = []
+        for idx, msg in enumerate(messages):
+            if msg.get("role") == "system":
+                system_messages.append(dict(msg))
+                system_indices.append(idx)
+            else:
+                non_system.append(dict(msg))
+                non_system_indices.append(idx)
         if not non_system:
             return messages
 
-        system_tokens = sum(estimate_message_tokens(msg) for msg in system_messages)
+        system_tokens = sum(per_msg_tokens[i] for i in system_indices)
         fixed_tokens, _ = estimate_prompt_tokens_chain(
             self.provider,
             spec.model,
@@ -1639,11 +1798,11 @@ class AgentRunner:
         remaining_budget = max(0, budget - max(system_tokens, fixed_tokens))
         kept: list[dict[str, Any]] = []
         kept_tokens = 0
-        for message in reversed(non_system):
-            msg_tokens = estimate_message_tokens(message)
+        for j in range(len(non_system) - 1, -1, -1):
+            msg_tokens = per_msg_tokens[non_system_indices[j]]
             if kept and kept_tokens + msg_tokens > remaining_budget:
                 break
-            kept.append(message)
+            kept.append(non_system[j])
             kept_tokens += msg_tokens
         kept.reverse()
 

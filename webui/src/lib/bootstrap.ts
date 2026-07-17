@@ -1,6 +1,7 @@
 import type { BootstrapResponse } from "./types";
+import { STORAGE_KEYS } from "./storage";
 
-const SECRET_STORAGE_KEY = "miniUnicorn-webui.bootstrap-secret";
+const SECRET_STORAGE_KEY = STORAGE_KEYS.bootstrapSecret;
 
 /** Read a previously saved bootstrap secret from localStorage. */
 export function loadSavedSecret(): string {

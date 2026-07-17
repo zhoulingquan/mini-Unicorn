@@ -23,12 +23,20 @@ class _LoguruBridge(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         level = self._LEVEL_MAP.get(record.levelno, "INFO")
-        frame, depth = logging.currentframe(), 2
-        while frame and frame.f_code.co_filename == logging.__file__:
-            frame, depth = frame.f_back, depth + 1
-        logger.opt(depth=depth, exception=record.exc_info).log(
-            level, "[{lib}] {message}", lib=self.lib_name, message=record.getMessage()
-        )
+        # Stack-frame traversal to find the real caller is expensive at high
+        # log volumes.  Only do it for DEBUG records where the precise caller
+        # location aids troubleshooting; higher levels skip the walk.
+        if level == "DEBUG":
+            frame, depth = logging.currentframe(), 2
+            while frame and frame.f_code.co_filename == logging.__file__:
+                frame, depth = frame.f_back, depth + 1
+            logger.opt(depth=depth, exception=record.exc_info).log(
+                level, "[{lib}] {message}", lib=self.lib_name, message=record.getMessage()
+            )
+        else:
+            logger.opt(exception=record.exc_info).log(
+                level, "[{lib}] {message}", lib=self.lib_name, message=record.getMessage()
+            )
 
 
 def redirect_lib_logging(name: str, level: str | None = None) -> None:

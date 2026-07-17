@@ -15,7 +15,10 @@ from miniUnicorn.bus.events import OutboundMessage
 from miniUnicorn.bus.queue import MessageBus
 from miniUnicorn.channels.base import BaseChannel
 from miniUnicorn.config.schema import Config
-from miniUnicorn.utils.restart import consume_restart_notice_from_env, format_restart_completed_message
+from miniUnicorn.utils.restart import (
+    consume_restart_notice_from_env,
+    format_restart_completed_message,
+)
 
 if TYPE_CHECKING:
     from miniUnicorn.session.manager import SessionManager

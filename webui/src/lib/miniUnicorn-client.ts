@@ -9,6 +9,7 @@ import type {
   GoalStateWsPayload,
   WorkspaceScopePayload,
 } from "./types";
+import { STORAGE_KEYS } from "./storage";
 
 /** WebSocket readyState constants, referenced by value to stay portable
  * across runtimes that don't expose a global ``WebSocket`` (tests, SSR). */
@@ -27,7 +28,7 @@ function wsInboundDebugEnabled(): boolean {
   try {
     if (import.meta.env.MODE === "test") return false;
     const ls = (globalThis as unknown as { localStorage?: Storage }).localStorage;
-    const raw = ls?.getItem("miniUnicorn_debug_ws")?.trim().toLowerCase() ?? "";
+    const raw = ls?.getItem(STORAGE_KEYS.debugWs)?.trim().toLowerCase() ?? "";
     if (raw === "0" || raw === "false" || raw === "off" || raw === "no") {
       return false;
     }

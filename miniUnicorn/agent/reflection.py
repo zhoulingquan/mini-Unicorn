@@ -11,6 +11,7 @@ module is self-contained and does not modify the existing ReAct loop.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from datetime import datetime
@@ -20,7 +21,6 @@ from typing import Any
 from loguru import logger
 
 from miniUnicorn.utils.prompt_templates import render_template
-
 
 # Hard cap on reflection text length to keep reflections.jsonl compact.
 _REFLECTION_MAX_CHARS = 500
@@ -104,7 +104,7 @@ class Reflection:
                 reflection_text = reflection_text[:_REFLECTION_MAX_CHARS] + "..."
             if not reflection_text:
                 return None
-            self._append_reflection({
+            await asyncio.to_thread(self._append_reflection, {
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "trigger": trigger,
                 "iteration": iteration,

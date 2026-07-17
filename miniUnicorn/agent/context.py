@@ -6,8 +6,6 @@ import platform
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from loguru import logger
-
 from miniUnicorn.agent.memory import MemoryStore
 from miniUnicorn.agent.skills import SkillsLoader
 from miniUnicorn.agent.subagent_registry import SubagentDefinition
@@ -66,6 +64,10 @@ class ContextBuilder:
         self.memory = MemoryStore(workspace)
         self.skills = SkillsLoader(workspace, disabled_skills=set(disabled_skills) if disabled_skills else None)
         self.subagent_registry = subagent_registry
+        # bootstrap 文件（AGENTS.md/SOUL.md/USER.md）的 mtime+size 缓存。
+        # build_system_prompt 每次 turn 都会读取，turn 内不变；外部修改（Dream
+        # 或用户）通过 mtime 自动失效。key=Path, value=(mtime_ns, size, content)。
+        self._bootstrap_cache: dict[Path, tuple[int, int, str]] = {}
 
     def build_system_prompt(
         self,
@@ -234,11 +236,33 @@ class ContextBuilder:
 
         for filename in self.BOOTSTRAP_FILES:
             file_path = root / filename
-            if file_path.exists():
-                content = file_path.read_text(encoding="utf-8")
+            content = self._cached_read_bootstrap(file_path)
+            if content:
                 parts.append(f"## {filename}\n\n{content}")
 
         return "\n\n".join(parts) if parts else ""
+
+    def _cached_read_bootstrap(self, path: Path) -> str:
+        """带 mtime+size 校验的缓存读取 bootstrap 文件。
+
+        AGENTS.md/SOUL.md/USER.md 在 turn 内不变，Dream 改写后通过 mtime
+        自动失效。避免每次 build_system_prompt 都做磁盘 IO。
+        """
+        try:
+            st = path.stat()
+        except (FileNotFoundError, OSError):
+            self._bootstrap_cache.pop(path, None)
+            return ""
+        key = (st.st_mtime_ns, st.st_size)
+        cached = self._bootstrap_cache.get(path)
+        if cached is not None and (cached[0], cached[1]) == key:
+            return cached[2]
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            return ""
+        self._bootstrap_cache[path] = (st.st_mtime_ns, st.st_size, content)
+        return content
 
     @staticmethod
     def _is_template_content(content: str, template_path: str) -> bool:

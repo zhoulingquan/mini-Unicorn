@@ -20,8 +20,16 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -161,8 +169,8 @@ export function McpView({ onBack, token }: McpViewProps) {
     try {
       const updated = await runMcpPresetAction(token, "remove", name, {});
       setPayload(updated);
-    } catch {
-      // ignore
+    } catch (err) {
+      setError((err as Error).message);
     } finally {
       setActing(null);
     }
@@ -208,6 +216,8 @@ export function McpView({ onBack, token }: McpViewProps) {
         delete next[server.name];
         return next;
       });
+      // 启用后自动进行连接测试
+      void handleTest(server.name);
     } catch (e) {
       setPresetError((e as Error).message);
     } finally {
@@ -781,23 +791,22 @@ export function McpView({ onBack, token }: McpViewProps) {
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 gap-1 px-2.5 text-[11px] text-muted-foreground/70 hover:text-foreground"
+              className="h-8 gap-1.5 rounded-full px-3 text-[11px] text-muted-foreground/70 hover:text-foreground"
               onClick={() => {
                 setShowImport(true);
                 setImportError(null);
                 setImportText("");
               }}
             >
-              <Upload className="h-3 w-3" />
+              <Upload className="h-3.5 w-3.5" />
               {t("mcp.importConfig")}
             </Button>
-            <span className="text-muted-foreground/30">·</span>
             <Button
               size="sm"
-              className="h-7 gap-1 px-2.5 text-[11px]"
+              className="h-8 gap-1.5 rounded-full px-3 text-[11px]"
               onClick={() => setShowForm(true)}
             >
-              <Plus className="h-3 w-3" />
+              <Plus className="h-3.5 w-3.5" />
               {t("mcp.addServer")}
             </Button>
           </div>
@@ -805,55 +814,45 @@ export function McpView({ onBack, token }: McpViewProps) {
       </div>
 
       {/* Import config modal */}
-      {showImport && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-xl border border-border/60 bg-background p-4 shadow-lg">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold">{t("mcp.importConfig")}</h3>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => setShowImport(false)}
-              >
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            <Textarea
-              placeholder={t("mcp.importPlaceholder")}
-              value={importText}
-              onChange={(e) => setImportText(e.target.value)}
-              className="min-h-[160px] text-[12px] font-mono"
-            />
-            {importError && (
-              <p className="mt-2 text-[11px] text-destructive">{importError}</p>
-            )}
-            <div className="mt-3 flex items-center justify-end gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-3 text-[11px]"
-                onClick={() => {
-                  setShowImport(false);
-                  setImportText("");
-                  setImportError(null);
-                }}
-              >
-                {t("mcp.form.cancel")}
-              </Button>
-              <Button
-                size="sm"
-                className="h-7 gap-1 px-3 text-[11px]"
-                disabled={importing || !importText.trim()}
-                onClick={handleImport}
-              >
-                {importing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
-                {t("mcp.import")}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Dialog open={showImport} onOpenChange={setShowImport}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-sm">{t("mcp.importConfig")}</DialogTitle>
+          </DialogHeader>
+          <Textarea
+            placeholder={t("mcp.importPlaceholder")}
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            className="min-h-[160px] text-[12px] font-mono"
+          />
+          {importError && (
+            <p className="mt-2 text-[11px] text-destructive">{importError}</p>
+          )}
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-3 text-[11px]"
+              onClick={() => {
+                setShowImport(false);
+                setImportText("");
+                setImportError(null);
+              }}
+            >
+              {t("mcp.form.cancel")}
+            </Button>
+            <Button
+              size="sm"
+              className="h-7 gap-1 px-3 text-[11px]"
+              disabled={importing || !importText.trim()}
+              onClick={handleImport}
+            >
+              {importing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+              {t("mcp.import")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -892,10 +891,10 @@ function PresetCard({
       className={cn(
         "group flex flex-col rounded-lg border px-2.5 py-2 transition-colors",
         hasError
-          ? "border-amber-500/30 bg-amber-500/[0.03]"
+          ? "border-amber-500/40 bg-amber-500/[0.03]"
           : isConfigured
-            ? "border-border/60 bg-background hover:border-violet-500/40"
-            : "border-muted/60 bg-muted/20 opacity-70 hover:opacity-100",
+            ? "border-border bg-background hover:border-violet-500/60"
+            : "border-border bg-muted/20 opacity-70 hover:opacity-100",
       )}
     >
       <div className="flex items-start gap-2">
@@ -912,16 +911,10 @@ function PresetCard({
             </span>
             {statusIcon(server.status)}
           </div>
-          <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground/70">
-            {server.description}
-          </p>
+          <div className="mt-0.5 flex items-center gap-1 text-[9px] text-muted-foreground/50">
+            <span className="uppercase">{server.transport}</span>
+          </div>
         </div>
-      </div>
-
-      <div className="mt-2 flex items-center justify-between">
-        <span className="text-[9px] uppercase tracking-wider text-muted-foreground/50">
-          {server.transport}
-        </span>
         <ToggleSwitch
           checked={isConfigured}
           disabled={enabling}
@@ -929,6 +922,10 @@ function PresetCard({
           ariaLabel={isConfigured ? t("mcp.enabled") : t("mcp.enable")}
         />
       </div>
+
+      <p className="mt-1.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground/70">
+        {server.description}
+      </p>
 
       {expanded && needsFields && (
         <div className="mt-2 space-y-2 rounded-md border border-border/40 bg-muted/20 p-2">
@@ -1022,17 +1019,18 @@ function ServerCard({
   const toolNames = server.tool_names ?? [];
   const hasTools = toolNames.length > 0;
   const selected = enabledToolsCache ?? [];
+  const docsUrl = server.docs_url;
 
   return (
     <div
       className={cn(
         "group flex flex-col rounded-lg border px-2.5 py-2 transition-colors",
         isConfigured
-          ? "border-border/60 bg-background hover:border-violet-500/40"
-          : "border-amber-500/30 bg-amber-500/[0.03]",
+          ? "border-border bg-background hover:border-violet-500/60"
+          : "border-amber-500/40 bg-amber-500/[0.03]",
       )}
     >
-      {/* Header: icon + name + status */}
+      {/* Header: icon + name + status + toggle */}
       <div className="flex items-start gap-2">
         <div
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white"
@@ -1057,6 +1055,12 @@ function ServerCard({
             )}
           </div>
         </div>
+        <ToggleSwitch
+          checked={isConfigured}
+          disabled={isActing}
+          onClick={() => onRemove(server.name)}
+          ariaLabel={t("mcp.enabled")}
+        />
       </div>
 
       {/* Body: description */}
@@ -1174,13 +1178,17 @@ function ServerCard({
           >
             <Wrench className="h-3 w-3" />
           </Button>
-          {server.docs_url && (
+          {docsUrl && (
             <a
-              href={server.docs_url}
+              href={docsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/50 hover:bg-accent/40 hover:text-foreground"
-              title="docs"
+              onClick={(e) => {
+                e.preventDefault();
+                window.open(docsUrl, "_blank", "noopener,noreferrer");
+              }}
+              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/50 hover:bg-accent/40 hover:text-foreground"
+              title={docsUrl}
             >
               <ExternalLink className="h-3 w-3" />
             </a>
@@ -1222,39 +1230,5 @@ function FormField({
       </label>
       {children}
     </div>
-  );
-}
-
-function ToggleSwitch({
-  checked,
-  disabled,
-  onClick,
-  ariaLabel,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-  ariaLabel: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={ariaLabel}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
-        checked ? "bg-violet-500" : "bg-muted-foreground/30",
-      )}
-    >
-      <span
-        className={cn(
-          "inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform",
-          checked ? "translate-x-3.5" : "translate-x-0.5",
-        )}
-      />
-    </button>
   );
 }

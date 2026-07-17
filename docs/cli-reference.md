@@ -11,10 +11,10 @@
 | `miniUnicorn agent` | Interactive chat mode |
 | `miniUnicorn agent --no-markdown` | Show plain-text replies |
 | `miniUnicorn agent --logs` | Show runtime logs during chat |
-| `MiniUnicorn serve` | Start the OpenAI-compatible API |
+| `miniUnicorn serve` | Start the OpenAI-compatible API |
 | `miniUnicorn gateway` | Start the gateway |
 | `miniUnicorn status` | Show status |
-| `MiniUnicorn provider login openai-codex` | OAuth login for providers |
+| `miniUnicorn provider login openai-codex` | OAuth login for providers |
 | `miniUnicorn channels login <channel>` | Authenticate a channel interactively |
 | `miniUnicorn channels status` | Show channel status |
 

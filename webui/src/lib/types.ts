@@ -692,6 +692,56 @@ export interface SlashCommand {
   argHint?: string;
 }
 
+/** 字段 UI 控件类型，由后端从 pydantic Config 类自动推断。 */
+export type ChannelFieldUiType =
+  | "text"
+  | "password"
+  | "number"
+  | "boolean"
+  | "list"
+  | "select";
+
+/** 单个 Config 字段的元数据，供前端动态渲染表单使用。 */
+export interface ChannelFieldSchema {
+  name: string;
+  alias: string;
+  label: string;
+  ui_type: ChannelFieldUiType;
+  options: string[] | null;
+  required: boolean;
+  default: unknown;
+  description: string;
+  secret: boolean;
+}
+
+/** 单个 channel 的展示信息和当前配置。 */
+export interface ChannelPayload {
+  name: string;
+  display_name: string;
+  description: string;
+  configured: boolean;
+  enabled: boolean;
+  config: Record<string, unknown> | null;
+  /** Channel 类的 default_config() 返回的完整字段模板，供 UI 填充与 toggle 启用兜底使用。 */
+  default_config: Record<string, unknown> | null;
+  /** Config 类字段元数据列表，供前端动态渲染表单（参考 QwenPaw Console）。 */
+  config_schema: ChannelFieldSchema[] | null;
+}
+
+export interface ChannelsPayload {
+  channels: ChannelPayload[];
+  defaults: {
+    send_progress: boolean;
+    send_tool_hints: boolean;
+    show_reasoning: boolean;
+    extract_document_text: boolean;
+    send_max_retries: number;
+    transcription_provider: string;
+    transcription_language: string | null;
+  };
+  requires_restart: boolean;
+}
+
 export type ConnectionStatus =
   | "idle"
   | "connecting"

@@ -73,7 +73,7 @@ class CronTool(Tool, ContextAware):
 
     @classmethod
     def create(cls, ctx: Any) -> Tool:
-        return cls(cron_service=ctx.cron_service, default_timezone="system")
+        return cls(cron_service=ctx.cron_service, default_timezone=ctx.timezone or "system")
 
     def set_context(self, ctx: RequestContext) -> None:
         """Set the current session context for delivery."""

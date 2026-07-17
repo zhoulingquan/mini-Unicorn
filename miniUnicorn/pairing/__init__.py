@@ -1,6 +1,7 @@
 """Pairing module for DM sender approval."""
 
 from miniUnicorn.pairing.store import (
+    clear_channel,
     approve_code,
     deny_code,
     format_expiry,
@@ -11,6 +12,7 @@ from miniUnicorn.pairing.store import (
     is_approved,
     list_pending,
     revoke,
+    revoke_channel,
 )
 
 # Metadata keys used by channels and commands to tag pairing-related messages.
@@ -18,6 +20,7 @@ PAIRING_CODE_META_KEY = "_pairing_code"
 PAIRING_COMMAND_META_KEY = "_pairing_command"
 
 __all__ = [
+    "clear_channel",
     "approve_code",
     "deny_code",
     "format_expiry",
@@ -28,6 +31,7 @@ __all__ = [
     "is_approved",
     "list_pending",
     "revoke",
+    "revoke_channel",
     "PAIRING_CODE_META_KEY",
     "PAIRING_COMMAND_META_KEY",
 ]

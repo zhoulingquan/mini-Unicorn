@@ -21,19 +21,42 @@ __all__ = ("router",)
 
 # Agent names are used directly as filenames (``agents/<name>.md``), so they
 # must be conservative: letters, digits, dots, dashes, underscores only.
+# The regex is a strict whitelist — it already forbids slashes and path
+# separators, so no additional denylist sanitisation is needed.
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+# Per-workspace registry cache so that repeated list/read calls within the
+# same process do not reload every ``.md`` file from disk each time.
+# Invalidated by save/delete operations.
+_registry_cache: dict[Path, SubagentRegistry] = {}
+
+
+def _get_registry(workspace: Path) -> SubagentRegistry:
+    """Return a cached :class:`SubagentRegistry` for *workspace*."""
+    cached = _registry_cache.get(workspace)
+    if cached is None:
+        cached = SubagentRegistry(workspace)
+        cached.load()
+        _registry_cache[workspace] = cached
+    return cached
+
+
+def _invalidate_registry_cache(workspace: Path) -> None:
+    """Drop the cached registry for *workspace* (call after writes/deletes)."""
+    _registry_cache.pop(workspace, None)
 
 
 def _validate_agent_name(name: str) -> str | None:
-    """Return the sanitized name, or ``None`` if it is invalid or unsafe."""
+    """Return the validated name, or ``None`` if it is invalid or unsafe.
+
+    Uses a single whitelist regex (``[A-Za-z0-9][A-Za-z0-9._-]*``) that
+    permits only filename-safe characters and requires an alphanumeric
+    leading character.  This inherently rejects ``/``, ``\\``, and ``..``
+    traversal attempts without separate denylist stripping.
+    """
     if not name or not _NAME_RE.match(name):
         return None
-    # Defense-in-depth against directory traversal even though the regex
-    # already forbids slashes.
-    safe = name.replace("/", "").replace("\\", "").replace("..", "")
-    if safe != name:
-        return None
-    return safe
+    return name
 
 
 def _definition_to_dict(defn) -> dict[str, Any]:
@@ -58,8 +81,7 @@ class _AgentsRouter:
 
     @staticmethod
     def list_agents(workspace: Path) -> dict[str, Any]:
-        registry = SubagentRegistry(workspace)
-        registry.load()
+        registry = _get_registry(workspace)
         return {"agents": [_definition_to_dict(d) for d in registry.list_all()]}
 
     @staticmethod
@@ -67,8 +89,7 @@ class _AgentsRouter:
         safe = _validate_agent_name(name)
         if not safe:
             return None
-        registry = SubagentRegistry(workspace)
-        registry.load()
+        registry = _get_registry(workspace)
         defn = registry.get(safe)
         if defn is None:
             return None
@@ -95,6 +116,7 @@ class _AgentsRouter:
         agents_dir.mkdir(parents=True, exist_ok=True)
         path = agents_dir / f"{safe}.md"
         path.write_text(content, encoding="utf-8")
+        _invalidate_registry_cache(workspace)
         return str(path)
 
     @staticmethod
@@ -107,6 +129,7 @@ class _AgentsRouter:
         if not path.exists():
             return False
         path.unlink()
+        _invalidate_registry_cache(workspace)
         return True
 
     @staticmethod

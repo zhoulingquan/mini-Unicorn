@@ -10,12 +10,10 @@
 from __future__ import annotations
 
 import re
-import shutil
 import sys
 import tempfile
 import zipfile
 from pathlib import Path
-from xml.dom import minidom
 
 
 def _accept_in_document_xml(xml_text: str) -> str:

@@ -64,23 +64,29 @@ function formatTimestamp(ms: number | null | undefined): string {
   return date.toLocaleString();
 }
 
-function describeSchedule(job: CronJobPayload): string {
+type CronTFunc = (key: string, options?: Record<string, unknown>) => string;
+
+function describeSchedule(job: CronJobPayload, t: CronTFunc): string {
   const s = job.schedule;
   if (s.kind === "every") {
     const seconds = (s.every_ms ?? 0) / 1000;
     if (seconds >= 3600 && seconds % 3600 === 0) {
-      return `每 ${seconds / 3600} 小时`;
+      return t("cron.describeSchedule.everyHours", { count: seconds / 3600 });
     }
     if (seconds >= 60 && seconds % 60 === 0) {
-      return `每 ${seconds / 60} 分钟`;
+      return t("cron.describeSchedule.everyMinutes", { count: seconds / 60 });
     }
-    return `每 ${seconds} 秒`;
+    return t("cron.describeSchedule.everySeconds", { count: seconds });
   }
   if (s.kind === "cron") {
-    return `cron: ${s.expr ?? "?"}${s.tz && s.tz !== "system" ? ` (${s.tz})` : ""}`;
+    const expr = s.expr ?? "?";
+    if (s.tz && s.tz !== "system") {
+      return t("cron.describeSchedule.cronWithTz", { expr, tz: s.tz });
+    }
+    return t("cron.describeSchedule.cron", { expr });
   }
   if (s.kind === "at") {
-    return `于 ${formatTimestamp(s.at_ms)}（一次性）`;
+    return t("cron.describeSchedule.at", { timestamp: formatTimestamp(s.at_ms) });
   }
   return s.kind;
 }
@@ -261,7 +267,6 @@ export function CronView({ onBack, token }: CronViewProps) {
                 }}
                 saving={saving}
                 error={formError}
-                t={t}
               />
             ) : null}
 
@@ -284,7 +289,6 @@ export function CronView({ onBack, token }: CronViewProps) {
                     onToggle={() => handleToggle(job)}
                     onDelete={() => handleDelete(job.id)}
                     acting={actingId === job.id}
-                    t={t}
                   />
                 ))}
               </section>
@@ -302,7 +306,6 @@ export function CronView({ onBack, token }: CronViewProps) {
                     onToggle={() => handleToggle(job)}
                     onDelete={() => handleDelete(job.id)}
                     acting={actingId === job.id}
-                    t={t}
                   />
                 ))}
               </section>
@@ -321,7 +324,6 @@ interface CreateJobFormProps {
   onCancel: () => void;
   saving: boolean;
   error: string | null;
-  t: (key: string, options?: Record<string, unknown>) => string;
 }
 
 function CreateJobForm({
@@ -331,8 +333,8 @@ function CreateJobForm({
   onCancel,
   saving,
   error,
-  t,
 }: CreateJobFormProps) {
+  const { t } = useTranslation();
   const scheduleOptions: Array<{ value: CronScheduleKind; label: string }> = [
     { value: "every", label: t("cron.schedule.every") },
     { value: "cron", label: t("cron.schedule.cron") },
@@ -494,11 +496,11 @@ interface JobCardProps {
   onToggle: () => void;
   onDelete: () => void;
   acting: boolean;
-  t: (key: string, options?: Record<string, unknown>) => string;
 }
 
-function JobCard({ job, onToggle, onDelete, acting, t }: JobCardProps) {
-  const scheduleText = describeSchedule(job);
+function JobCard({ job, onToggle, onDelete, acting }: JobCardProps) {
+  const { t } = useTranslation();
+  const scheduleText = describeSchedule(job, t);
   const nextRun = formatTimestamp(job.state.next_run_at_ms);
   const lastRun = formatTimestamp(job.state.last_run_at_ms);
 

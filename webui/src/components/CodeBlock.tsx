@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -70,12 +70,27 @@ export function CodeBlock({
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const isDark = useThemeValue() === "dark";
+  const copyResetTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetTimerRef.current !== null) {
+        window.clearTimeout(copyResetTimerRef.current);
+      }
+    };
+  }, []);
 
   const onCopy = useCallback(() => {
     if (!navigator.clipboard) return;
     navigator.clipboard.writeText(code).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 1_500);
+      if (copyResetTimerRef.current !== null) {
+        window.clearTimeout(copyResetTimerRef.current);
+      }
+      copyResetTimerRef.current = window.setTimeout(() => {
+        setCopied(false);
+        copyResetTimerRef.current = null;
+      }, 1_500);
     });
   }, [code]);
 
@@ -103,6 +118,7 @@ export function CodeBlock({
           onClick={onCopy}
           className={cn(
             "inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono transition-colors",
+            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2",
             isDark
               ? "text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
               : "text-zinc-500 hover:bg-zinc-200 hover:text-zinc-700",

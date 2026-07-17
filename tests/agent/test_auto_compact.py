@@ -115,10 +115,10 @@ def _make_fake_compact(
 class TestSessionTTLConfig:
     """Test session TTL configuration."""
 
-    def test_default_ttl_is_zero(self):
-        """Default TTL should be 0 (disabled)."""
+    def test_default_ttl_is_24h(self):
+        """Default TTL should be 1440 minutes (24h, enabled by default)."""
         defaults = AgentDefaults()
-        assert defaults.session_ttl_minutes == 0
+        assert defaults.session_ttl_minutes == 1440
 
     def test_custom_ttl(self):
         """Custom TTL should be stored correctly."""

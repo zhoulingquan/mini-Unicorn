@@ -82,6 +82,7 @@ import {
   providerDisplayLabel,
 } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
+import { STORAGE_KEYS } from "@/lib/storage";
 import { useClient } from "@/providers/ClientProvider";
 import type { ThemeMode } from "@/hooks/useTheme";
 import type {
@@ -133,7 +134,7 @@ type RestartAwarePayload = {
 type ProviderApiType = "auto" | "chat_completions" | "responses";
 type ProviderForm = { apiKey: string; apiBase: string; apiType: ProviderApiType; model: string };
 
-const LOCAL_PREFS_STORAGE_KEY = "miniUnicorn-webui.settings-preferences";
+const LOCAL_PREFS_STORAGE_KEY = STORAGE_KEYS.settingsPreferences;
 
 const DEFAULT_LOCAL_PREFS: LocalPreferences = {
   density: "comfortable",
@@ -349,22 +350,30 @@ export function SettingsView({
     }
   }, [localPrefs]);
 
+  const settingsProviders = settings?.providers;
+  const settingsModelPresets = settings?.model_presets;
+  const settingsAgent = settings?.agent;
+  const settingsAdvanced = settings?.advanced;
+  const settingsRuntime = settings?.runtime;
+  const settingsWebSearch = settings?.web_search;
+  const settingsWeb = settings?.web;
+
   useEffect(() => {
-    if (!settings) return;
+    if (!settingsProviders || !settingsModelPresets || !settingsAgent) return;
     setProviderForms((prev) => {
       const next = { ...prev };
-      for (const provider of settings.providers) {
+      for (const provider of settingsProviders) {
         // Find the model associated with this provider: check active preset first,
         // then any preset using this provider, then the agent default model.
-        const activePreset = settings.model_presets.find((p) => p.active);
+        const activePreset = settingsModelPresets.find((p) => p.active);
         const matchingPreset =
-          activePreset && (activePreset.provider === provider.name || (activePreset.is_default && settings.agent.provider === provider.name))
+          activePreset && (activePreset.provider === provider.name || (activePreset.is_default && settingsAgent.provider === provider.name))
             ? activePreset
-            : settings.model_presets.find((p) => !p.is_default && p.provider === provider.name);
+            : settingsModelPresets.find((p) => !p.is_default && p.provider === provider.name);
         const inferredModel =
           prev[provider.name]?.model ??
           (matchingPreset ? matchingPreset.model : "") ??
-          (settings.agent.provider === provider.name ? settings.agent.model : "") ??
+          (settingsAgent.provider === provider.name ? settingsAgent.model : "") ??
           "";
         next[provider.name] = {
           apiKey: next[provider.name]?.apiKey ?? "",
@@ -378,18 +387,18 @@ export function SettingsView({
     // Mark already-configured providers as saved on initial load / refresh.
     setProviderSaved((prev) => {
       const next = { ...prev };
-      for (const provider of settings.providers) {
+      for (const provider of settingsProviders) {
         if (next[provider.name] === undefined) {
           next[provider.name] = provider.configured;
         }
       }
       return next;
     });
-  }, [settings]);
+  }, [settingsProviders, settingsModelPresets, settingsAgent]);
 
   useEffect(() => {
     try {
-      localStorage.removeItem("miniUnicorn:providerModels");
+      localStorage.removeItem(STORAGE_KEYS.providerModels);
     } catch {
       // ignore
     }
@@ -412,30 +421,30 @@ export function SettingsView({
   }, [form, settings]);
 
   const networkSafetyDirty = useMemo(() => {
-    if (!settings) return false;
+    if (!settingsAdvanced) return false;
     const currentLocalServiceAccess =
-      settings.advanced.webui_allow_local_service_access ?? settings.advanced.allow_local_preview_access ?? true;
-    const currentDefaultAccess = visibleWebuiDefaultAccessMode(settings.advanced.webui_default_access_mode);
+      settingsAdvanced.webui_allow_local_service_access ?? settingsAdvanced.allow_local_preview_access ?? true;
+    const currentDefaultAccess = visibleWebuiDefaultAccessMode(settingsAdvanced.webui_default_access_mode);
     return (
       networkSafetyForm.webuiAllowLocalServiceAccess !== currentLocalServiceAccess ||
       networkSafetyForm.webuiDefaultAccessMode !== currentDefaultAccess
     );
-  }, [networkSafetyForm, settings]);
+  }, [networkSafetyForm, settingsAdvanced]);
 
   const runtimeDirty = useMemo(() => {
-    if (!settings) return false;
+    if (!settingsRuntime) return false;
     return (
-      runtimeForm.heartbeatIntervalS !== settings.runtime.heartbeat.interval_s ||
-      runtimeForm.dreamIntervalH !== parseDreamIntervalHours(settings.runtime.dream.schedule)
+      runtimeForm.heartbeatIntervalS !== settingsRuntime.heartbeat.interval_s ||
+      runtimeForm.dreamIntervalH !== parseDreamIntervalHours(settingsRuntime.dream.schedule)
     );
-  }, [runtimeForm, settings]);
+  }, [runtimeForm, settingsRuntime]);
 
   const configuredModelProviderOptions = useMemo(
     () =>
-      settings?.providers
-        .filter((provider) => provider.configured)
+      settingsProviders
+        ?.filter((provider) => provider.configured)
         .map((provider) => ({ name: provider.name, label: provider.label })) ?? [],
-    [settings],
+    [settingsProviders],
   );
 
   const hasPendingRestart = useMemo(
@@ -757,20 +766,20 @@ export function SettingsView({
   };
 
   const resetProviderDraft = useCallback((providerName: string) => {
-    const provider = settings?.providers.find((item) => item.name === providerName);
+    const provider = settingsProviders?.find((item) => item.name === providerName);
     if (!provider) return;
-    const activePreset = settings?.model_presets.find((p) => p.active);
+    const activePreset = settingsModelPresets?.find((p) => p.active);
     const matchingPreset =
-      activePreset && (activePreset.provider === providerName || (activePreset.is_default && settings?.agent.provider === providerName))
+      activePreset && (activePreset.provider === providerName || (activePreset.is_default && settingsAgent?.provider === providerName))
         ? activePreset
-        : settings?.model_presets.find((p) => !p.is_default && p.provider === providerName);
+        : settingsModelPresets?.find((p) => !p.is_default && p.provider === providerName);
     setProviderForms((prev) => ({
       ...prev,
       [providerName]: {
         apiKey: "",
         apiBase: provider.api_base ?? provider.default_api_base ?? "",
         apiType: provider.api_type ?? "auto",
-        model: matchingPreset?.model ?? (settings?.agent.provider === providerName ? (settings.agent.model || "") : ""),
+        model: matchingPreset?.model ?? (settingsAgent?.provider === providerName ? (settingsAgent.model || "") : ""),
       },
     }));
     setVisibleProviderKeys((prev) => ({ ...prev, [providerName]: false }));
@@ -781,7 +790,7 @@ export function SettingsView({
       delete next[providerName];
       return next;
     });
-  }, [settings]);
+  }, [settingsProviders, settingsModelPresets, settingsAgent]);
 
   const handleToggleProvider = useCallback((providerName: string) => {
     if (expandedProvider) resetProviderDraft(expandedProvider);
@@ -799,32 +808,32 @@ export function SettingsView({
   }, [expandedProvider, resetProviderDraft]);
 
   const resetWebSearchDraft = useCallback(() => {
-    if (!settings) return;
+    if (!settingsWebSearch || !settingsWeb) return;
     setWebSearchForm({
-      provider: settings.web_search.provider,
+      provider: settingsWebSearch.provider,
       apiKey: "",
-      baseUrl: settings.web_search.base_url ?? "",
-      maxResults: settings.web_search.max_results,
-      timeout: settings.web_search.timeout,
-      useJinaReader: settings.web.fetch.use_jina_reader,
+      baseUrl: settingsWebSearch.base_url ?? "",
+      maxResults: settingsWebSearch.max_results,
+      timeout: settingsWebSearch.timeout,
+      useJinaReader: settingsWeb.fetch.use_jina_reader,
     });
     setWebSearchKeyVisible(false);
     setWebSearchKeyEditing(false);
-  }, [settings]);
+  }, [settingsWebSearch, settingsWeb]);
 
   const handleWebSearchProviderChange = useCallback((provider: string) => {
-    if (!settings) return;
+    if (!settingsWebSearch || !settingsWeb) return;
     setWebSearchForm((prev) => ({
       provider,
       apiKey: "",
-      baseUrl: provider === settings.web_search.provider ? settings.web_search.base_url ?? "" : "",
-      maxResults: prev.maxResults ?? settings.web_search.max_results,
-      timeout: prev.timeout ?? settings.web_search.timeout,
-      useJinaReader: prev.useJinaReader ?? settings.web.fetch.use_jina_reader,
+      baseUrl: provider === settingsWebSearch.provider ? settingsWebSearch.base_url ?? "" : "",
+      maxResults: prev.maxResults ?? settingsWebSearch.max_results,
+      timeout: prev.timeout ?? settingsWebSearch.timeout,
+      useJinaReader: prev.useJinaReader ?? settingsWeb.fetch.use_jina_reader,
     }));
     setWebSearchKeyVisible(false);
     setWebSearchKeyEditing(false);
-  }, [settings]);
+  }, [settingsWebSearch, settingsWeb]);
 
   const toggleProviderKeyVisibility = (providerName: string) => {
     const isVisible = visibleProviderKeys[providerName];

@@ -21,6 +21,8 @@ import {
   History,
   ImageIcon,
   Loader2,
+  Maximize2,
+  Minimize2,
   Plus,
   RotateCw,
   Shield,
@@ -73,6 +75,7 @@ import type {
 } from "@/lib/types";
 import { inferProviderFromModelName, providerBrand } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
+import { STORAGE_KEYS } from "@/lib/storage";
 
 /** ``<input accept>``:与后端 MIME 白名单对齐。图片走 image worker,
  * 文档走直接 base64 路径。SVG 被刻意排除以避免嵌入式脚本的 XSS 风险。 */
@@ -129,6 +132,8 @@ interface ThreadComposerProps {
   contextWindowTokens?: number | null;
   /** 最近一轮对话最后一次 LLM 调用的 token usage(从 turn_end 推送)。 */
   contextUsage?: ContextUsagePayload | null;
+  /** Session key used to reset per-conversation refs (e.g. chipRefs) on switch. */
+  conversationKey?: string | null;
 }
 
 const COMMAND_ICONS: Record<string, LucideIcon> = {
@@ -149,7 +154,7 @@ const SLASH_PALETTE_GAP_PX = 8;
 const SLASH_PALETTE_MAX_HEIGHT_PX = 288;
 const SLASH_PALETTE_MIN_HEIGHT_PX = 144;
 const SLASH_PALETTE_CHROME_PX = 12;
-const SLASH_RECENTS_STORAGE_KEY = "miniUnicorn.webui.slashCommandRecents";
+const SLASH_RECENTS_STORAGE_KEY = STORAGE_KEYS.slashCommandRecents;
 const SLASH_RECENTS_LIMIT = 5;
 
 type SlashPalettePlacement = "above" | "below";
@@ -468,10 +473,12 @@ export function ThreadComposer({
   messageCount = 0,
   contextWindowTokens = null,
   contextUsage = null,
+  conversationKey = null,
 }: ThreadComposerProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
   const [inlineError, setInlineError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [recentSlashCommands, setRecentSlashCommands] = useState<string[]>(() => readSlashRecents());
@@ -479,6 +486,14 @@ export function ThreadComposer({
   const formRef = useRef<HTMLFormElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chipRefs = useRef(new Map<string, HTMLButtonElement>());
+  const lastConversationKeyRef = useRef<string | null>(conversationKey);
+
+  useEffect(() => {
+    if (lastConversationKeyRef.current === conversationKey) return;
+    lastConversationKeyRef.current = conversationKey;
+    chipRefs.current.clear();
+  }, [conversationKey]);
+
   const isHero = variant === "hero";
   const showProjectPicker =
     isHero
@@ -530,6 +545,16 @@ export function ThreadComposer({
     const id = requestAnimationFrame(() => el.focus());
     return () => cancelAnimationFrame(id);
   }, [disabled]);
+
+  // 展开/收起时重新调整输入框高度
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const maxH = expanded ? 400 : 260;
+    const minH = expanded ? 200 : 0;
+    el.style.height = `${Math.max(minH, Math.min(el.scrollHeight, maxH))}px`;
+  }, [expanded]);
 
   const readyImages = useMemo(
     () => images.filter((img): img is AttachedImage & { dataUrl: string } =>
@@ -731,10 +756,12 @@ export function ThreadComposer({
       const el = textareaRef.current;
       if (!el) return;
       el.style.height = "auto";
-      el.style.height = `${Math.min(el.scrollHeight, 260)}px`;
+      const maxH = expanded ? 400 : 260;
+      const minH = expanded ? 200 : 0;
+      el.style.height = `${Math.max(minH, Math.min(el.scrollHeight, maxH))}px`;
       el.focus();
     });
-  }, []);
+  }, [expanded]);
 
   const chooseSlashCommand = useCallback(
     (command: SlashCommand) => {
@@ -824,6 +851,8 @@ export function ThreadComposer({
       }
     }
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      // 展开模式下回车不提交,改为换行,方便输入大段文字
+      if (expanded) return;
       e.preventDefault();
       submit();
     }
@@ -832,7 +861,9 @@ export function ThreadComposer({
   const onInput: React.FormEventHandler<HTMLTextAreaElement> = (e) => {
     const el = e.currentTarget;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 260)}px`;
+    const maxH = expanded ? 400 : 260;
+    const minH = expanded ? 200 : 0;
+    el.style.height = `${Math.max(minH, Math.min(el.scrollHeight, maxH))}px`;
   };
 
   const onFilePick: React.ChangeEventHandler<HTMLInputElement> = (e) => {
@@ -884,6 +915,7 @@ export function ThreadComposer({
           centerHeroPlaceholder ? "pb-2 pt-5" : "pb-1.5 pt-3",
         )
       : "min-h-[42px] px-3.5 pb-1.5 pt-2.5 text-[13px] leading-5",
+    expanded && "pr-10",
   );
 
   return (
@@ -995,6 +1027,40 @@ export function ThreadComposer({
               "disabled:cursor-not-allowed",
             )}
           />
+          <TooltipProvider delayDuration={200} skipDelayDuration={300}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setExpanded((v) => !v)}
+                  aria-label={expanded ? t("thread.composer.collapseInput") : t("thread.composer.expandInput")}
+                  className={cn(
+                    "absolute right-2 top-2 z-20 grid h-7 w-7 place-items-center rounded-full",
+                    "text-muted-foreground/70 transition-colors hover:bg-muted/60 hover:text-foreground",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  )}
+                >
+                  {expanded ? (
+                    <Minimize2 className="h-4 w-4" aria-hidden />
+                  ) : (
+                    <Maximize2 className="h-3.5 w-3.5" aria-hidden />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent
+                side="left"
+                align="center"
+                sideOffset={8}
+                collisionPadding={12}
+                className={cn(
+                  "rounded-[10px] border-border/60 bg-popover/95 px-2.5 py-1.5",
+                  "text-[11.5px] leading-snug text-popover-foreground shadow-md backdrop-blur",
+                )}
+              >
+                {expanded ? t("thread.composer.collapseInputHint") : t("thread.composer.expandInputHint")}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
         {inlineError ? (
           <div
@@ -1110,31 +1176,76 @@ export function ThreadComposer({
               isHero={isHero}
               hasInput={value.trim().length > 0}
             />
-            <Button
-              type={showStopButton ? "button" : "submit"}
-              size="icon"
-              disabled={showStopButton ? disabled : !canSend}
-              aria-label={showStopButton ? t("thread.composer.stop") : t("thread.composer.send")}
-              onClick={showStopButton ? onStop : undefined}
-              className={cn(
-                "rounded-full transition-transform",
-                showStopButton
-                  ? "border border-border/70 bg-card text-foreground/85 shadow-[0_3px_10px_rgba(15,23,42,0.08)] hover:bg-muted/65 hover:text-foreground disabled:text-muted-foreground/50"
-                  : isHero
-                    ? "border border-foreground bg-foreground text-background shadow-[0_4px_12px_rgba(15,23,42,0.20)] hover:bg-foreground/90 disabled:border-foreground/35 disabled:bg-foreground/35 disabled:text-background/80"
-                    : "border border-foreground bg-foreground text-background shadow-[0_3px_10px_rgba(15,23,42,0.18)] hover:bg-foreground/90 disabled:border-foreground/35 disabled:bg-foreground/35 disabled:text-background/80",
-                isHero ? "h-8 w-8" : "h-9 w-9",
-                (canSend || showStopButton) && "hover:scale-[1.03] active:scale-95",
-              )}
-            >
-              {showStopButton ? (
-                <Square className={cn("fill-current stroke-current", isHero ? "h-3 w-3" : "h-3.5 w-3.5")} />
-              ) : isStreaming ? (
-                <Loader2 className={cn(isHero ? "h-4 w-4" : "h-4 w-4", "animate-spin")} />
-              ) : (
-                <ArrowUp className={cn(isHero ? "h-4 w-4" : "h-4 w-4")} />
-              )}
-            </Button>
+            <TooltipProvider delayDuration={200} skipDelayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex">
+                    <Button
+                      type={showStopButton ? "button" : "submit"}
+                      size="icon"
+                      disabled={showStopButton ? disabled : !canSend}
+                      aria-label={showStopButton ? t("thread.composer.stop") : t("thread.composer.send")}
+                      onClick={showStopButton ? onStop : undefined}
+                      className={cn(
+                        "rounded-full transition-transform",
+                        showStopButton
+                          ? "border border-border/70 bg-card text-foreground/85 shadow-[0_3px_10px_rgba(15,23,42,0.08)] hover:bg-muted/65 hover:text-foreground disabled:text-muted-foreground/50"
+                          : isHero
+                            ? "border border-foreground bg-foreground text-background shadow-[0_4px_12px_rgba(15,23,42,0.20)] hover:bg-foreground/90 disabled:border-foreground/35 disabled:bg-foreground/35 disabled:text-background/80"
+                            : "border border-foreground bg-foreground text-background shadow-[0_3px_10px_rgba(15,23,42,0.18)] hover:bg-foreground/90 disabled:border-foreground/35 disabled:bg-foreground/35 disabled:text-background/80",
+                        isHero ? "h-8 w-8" : "h-9 w-9",
+                        (canSend || showStopButton) && "hover:scale-[1.03] active:scale-95",
+                      )}
+                    >
+                      {showStopButton ? (
+                        <Square className={cn("fill-current stroke-current", isHero ? "h-3 w-3" : "h-3.5 w-3.5")} />
+                      ) : isStreaming ? (
+                        <Loader2 className={cn(isHero ? "h-4 w-4" : "h-4 w-4", "animate-spin")} />
+                      ) : (
+                        <ArrowUp className={cn(isHero ? "h-4 w-4" : "h-4 w-4")} />
+                      )}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="top"
+                  align="center"
+                  sideOffset={8}
+                  collisionPadding={12}
+                  className={cn(
+                    "max-w-[min(22rem,calc(100vw-2rem))] rounded-[10px]",
+                    "border-border/60 bg-popover/95 px-2.5 py-1.5",
+                    "text-[11.5px] leading-snug text-popover-foreground",
+                    "shadow-md backdrop-blur",
+                  )}
+                >
+                  {showStopButton ? (
+                    <span>{t("thread.composer.stop")}</span>
+                  ) : (
+                    <ul className="flex flex-col gap-1">
+                      {(expanded
+                        ? [
+                            t("thread.composer.sendHintNewlineExpanded"),
+                            t("thread.composer.sendHintSubmitExpanded"),
+                          ]
+                        : [
+                            t("thread.composer.sendHintEnter"),
+                            t("thread.composer.sendHintNewline"),
+                          ]
+                      ).map((line) => (
+                        <li key={line} className="flex items-start gap-1.5">
+                          <span
+                            className="mt-[0.45em] h-1 w-1 shrink-0 rounded-full bg-current opacity-50"
+                            aria-hidden
+                          />
+                          <span className="min-w-0 break-words">{line}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </div>
         <WorkspaceProjectPicker

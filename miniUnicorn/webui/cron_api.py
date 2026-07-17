@@ -10,7 +10,7 @@ from dataclasses import asdict
 from typing import Any
 
 from miniUnicorn.cron.service import CronService
-from miniUnicorn.cron.types import CronJob, CronPayload, CronSchedule
+from miniUnicorn.cron.types import CronJob, CronSchedule
 
 
 class WebUICronError(ValueError):

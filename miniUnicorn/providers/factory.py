@@ -188,7 +188,9 @@ def build_provider_snapshot(
         provider_name = config.get_provider_name(resolved.model, preset=resolved)
         primary_window = get_model_context_limit(resolved.model, provider_name)
     fallback_windows = [
-        w if w is not None else get_model_context_limit(fallback.model, fallback.provider)
+        fallback.context_window_tokens
+        if fallback.context_window_tokens is not None
+        else get_model_context_limit(fallback.model, fallback.provider)
         for fallback in _resolve_fallback_presets(config, resolved)
     ]
     return ProviderSnapshot(

@@ -19,6 +19,18 @@ import { deleteTool, fetchTools, importToolFile } from "@/lib/api";
 import type { ToolPayload, ToolsPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+/** 工具卡片描述的 i18n helper。
+ * 查找顺序：tools.toolDescriptions.{name} → 后端 tool.description */
+function useToolDescription() {
+  const { t } = useTranslation();
+  return (tool: ToolPayload): string => {
+    const translated = t(`tools.toolDescriptions.${tool.name}`, {
+      defaultValue: "",
+    });
+    return translated || tool.description;
+  };
+}
+
 interface ToolsViewProps {
   onBack: () => void;
   token: string;
@@ -36,7 +48,7 @@ export function ToolsView({ onBack, token }: ToolsViewProps) {
   const [importError, setImportError] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
   const [actingName, setActingName] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+  const [viewMode, setViewMode] = useState<"list" | "grid">("grid");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -209,7 +221,7 @@ export function ToolsView({ onBack, token }: ToolsViewProps) {
             {t("tools.loading")}
           </div>
         ) : (
-          <div className="mx-auto flex max-w-3xl flex-col gap-4">
+          <div className="flex flex-col gap-3">
             {showImport ? (
               <ImportForm
                 name={importName}
@@ -289,15 +301,15 @@ interface ToolSectionProps {
 
 function ToolSection({ title, tools, actingName, onDelete, viewMode, t }: ToolSectionProps) {
   return (
-    <section className="flex flex-col gap-2">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+    <section className="flex flex-col gap-1.5">
+      <h2 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
         {title} ({tools.length})
       </h2>
       <div
         className={cn(
           viewMode === "grid"
-            ? "grid grid-cols-2 gap-2"
-            : "flex flex-col gap-2",
+            ? "grid grid-cols-4 gap-1.5"
+            : "flex flex-col gap-1.5",
         )}
       >
         {tools.map((tool) => (
@@ -323,7 +335,27 @@ interface ToolCardProps {
   t: (key: string, options?: Record<string, unknown>) => string;
 }
 
+const TOOL_PALETTE = [
+  "#3B82F6", // blue
+  "#8B5CF6", // violet
+  "#10B981", // emerald
+  "#F59E0B", // amber
+  "#EF4444", // red
+  "#0EA5E9", // sky
+  "#EC4899", // pink
+  "#14B8A6", // teal
+];
+
+function pickToolColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  }
+  return TOOL_PALETTE[Math.abs(hash) % TOOL_PALETTE.length];
+}
+
 function ToolCard({ tool, acting, onDelete, viewMode, t }: ToolCardProps) {
+  const getToolDescription = useToolDescription();
   const sourceLabel =
     tool.source === "builtin"
       ? t("tools.badge.builtin")
@@ -331,22 +363,34 @@ function ToolCard({ tool, acting, onDelete, viewMode, t }: ToolCardProps) {
         ? t("tools.badge.mcp")
         : t("tools.badge.user");
 
+  const iconColor = pickToolColor(tool.name);
+
   return (
     <div
       className={cn(
-        "rounded-lg border bg-card p-3 transition-colors",
-        !tool.loaded && "opacity-70",
+        "group flex flex-col rounded-lg border px-2.5 py-2 transition-colors",
+        tool.loaded
+          ? "border-border/60 bg-background hover:border-violet-500/40"
+          : "border-amber-500/30 bg-amber-500/[0.03]",
       )}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="truncate font-mono text-sm font-medium">
+      <div className="flex items-start gap-2">
+        <div
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white"
+          style={{ backgroundColor: iconColor }}
+        >
+          {tool.name.charAt(0).toUpperCase()}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1">
+            <span className="truncate font-mono text-[11px] font-medium leading-tight" title={tool.name}>
               {tool.name}
             </span>
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-1">
             <span
               className={cn(
-                "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide",
                 tool.source === "user"
                   ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
                   : tool.source === "mcp"
@@ -357,50 +401,43 @@ function ToolCard({ tool, acting, onDelete, viewMode, t }: ToolCardProps) {
               {sourceLabel}
             </span>
             {!tool.loaded ? (
-              <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+              <span className="shrink-0 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
                 {t("tools.badge.notLoaded")}
               </span>
             ) : null}
             {tool.read_only ? (
-              <span className="shrink-0 rounded bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+              <span className="shrink-0 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
                 {t("tools.badge.readOnly")}
               </span>
             ) : null}
           </div>
-          {tool.description ? (
-            <p
-              className={cn(
-                "text-xs text-muted-foreground",
-                viewMode === "grid" ? "line-clamp-1" : "line-clamp-2",
-              )}
-            >
-              {tool.description}
-            </p>
-          ) : (
-            <p className="text-xs italic text-muted-foreground/50">
-              {t("tools.noDescription")}
-            </p>
-          )}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {tool.source === "user" ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-muted-foreground hover:text-destructive"
-              onClick={onDelete}
-              disabled={acting}
-              title={t("tools.delete")}
-            >
-              {acting ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Trash2 className="h-3.5 w-3.5" />
-              )}
-            </Button>
-          ) : null}
-        </div>
+        {tool.source === "user" ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-muted-foreground/60 hover:text-red-600 hover:bg-red-500/10"
+            onClick={onDelete}
+            disabled={acting}
+            title={t("tools.delete")}
+          >
+            {acting ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Trash2 className="h-3 w-3" />
+            )}
+          </Button>
+        ) : null}
       </div>
+
+      <p
+        className={cn(
+          "mt-1.5 text-[10px] leading-snug text-muted-foreground/70",
+          viewMode === "grid" ? "line-clamp-2" : "line-clamp-2",
+        )}
+      >
+        {getToolDescription(tool) || t("tools.noDescription")}
+      </p>
     </div>
   );
 }

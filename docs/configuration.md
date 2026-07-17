@@ -74,10 +74,10 @@ Pick whatever fits your deployment — MiniUnicorn only reads `os.environ` at st
 **systemd** — use `EnvironmentFile=` in the service unit to load variables from a file that only the deploying user can read:
 
 ```ini
-# /etc/systemd/system/MiniUnicorn.service (excerpt)
+# /etc/systemd/system/miniUnicorn.service (excerpt)
 [Service]
 EnvironmentFile=/home/youruser/miniUnicorn_secrets.env
-User=MiniUnicorn
+User=miniUnicorn
 ExecStart=...
 ```
 
@@ -90,8 +90,8 @@ IMAP_PASSWORD=your-password-here
 **Docker** — pass an env file to the locally built image (one `KEY=VALUE` per line), or use `-e KEY=value`:
 
 ```bash
-docker run --rm --env-file=./MiniUnicorn.env \
-  -v ~/.MiniUnicorn:/home/miniUnicorn/.miniUnicorn \
+docker run --rm --env-file=./miniUnicorn.env \
+  -v ~/.miniUnicorn:/home/miniUnicorn/.miniUnicorn \
   miniUnicorn agent -m "Hello"
 ```
 
@@ -164,8 +164,8 @@ ANTHROPIC_API_KEY="$(bw get password api/anthropic)" miniUnicorn agent
 | `stepfun` | LLM (Step Fun/阶跃星辰) | [platform.stepfun.com](https://platform.stepfun.com) |
 | `ovms` | LLM (local, OpenVINO Model Server) | [docs.openvino.ai](https://docs.openvino.ai/2026/model-server/ovms_docs_llm_quickstart.html) |
 | `vllm` | LLM (local, any OpenAI-compatible server) | — |
-| `openai_codex` | LLM (Codex, OAuth) | `MiniUnicorn provider login openai-codex` |
-| `github_copilot` | LLM (GitHub Copilot, OAuth) | `MiniUnicorn provider login github-copilot` |
+| `openai_codex` | LLM (Codex, OAuth) | `miniUnicorn provider login openai-codex` |
+| `github_copilot` | LLM (GitHub Copilot, OAuth) | `miniUnicorn provider login github-copilot` |
 | `qianfan` | LLM (Baidu Qianfan) | [cloud.baidu.com](https://cloud.baidu.com/doc/qianfan/s/Hmh4suq26) |
 
 <details>
@@ -417,11 +417,11 @@ miniUnicorn agent -m "Reply with one short sentence."
 <summary><b>OpenAI Codex (OAuth)</b></summary>
 
 Codex uses OAuth instead of API keys. Requires a ChatGPT Plus or Pro account.
-No `providers.openaiCodex` block is needed in `config.json`; `MiniUnicorn provider login` stores the OAuth session outside config.
+No `providers.openaiCodex` block is needed in `config.json`; `miniUnicorn provider login` stores the OAuth session outside config.
 
 **1. Login:**
 ```bash
-MiniUnicorn provider login openai-codex
+miniUnicorn provider login openai-codex
 ```
 
 **2. Set model** (merge into `~/.miniUnicorn/config.json`):
@@ -455,11 +455,11 @@ miniUnicorn agent -c ~/.miniUnicorn-telegram/config.json -w /tmp/miniUnicorn-tel
 <summary><b>GitHub Copilot (OAuth)</b></summary>
 
 GitHub Copilot uses OAuth instead of API keys. Requires a [GitHub account with a plan](https://github.com/features/copilot/plans) configured.
-No `providers.githubCopilot` block is needed in `config.json`; `MiniUnicorn provider login` stores the OAuth session outside config.
+No `providers.githubCopilot` block is needed in `config.json`; `miniUnicorn provider login` stores the OAuth session outside config.
 
 **1. Login:**
 ```bash
-MiniUnicorn provider login github-copilot
+miniUnicorn provider login github-copilot
 ```
 
 **2. Set model** (merge into `~/.miniUnicorn/config.json`):
@@ -894,10 +894,10 @@ vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
 <details>
 <summary><b>Adding a New Provider (Developer Guide)</b></summary>
 
-MiniUnicorn uses a **Provider Registry** (`MiniUnicorn/providers/registry.py`) as the single source of truth.
+MiniUnicorn uses a **Provider Registry** (`miniUnicorn/providers/registry.py`) as the single source of truth.
 Adding a new provider only takes **2 steps** — no if-elif chains to touch.
 
-**Step 1.** Add a `ProviderSpec` entry to `PROVIDERS` in `MiniUnicorn/providers/registry.py`:
+**Step 1.** Add a `ProviderSpec` entry to `PROVIDERS` in `miniUnicorn/providers/registry.py`:
 
 ```python
 ProviderSpec(
@@ -1395,7 +1395,7 @@ For API keys, tokens, and other secrets, see [Environment Variables for Secrets]
 | `tools.exec.pathAppend` | `""` | Extra directories to append to `PATH` when running shell commands (e.g. `/usr/sbin` for `ufw`). |
 | `channels.*.allowFrom` | omitted | Access control per channel. Omit to use pairing-only mode; set `["*"]` to allow everyone; or list specific user IDs. See [Pairing](#pairing) for details. |
 
-**Docker security**: The official Docker image runs as a non-root user (`MiniUnicorn`, UID 1000) with bubblewrap pre-installed. When using `docker-compose.yml`, the container drops all Linux capabilities except `SYS_ADMIN` (required for bwrap's namespace isolation).
+**Docker security**: The official Docker image runs as a non-root user (`miniUnicorn`, UID 1000) with bubblewrap pre-installed. When using `docker-compose.yml`, the container drops all Linux capabilities except `SYS_ADMIN` (required for bwrap's namespace isolation).
 
 
 ## Pairing

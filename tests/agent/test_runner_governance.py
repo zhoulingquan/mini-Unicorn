@@ -466,7 +466,9 @@ async def test_microcompact_replaces_old_tool_results():
             "content": long_content,
         })
 
-    result = AgentRunner._microcompact(messages)
+    runner = AgentRunner(MagicMock())
+    runner._microcompact_cache = None  # force full scan (no incremental cache)
+    result = runner._microcompact(messages)
     tool_msgs = [m for m in result if m.get("role") == "tool"]
     stale_count = total - _MICROCOMPACT_KEEP_RECENT
     compacted = [m for m in tool_msgs if "omitted from context" in str(m.get("content", ""))]
@@ -493,7 +495,9 @@ async def test_microcompact_preserves_short_results():
             "content": "short",
         })
 
-    result = AgentRunner._microcompact(messages)
+    runner = AgentRunner(MagicMock())
+    runner._microcompact_cache = None  # force full scan (no incremental cache)
+    result = runner._microcompact(messages)
     assert result is messages  # no copy needed — all stale results are short
 
 
@@ -516,7 +520,9 @@ async def test_microcompact_skips_non_compactable_tools():
             "content": long_content,
         })
 
-    result = AgentRunner._microcompact(messages)
+    runner = AgentRunner(MagicMock())
+    runner._microcompact_cache = None  # force full scan (no incremental cache)
+    result = runner._microcompact(messages)
     assert result is messages  # no compactable tools found
 
 

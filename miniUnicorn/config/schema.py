@@ -151,11 +151,11 @@ class AgentDefaults(Base):
     unified_session: bool = False  # Share one session across all channels (single-user multi-device)
     disabled_skills: list[str] = Field(default_factory=list)  # Skill names to exclude from loading (e.g. ["summarize", "skill-creator"])
     session_ttl_minutes: int = Field(
-        default=0,
+        default=1440,
         ge=0,
         validation_alias=AliasChoices("idleCompactAfterMinutes", "sessionTtlMinutes"),
         serialization_alias="idleCompactAfterMinutes",
-    )  # Auto-compact idle threshold in minutes (0 = disabled)
+    )  # Auto-compact idle threshold in minutes (0 = disabled; 默认 1440=24h)
     max_messages: int = Field(
         default=120,
         ge=0,
@@ -236,7 +236,13 @@ class ProviderConfig(Base):
 
 
 class ProvidersConfig(Base):
-    """Configuration for LLM providers."""
+    """Configuration for LLM providers.
+
+    内置 provider（custom/deepseek/opencode）已声明字段；其他 provider 通过
+    extra="allow" 接受，由 _coerce_extra_providers 把 dict 转为 ProviderConfig。
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="allow")
 
     custom: ProviderConfig = Field(default_factory=ProviderConfig)  # Any OpenAI-compatible endpoint
     deepseek: ProviderConfig = Field(default_factory=ProviderConfig)
@@ -268,11 +274,11 @@ class ProvidersConfig(Base):
     )  # Optional custom key; inherits from chat provider when omitted
 
     @model_validator(mode="after")
-    def _validate_api_type_scope(self) -> "ProvidersConfig":
-        for name in self.__class__.model_fields:
-            provider = getattr(self, name, None)
-            if isinstance(provider, ProviderConfig) and provider.api_type != "auto":
-                raise ValueError("providers.<name>.api_type is not supported for this provider")
+    def _coerce_extra_providers(self) -> "ProvidersConfig":
+        """把 extra 字段中的 dict 转为 ProviderConfig，保证访问一致。"""
+        for name, value in list(self.__pydantic_extra__.items()):
+            if isinstance(value, dict):
+                self.__pydantic_extra__[name] = ProviderConfig.model_validate(value)
         return self
 
 
@@ -343,6 +349,7 @@ class ToolsConfig(Base):
         ),
     )  # allow WebUI Full Access shell checks against localhost services; legacy allowLocalPreviewAccess still reads
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
+    mcp_presets_auto_enabled: bool = False  # one-time flag: auto-enable no-credential MCP presets only once
     ssrf_whitelist: list[str] = Field(default_factory=list)  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
 
 

@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 # Module-level placeholder — set lazily by _ensure_client on first real
 # use, or replaced by tests via ``patch(...)``.  Kept as a plain name so
 # that ``unittest.mock.patch`` can find and replace it.
-AsyncOpenAI: Any = None
+AsyncOpenAI: Any | None = None
 
 _ALLOWED_MSG_KEYS = frozenset({
     "role", "content", "tool_calls", "tool_call_id", "name",
@@ -1353,6 +1353,82 @@ class OpenAICompatProvider(LLMProvider):
         except Exception as e:
             return self._handle_error(e, spec=self._spec, api_base=self.api_base)
 
+    async def _dispatch_chat_delta(
+        self,
+        delta_obj: Any,
+        on_content_delta: Callable[[str], Awaitable[None]] | None,
+        on_thinking_delta: Callable[[str], Awaitable[None]] | None,
+        on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None,
+    ) -> None:
+        """Dispatch a single stream chunk's delta to the active callbacks."""
+        if on_content_delta:
+            text = getattr(delta_obj, "content", None)
+            if text:
+                await on_content_delta(text)
+        if on_thinking_delta:
+            reasoning = getattr(delta_obj, "reasoning_content", None) or getattr(
+                delta_obj, "reasoning", None,
+            )
+            r_text = self._extract_text_content(reasoning)
+            if r_text:
+                await on_thinking_delta(r_text)
+        if on_tool_call_delta:
+            for idx, tool_delta in enumerate(
+                getattr(delta_obj, "tool_calls", None) or []
+            ):
+                fn = _get(tool_delta, "function")
+                tool_index = _get(tool_delta, "index")
+                await on_tool_call_delta({
+                    "index": tool_index if tool_index is not None else idx,
+                    "call_id": str(_get(tool_delta, "id") or ""),
+                    "name": str(_get(fn, "name") or "") if fn is not None else "",
+                    "arguments_delta": (
+                        str(_get(fn, "arguments") or "") if fn is not None else ""
+                    ),
+                })
+            function_call = getattr(delta_obj, "function_call", None)
+            if function_call:
+                await on_tool_call_delta({
+                    "index": 0,
+                    "call_id": "",
+                    "name": str(_get(function_call, "name") or ""),
+                    "arguments_delta": str(_get(function_call, "arguments") or ""),
+                })
+
+    async def _collect_chat_stream(
+        self,
+        stream: Any,
+        idle_timeout_s: int,
+        on_content_delta: Callable[[str], Awaitable[None]] | None,
+        on_thinking_delta: Callable[[str], Awaitable[None]] | None,
+        on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None,
+    ) -> list[Any]:
+        """Collect chat-completion stream chunks with idle-timeout and delta dispatch.
+
+        Yields tokens to the ``on_*_delta`` callbacks as they arrive so the
+        caller sees real-time streaming, and returns the full chunk list for
+        final response parsing.
+        """
+        chunks: list[Any] = []
+        stream_iter = stream.__aiter__()
+        while True:
+            try:
+                chunk = await asyncio.wait_for(
+                    stream_iter.__anext__(),
+                    timeout=idle_timeout_s,
+                )
+            except StopAsyncIteration:
+                break
+            chunks.append(chunk)
+            if chunk.choices:
+                await self._dispatch_chat_delta(
+                    chunk.choices[0].delta,
+                    on_content_delta,
+                    on_thinking_delta,
+                    on_tool_call_delta,
+                )
+        return chunks
+
     async def chat_stream(
         self,
         messages: list[dict[str, Any]],
@@ -1428,52 +1504,10 @@ class OpenAICompatProvider(LLMProvider):
             kwargs["stream"] = True
             kwargs["stream_options"] = {"include_usage": True}
             stream = await self._client.chat.completions.create(**kwargs)
-            chunks: list[Any] = []
-            stream_iter = stream.__aiter__()
-            while True:
-                try:
-                    chunk = await asyncio.wait_for(
-                        stream_iter.__anext__(),
-                        timeout=idle_timeout_s,
-                    )
-                except StopAsyncIteration:
-                    break
-                chunks.append(chunk)
-                if chunk.choices:
-                    delta_obj = chunk.choices[0].delta
-                    if on_content_delta:
-                        text = getattr(delta_obj, "content", None)
-                        if text:
-                            await on_content_delta(text)
-                    if on_thinking_delta:
-                        reasoning = getattr(delta_obj, "reasoning_content", None) or getattr(
-                            delta_obj, "reasoning", None,
-                        )
-                        r_text = self._extract_text_content(reasoning)
-                        if r_text:
-                            await on_thinking_delta(r_text)
-                    if on_tool_call_delta:
-                        for idx, tool_delta in enumerate(
-                            getattr(delta_obj, "tool_calls", None) or []
-                        ):
-                            fn = _get(tool_delta, "function")
-                            tool_index = _get(tool_delta, "index")
-                            await on_tool_call_delta({
-                                "index": tool_index if tool_index is not None else idx,
-                                "call_id": str(_get(tool_delta, "id") or ""),
-                                "name": str(_get(fn, "name") or "") if fn is not None else "",
-                                "arguments_delta": (
-                                    str(_get(fn, "arguments") or "") if fn is not None else ""
-                                ),
-                            })
-                        function_call = getattr(delta_obj, "function_call", None)
-                        if function_call:
-                            await on_tool_call_delta({
-                                "index": 0,
-                                "call_id": "",
-                                "name": str(_get(function_call, "name") or ""),
-                                "arguments_delta": str(_get(function_call, "arguments") or ""),
-                            })
+            chunks = await self._collect_chat_stream(
+                stream, idle_timeout_s,
+                on_content_delta, on_thinking_delta, on_tool_call_delta,
+            )
             return self._parse_chunks(chunks)
         except asyncio.TimeoutError:
             return LLMResponse(

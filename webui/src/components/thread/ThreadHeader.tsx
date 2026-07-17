@@ -138,7 +138,7 @@ function HeaderModelBadge({
               src={brand.logoUrls[0]}
               alt=""
               className="h-2.5 w-2.5 object-contain"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
             />
           ) : (
             <span

@@ -1,6 +1,8 @@
 import {
+  memo,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -33,7 +35,7 @@ interface MessageBubbleProps {
  * Trace rows (tool-call hints, progress breadcrumbs) render as a subdued
  * collapsible group so intermediate steps never masquerade as replies.
  */
-export function MessageBubble({
+export const MessageBubble = memo(function MessageBubble({
   message,
   showAssistantCopyAction = true,
 }: MessageBubbleProps) {
@@ -160,7 +162,7 @@ export function MessageBubble({
       )}
     </div>
   );
-}
+});
 
 function MessageMedia({
   media,
@@ -284,14 +286,17 @@ function UserImages({
   const { t } = useTranslation();
   // Only real-URL images can open in the lightbox; historical-replay
   // placeholders (no URL) have nothing to zoom into.
-  const viewableImages: UIImage[] = [];
-  const originalToViewable = new Map<number, number>();
-  for (let i = 0; i < images.length; i += 1) {
-    const img = images[i];
-    if (typeof img.url !== "string" || img.url.length === 0) continue;
-    originalToViewable.set(i, viewableImages.length);
-    viewableImages.push(img);
-  }
+  const { viewableImages, originalToViewable } = useMemo(() => {
+    const viewable: UIImage[] = [];
+    const mapping = new Map<number, number>();
+    for (let i = 0; i < images.length; i += 1) {
+      const img = images[i];
+      if (typeof img.url !== "string" || img.url.length === 0) continue;
+      mapping.set(i, viewable.length);
+      viewable.push(img);
+    }
+    return { viewableImages: viewable, originalToViewable: mapping };
+  }, [images]);
 
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
@@ -606,7 +611,7 @@ export function TraceGroup({ message, animClass }: TraceGroupProps) {
         >
           {lines.map((line, i) => (
             <li
-              key={i}
+              key={`${i}-${line.slice(0, 16)}`}
               className="whitespace-pre-wrap break-words font-mono text-[11.5px] leading-relaxed text-muted-foreground/90"
             >
               {line}

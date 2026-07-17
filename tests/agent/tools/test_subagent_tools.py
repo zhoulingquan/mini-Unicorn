@@ -268,6 +268,7 @@ async def test_agent_loop_syncs_updated_max_iterations_before_run(tmp_path):
             usage={},
             had_injections=False,
             tools_used=[],
+            last_call_usage={},
         )
 
     loop.runner.run = AsyncMock(side_effect=fake_run)
@@ -313,6 +314,7 @@ async def test_drain_pending_blocks_while_subagents_running(tmp_path):
             usage={},
             had_injections=False,
             tools_used=[],
+            last_call_usage={},
         )
 
     loop.runner.run = AsyncMock(side_effect=fake_runner_run)
@@ -397,6 +399,7 @@ async def test_drain_pending_no_block_when_no_subagents(tmp_path):
             usage={},
             had_injections=False,
             tools_used=[],
+            last_call_usage={},
         )
 
     loop.runner.run = AsyncMock(side_effect=fake_runner_run)
@@ -445,6 +448,7 @@ async def test_drain_pending_timeout(tmp_path):
             usage={},
             had_injections=False,
             tools_used=[],
+            last_call_usage={},
         )
 
     loop.runner.run = AsyncMock(side_effect=fake_runner_run)

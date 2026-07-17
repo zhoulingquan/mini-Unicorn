@@ -10,7 +10,20 @@ x-common-config: &common-config
     - SYS_ADMIN
   security_opt:
     - apparmor=unconfined
-    - seccomp=unconfined
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+  deploy:
+    resources:
+      limits:
+        cpus: "1"
+        memory: 1G
+        pids: 200
+      reservations:
+        cpus: "0.25"
+        memory: 256M
 
 services:
   miniUnicorn-gateway:
@@ -20,14 +33,6 @@ services:
     restart: unless-stopped
     ports:
       - 8765:8765
-    deploy:
-      resources:
-        limits:
-          cpus: "1"
-          memory: 1G
-        reservations:
-          cpus: "0.25"
-          memory: 256M
 
   miniUnicorn-api:
     container_name: miniUnicorn-api
@@ -37,14 +42,6 @@ services:
     restart: unless-stopped
     ports:
       - 127.0.0.1:8900:8900
-    deploy:
-      resources:
-        limits:
-          cpus: "1"
-          memory: 1G
-        reservations:
-          cpus: "0.25"
-          memory: 256M
 
   miniUnicorn-cli:
     <<: *common-config

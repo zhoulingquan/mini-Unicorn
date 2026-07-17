@@ -1,8 +1,8 @@
 # Common Gotchas
 
-## Do not use `ruff format`
+## `ruff format` is optional
 
-`CONTRIBUTING.md` mentions `ruff format`, but **do not run it** — it destroys git blame history. Only `ruff check` should be used.
+`CONTRIBUTING.md` lists `ruff format` as an **optional** step. The existing tree predates `ruff format`, so running it across the whole `miniUnicorn/` package produces a large unrelated diff (E501 is ignored, so many existing lines exceed the 100-char setting). If you use it, format only files you've actually touched — not the whole package. `ruff check` remains the primary linting tool.
 
 ## Config `${VAR}` References
 

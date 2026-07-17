@@ -52,6 +52,7 @@
     "agents": "Agents",
     "cron": "Schedule",
     "tools": "Tools",
+    "channels": "Channels",
     "language": {
       "label": "Language",
       "ariaLabel": "Change language"
@@ -447,6 +448,14 @@
       "goalStateCloseAria": "Close goal",
       "send": "Send message",
       "stop": "Stop response",
+      "sendHintEnter": "Enter to send message",
+      "sendHintNewline": "Shift+Enter for newline",
+      "sendHintNewlineExpanded": "Enter inserts newline (expanded)",
+      "sendHintSubmitExpanded": "Click this button to send",
+      "expandInput": "Expand input",
+      "collapseInput": "Collapse input",
+      "expandInputHint": "Expand input (Enter inserts newline, no send)",
+      "collapseInputHint": "Collapse input (Enter to send)",
       "attachImage": "Attach file",
       "attachTooltipLimit": "Up to {{max}} attachments per upload",
       "attachTooltipImages": "Images: PNG / JPEG / WebP / GIF",
@@ -722,7 +731,28 @@
     "builtinReadonly": "Built-in skills are read-only. Create a workspace copy to edit.",
     "toggleError": "Toggle failed",
     "saveError": "Save failed",
-    "builtinOnlyDeleteDisabled": "Built-in skills cannot be deleted"
+    "builtinOnlyDeleteDisabled": "Built-in skills cannot be deleted",
+    "listView": "List view",
+    "gridView": "Grid view",
+    "template": {
+      "description": "Describe what this skill does in one sentence.",
+      "body": "Write the skill content here."
+    },
+    "skillDescriptions": {
+      "clawhub": "Search and install agent skills from the ClawHub registry",
+      "cron": "Schedule reminders and recurring tasks",
+      "document-processing": "Create, edit, convert, and analyze documents (PDF/Word/Excel/PPT)",
+      "github": "Interact with GitHub via the gh CLI (issues, PRs, CI, API)",
+      "image-generation": "Generate images and iteratively edit saved image artifacts",
+      "long-goal": "Manage sustained objectives via long_task / complete_goal",
+      "memory": "Two-layer memory system with Dream-managed knowledge files",
+      "my": "Check and set the agent's own runtime state",
+      "skill-creator": "Create or update AgentSkills",
+      "summarize": "Summarize or extract text from URLs, podcasts, and local files",
+      "tmux": "Remote-control tmux sessions by sending keystrokes and scraping output",
+      "update-setup": "One-time setup wizard for the MiniUnicorn upgrade skill",
+      "weather": "Get current weather and forecasts (no API key required)"
+    }
   },
   "agents": {
     "title": "Agents",
@@ -742,6 +772,7 @@
     "modelPlaceholder": "Leave blank to use the default model",
     "systemPrompt": "System prompt",
     "systemPromptPlaceholder": "Write the subagent system prompt...",
+    "defaultSystemPrompt": "You are a specialized subagent. Describe your responsibilities here.",
     "editorPlaceholder": "Write the .md content here (with YAML frontmatter)...",
     "loading": "Loading agents...",
     "empty": "No subagents defined yet. Create a .md file in the agents/ directory to define one.",
@@ -784,6 +815,14 @@
       "every": "Every",
       "cron": "Cron",
       "at": "Once at"
+    },
+    "describeSchedule": {
+      "everyHours": "Every {{count}} hours",
+      "everyMinutes": "Every {{count}} minutes",
+      "everySeconds": "Every {{count}} seconds",
+      "cron": "cron: {{expr}}",
+      "cronWithTz": "cron: {{expr}} ({{tz}})",
+      "at": "At {{timestamp}} (one-shot)"
     },
     "field": {
       "name": "Name",
@@ -844,6 +883,169 @@
       "notPy": "File must have .py extension",
       "emptyContent": "Content cannot be empty",
       "readFailed": "Failed to read file"
+    },
+    "toolDescriptions": {
+      "apply_patch": "Default code-edit tool; supports multi-file changes in one call",
+      "complete_goal": "End bookkeeping for the active sustained goal",
+      "create_agent": "Generate a subagent definition file from a natural-language description",
+      "cron": "Schedule reminders and recurring tasks (add/list/remove)",
+      "delegate": "Delegate a task to a specialized subagent",
+      "edit_file": "Perform a small, exact replacement in a single file",
+      "exec": "Execute a shell command and return its output",
+      "execute_plan": "Execute a multi-step plan by spawning one subagent per step",
+      "find_files": "Find files by path fragment, glob, or file type",
+      "grep": "Search file contents with a regex pattern",
+      "list_dir": "List the contents of a directory (supports recursive)",
+      "list_exec_sessions": "List active long-running exec sessions",
+      "long_task": "Mark this thread as a sustained long-running task",
+      "message": "Proactively send a message to a user/channel, optionally with files",
+      "my": "Check and set the agent's own runtime state",
+      "read_file": "Read a file (text, image, or document)",
+      "recall": "Search past memories and conversation summaries",
+      "run_cli_app": "Run a CLI App installed in Settings",
+      "spawn": "Spawn a subagent to handle a task in the background",
+      "web_fetch": "Fetch a URL and extract readable content",
+      "web_search": "Search the web; returns titles, URLs, and snippets",
+      "write_file": "Create a new file or intentionally replace an entire file",
+      "write_stdin": "Write to stdin or control a running exec session"
+    }
+  },
+  "channels": {
+    "title": "Channels",
+    "loading": "Loading...",
+    "empty": "No channels available.",
+    "retry": "Retry",
+    "refresh": "Refresh",
+    "save": "Save",
+    "delete": "Delete",
+    "configLabel": "Channel configuration",
+    "configPlaceholder": "{\n  \"app_id\": \"...\",\n  \"app_secret\": \"...\"\n}",
+    "listPlaceholder": "One item per line",
+    "useDefault": "Use default template",
+    "defaultHint": "Not configured: below are default values. Edit and save to apply.",
+    "badge": {
+      "configured": "Configured",
+      "unconfigured": "Not configured"
+    },
+    "toggle": {
+      "aria": "Toggle {{name}} channel"
+    },
+    "toast": {
+      "toggled": "Toggled {{name}}",
+      "saved": "Saved {{name}} configuration",
+      "deleted": "Deleted {{name}} configuration"
+    },
+    "channelNames": {
+      "dingtalk": "DingTalk",
+      "feishu": "Feishu",
+      "qq": "QQ",
+      "wecom": "WeCom",
+      "weixin": "WeChat"
+    },
+    "channelDescriptions": {
+      "dingtalk": "DingTalk bot channel using Stream Mode",
+      "feishu": "Feishu / Lark bot channel via WebSocket long connection",
+      "qq": "QQ channel bot based on official botpy SDK",
+      "wecom": "WeCom AI Bot channel via WebSocket long connection",
+      "weixin": "Personal WeChat channel based on iLink protocol"
+    },
+    "channelFields": {
+      "_common": {
+        "enabled": "Enabled",
+        "enabled_desc": "When on, this channel will receive and send messages",
+        "allow_from": "Allowlist",
+        "allow_from_desc": "Allowed user/chat IDs, one per line; empty means allow all"
+      },
+      "_options": {
+        "group_policy_open": "All messages",
+        "group_policy_mention": "@bot only",
+        "domain_feishu": "Feishu (mainland China)",
+        "domain_lark": "Lark (international)",
+        "msg_format_plain": "Plain text",
+        "msg_format_markdown": "Markdown"
+      },
+      "dingtalk": {
+        "client_id": "App ID",
+        "client_id_desc": "DingTalk AppKey (from DingTalk Open Platform)",
+        "client_secret": "App Secret",
+        "client_secret_desc": "DingTalk AppSecret",
+        "allow_remote_media_redirects": "Allow Media Redirects",
+        "allow_remote_media_redirects_desc": "Follow HTTP redirects when downloading remote media",
+        "remote_media_redirect_allowed_hosts": "Redirect Allowed Hosts",
+        "remote_media_redirect_allowed_hosts_desc": "Hosts allowed during media redirects, one per line",
+        "group_user_isolation": "Group User Isolation",
+        "group_user_isolation_desc": "When on, each user in a group chat has its own session"
+      },
+      "feishu": {
+        "instance_id": "Instance ID",
+        "instance_id_desc": "Unique identifier for this Feishu instance (multi-account)",
+        "name": "Bot Name",
+        "name_desc": "Display name",
+        "identity_key": "Identity Key",
+        "identity_key_desc": "Optional key to distinguish identity across instances",
+        "app_id": "App ID",
+        "app_id_desc": "Feishu App ID (from Feishu Open Platform)",
+        "app_secret": "App Secret",
+        "app_secret_desc": "Feishu App Secret",
+        "encrypt_key": "Encrypt Key",
+        "encrypt_key_desc": "Encrypt Key for event subscription (optional)",
+        "verification_token": "Verification Token",
+        "verification_token_desc": "Verification Token for event subscription (optional)",
+        "react_emoji": "React Emoji",
+        "react_emoji_desc": "Emoji name to react with on message receive (e.g. THUMBSUP)",
+        "done_emoji": "Done Emoji",
+        "done_emoji_desc": "Emoji name to react with on task completion (empty = none)",
+        "tool_hint_prefix": "Tool Hint Prefix",
+        "tool_hint_prefix_desc": "Inline prefix for tool invocation hints",
+        "group_policy": "Group Policy",
+        "group_policy_desc": "open=handle all messages, mention=only @bot messages",
+        "reply_to_message": "Reply Quote",
+        "reply_to_message_desc": "When on, bot replies quote the user's original message",
+        "streaming": "Streaming",
+        "streaming_desc": "When on, replies are pushed in streaming mode",
+        "domain": "Domain",
+        "domain_desc": "feishu=mainland China, lark=international Lark",
+        "topic_isolation": "Topic Isolation",
+        "topic_isolation_desc": "When on, each topic in group chat has its own session"
+      },
+      "qq": {
+        "app_id": "App ID",
+        "app_id_desc": "QQ bot AppID (from QQ Open Platform)",
+        "secret": "App Secret",
+        "secret_desc": "QQ bot AppSecret",
+        "msg_format": "Message Format",
+        "msg_format_desc": "Format for outbound messages: plain=text, markdown=Markdown",
+        "ack_message": "Ack Message",
+        "ack_message_desc": "Placeholder reply sent immediately on receive",
+        "media_dir": "Media Dir",
+        "media_dir_desc": "Directory for inbound attachments (empty = default path)",
+        "download_chunk_size": "Download Chunk Size",
+        "download_chunk_size_desc": "Chunk size in bytes when downloading attachments",
+        "download_max_bytes": "Download Max Bytes",
+        "download_max_bytes_desc": "Maximum bytes per single attachment download"
+      },
+      "wecom": {
+        "bot_id": "Bot ID",
+        "bot_id_desc": "WeCom AI Bot ID (from WeCom admin console)",
+        "secret": "Secret",
+        "secret_desc": "WeCom AI Bot Secret",
+        "welcome_message": "Welcome Message",
+        "welcome_message_desc": "Message sent when user enters chat (empty = none)"
+      },
+      "weixin": {
+        "base_url": "API Base URL",
+        "base_url_desc": "Base URL of iLink API",
+        "cdn_base_url": "CDN Base URL",
+        "cdn_base_url_desc": "Base URL of media CDN",
+        "route_tag": "Route Tag",
+        "route_tag_desc": "iLink route tag (usually empty)",
+        "token": "Token",
+        "token_desc": "Login token (manual or auto-obtained via QR login)",
+        "state_dir": "State Dir",
+        "state_dir_desc": "Directory for login state (empty = default ~/.miniUnicorn/weixin/)",
+        "poll_timeout": "Poll Timeout",
+        "poll_timeout_desc": "Long-poll timeout in seconds"
+      }
     }
   }
 }

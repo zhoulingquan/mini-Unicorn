@@ -38,6 +38,7 @@ from miniUnicorn.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScopeError,
 )
+from miniUnicorn.security.workspace_policy import is_path_within
 from miniUnicorn.session.goal_state import goal_state_ws_blob
 from miniUnicorn.session.webui_turns import websocket_turn_wall_started_at
 from miniUnicorn.utils.media_decode import (
@@ -150,6 +151,41 @@ def _host_for_url(host: str, port: int) -> str:
     return f"{host}:{port}"
 
 
+class _RateLimiter:
+    """Simple sliding-window rate limiter keyed by client identifier.
+
+    Tracks request timestamps per key in a dict and rejects when the count
+    inside the rolling window exceeds ``max_count``. Designed for the
+    single-threaded asyncio model — no locking required.
+    """
+
+    def __init__(self, max_count: int, window_s: float):
+        self._max_count = max_count
+        self._window_s = window_s
+        self._hits: dict[str, list[float]] = {}
+
+    def check(self, key: str) -> bool:
+        """Return True if the request is allowed, False if rate-limited."""
+        now = time.monotonic()
+        cutoff = now - self._window_s
+        hits = [t for t in self._hits.get(key, []) if t > cutoff]
+        if len(hits) >= self._max_count:
+            self._hits[key] = hits
+            return False
+        hits.append(now)
+        self._hits[key] = hits
+        return True
+
+    def cleanup(self) -> None:
+        """Remove stale keys to prevent unbounded memory growth."""
+        now = time.monotonic()
+        cutoff = now - self._window_s
+        for key in list(self._hits):
+            self._hits[key] = [t for t in self._hits[key] if t > cutoff]
+            if not self._hits[key]:
+                del self._hits[key]
+
+
 class WebSocketConfig(Base):
     """WebSocket server channel configuration.
 
@@ -180,7 +216,8 @@ class WebSocketConfig(Base):
     token_issue_secret: str = ""
     token_ttl_s: int = Field(default=300, ge=30, le=86_400)
     websocket_requires_token: bool = True
-    allow_from: list[str] = Field(default_factory=lambda: ["*"])
+    allow_from: list[str] = Field(default_factory=list)
+    trusted_proxies: list[str] = Field(default_factory=list)
     streaming: bool = True
     # Default 36 MB, upper 40 MB: supports up to 4 images at ~6 MB each after
     # client-side Worker normalization (see webui Composer). 4 × 6 MB × 1.37
@@ -240,6 +277,16 @@ class WebSocketConfig(Base):
             "host is 0.0.0.0 (all interfaces) but neither token nor "
             "token_issue_secret is set — set one to prevent unauthenticated access"
         )
+
+    @model_validator(mode="after")
+    def wildcard_host_forbids_star_allow_from(self) -> Self:
+        if self.host in ("0.0.0.0", "::") and "*" in self.allow_from:
+            raise ValueError(
+                "host is 0.0.0.0 (all interfaces) but allow_from contains '*' — "
+                "this would allow anyone to connect. Remove '*' and specify "
+                "explicit client IDs."
+            )
+        return self
 
 
 def _http_json_response(data: dict[str, Any], *, status: int = 200) -> Response:
@@ -663,6 +710,60 @@ class WebSocketChannel(BaseChannel):
         # file, nothing else. The secret regenerates on restart so links
         # become self-expiring (callers just refresh the session list).
         self._media_secret: bytes = secrets.token_bytes(32)
+        # IP-level rate limiters (sliding window, per client IP).
+        self._conn_rate_limiter = _RateLimiter(max_count=10, window_s=60.0)
+        self._token_rate_limiter = _RateLimiter(max_count=5, window_s=60.0)
+        self._media_rate_limiter = _RateLimiter(max_count=10, window_s=3600.0)
+
+    # -- Client IP resolution and rate limiting ----------------------------
+
+    def _get_real_client_ip(self, connection: Any) -> str:
+        """Return the real client IP, resolving X-Forwarded-For only for trusted proxies.
+
+        When the gateway sits behind a reverse proxy, every connection's
+        ``remote_address`` is the proxy's IP (often localhost).  To avoid
+        trusting spoofed ``X-Forwarded-For`` headers from arbitrary clients,
+        the header is only consulted when the TCP peer is in the
+        ``trusted_proxies`` allowlist.
+        """
+        addr = getattr(connection, "remote_address", None)
+        if not addr:
+            return ""
+        peer_ip = addr[0] if isinstance(addr, tuple) else str(addr)
+        # Normalize IPv6-mapped IPv4 (``::ffff:127.0.0.1`` → ``127.0.0.1``).
+        if peer_ip.startswith("::ffff:"):
+            peer_ip = peer_ip[7:]
+
+        if peer_ip in self.config.trusted_proxies:
+            request = getattr(connection, "request", None)
+            if request is not None:
+                xff = (
+                    request.headers.get("X-Forwarded-For")
+                    or request.headers.get("x-forwarded-for")
+                )
+                if xff:
+                    # Leftmost entry is the original client IP.
+                    first = xff.split(",")[0].strip()
+                    if first:
+                        return first
+        return peer_ip
+
+    def _is_localhost_connection(self, connection: Any) -> bool:
+        """Like the module-level ``_is_localhost`` but proxy-aware."""
+        ip = self._get_real_client_ip(connection)
+        return ip in _LOCALHOSTS
+
+    def _check_rate_limit(
+        self, limiter: _RateLimiter, connection: Any, label: str
+    ) -> bool:
+        """Return True if the request passes the rate limit, else log and return False."""
+        ip = self._get_real_client_ip(connection)
+        if not ip:
+            return True  # Unknown peer — don't block (other auth guards apply).
+        if not limiter.check(ip):
+            self.logger.warning("rate limit exceeded for {} ({})", ip, label)
+            return False
+        return True
 
     # -- Subscription bookkeeping -------------------------------------------
 
@@ -780,6 +881,9 @@ class WebSocketChannel(BaseChannel):
                 "token_issue_path is set but token_issue_secret is empty; "
                 "any client can obtain connection tokens — set token_issue_secret for production."
             )
+        # Per-IP token issuance rate limit (5/min).
+        if not self._check_rate_limit(self._token_rate_limiter, connection, "token_issue"):
+            return _http_json_response({"error": "rate limited"}, status=429)
         self._purge_expired_issued_tokens()
         if len(self._issued_tokens) >= self._MAX_ISSUED_TOKENS:
             self.logger.error(
@@ -922,6 +1026,13 @@ class WebSocketChannel(BaseChannel):
             return self._handle_tools_import(request)
         if got == "/api/tools/delete":
             return self._handle_tools_delete(request)
+
+        if got == "/api/channels":
+            return self._handle_channels_list(request)
+        if got == "/api/channels/update":
+            return self._handle_channels_update(request)
+        if got == "/api/channels/delete":
+            return self._handle_channels_delete(request)
 
         return None
 
@@ -1125,6 +1236,48 @@ class WebSocketChannel(BaseChannel):
             return _http_error(500, str(exc))
         return _http_json_response(payload)
 
+    def _handle_channels_list(self, request: WsRequest) -> Response:
+        """List all available channels and their current configuration."""
+        from miniUnicorn.webui.channels_api import list_channels
+
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        try:
+            payload = list_channels()
+        except Exception as exc:
+            return _http_error(500, str(exc))
+        return _http_json_response(payload)
+
+    def _handle_channels_update(self, request: WsRequest) -> Response:
+        """Create or update a single channel's configuration."""
+        from miniUnicorn.webui.channels_api import WebUIChannelsError, update_channel_config
+
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        try:
+            payload = update_channel_config(query)
+        except WebUIChannelsError as e:
+            return _http_error(e.status, e.message)
+        except Exception as exc:
+            return _http_error(500, str(exc))
+        return _http_json_response(payload)
+
+    def _handle_channels_delete(self, request: WsRequest) -> Response:
+        """Remove a channel's configuration."""
+        from miniUnicorn.webui.channels_api import WebUIChannelsError, delete_channel_config
+
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        try:
+            payload = delete_channel_config(query)
+        except WebUIChannelsError as e:
+            return _http_error(e.status, e.message)
+        except Exception as exc:
+            return _http_error(500, str(exc))
+        return _http_json_response(payload)
+
     async def _handle_agents_generate(self, request: WsRequest) -> Response:
         """Generate a subagent ``.md`` definition via the LLM.
 
@@ -1241,18 +1394,25 @@ class WebSocketChannel(BaseChannel):
         if not name:
             return _http_error(400, "missing 'name' parameter")
 
-        # Sanitize name to prevent directory traversal
-        safe_name = name.replace("/", "").replace("\\", "").replace("..", "")
-        if safe_name != name or not name:
+        # Strict whitelist: only allow filesystem-safe identifiers. This
+        # replaces the old blacklist (``replace("/", "").replace("..", "")``)
+        # which could be bypassed with sequences like ``....//``.
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
             return _http_error(400, "invalid skill name")
 
-        skill_dir = self._workspace_path / "skills" / safe_name
+        skills_dir = (self._workspace_path / "skills").resolve()
+        skill_dir = (skills_dir / name).resolve()
+        # Secondary check: ensure the resolved path is still inside skills_dir
+        # (guards against symlink tricks and filesystem edge cases).
+        if not is_path_within(skill_dir, skills_dir):
+            return _http_error(400, "invalid skill name")
+
         if not skill_dir.exists():
-            return _http_error(404, f"skill '{safe_name}' not found in workspace")
+            return _http_error(404, f"skill '{name}' not found in workspace")
 
         try:
             shutil.rmtree(skill_dir)
-            return _http_json_response({"deleted": True, "name": safe_name})
+            return _http_json_response({"deleted": True, "name": name})
         except Exception as exc:
             return _http_error(500, str(exc))
 
@@ -1562,9 +1722,12 @@ class WebSocketChannel(BaseChannel):
         if secret:
             if not _issue_route_secret_matches(request.headers, secret):
                 return _http_error(401, "Unauthorized")
-        elif not _is_localhost(connection):
+        elif not self._is_localhost_connection(connection):
             # No secret configured: only allow localhost (local dev mode).
             return _http_error(403, "bootstrap is localhost-only")
+        # Per-IP token issuance rate limit (5/min).
+        if not self._check_rate_limit(self._token_rate_limiter, connection, "bootstrap"):
+            return _http_json_response({"error": "rate limited"}, status=429)
         # Cap outstanding tokens to avoid runaway growth from a misbehaving client.
         self._purge_expired_issued_tokens()
         self._purge_expired_api_tokens()
@@ -1636,7 +1799,7 @@ class WebSocketChannel(BaseChannel):
         if not self._check_api_token(request):
             return _http_error(401, "Unauthorized")
         return _http_json_response(
-            self._webui_workspaces.payload(controls_available=_is_localhost(connection))
+            self._webui_workspaces.payload(controls_available=self._is_localhost_connection(connection))
         )
 
     def _handle_settings(self, request: WsRequest) -> Response:
@@ -2249,6 +2412,12 @@ class WebSocketChannel(BaseChannel):
             self.logger.warning("client_id too long ({} chars), truncating", len(client_id))
             client_id = client_id[:128]
 
+        # Per-IP connection rate limit (10/min).
+        if not self._check_rate_limit(self._conn_rate_limiter, connection, "connection"):
+            with suppress(Exception):
+                await connection.close(code=1013, reason="rate limited")
+            return
+
         default_chat_id = str(uuid.uuid4())
 
         try:
@@ -2396,7 +2565,7 @@ class WebSocketChannel(BaseChannel):
                 connection,
                 lambda: self._webui_workspaces.scope_for_new_chat(
                     envelope,
-                    controls_available=_is_localhost(connection),
+                    controls_available=self._is_localhost_connection(connection),
                 ),
             )
             if scope is None:
@@ -2433,7 +2602,7 @@ class WebSocketChannel(BaseChannel):
                     envelope,
                     chat_id=cid,
                     chat_running=websocket_turn_wall_started_at(cid) is not None,
-                    controls_available=_is_localhost(connection),
+                    controls_available=self._is_localhost_connection(connection),
                 ),
                 chat_id=cid,
             )
@@ -2467,6 +2636,15 @@ class WebSocketChannel(BaseChannel):
                         detail="image_rejected", reason="malformed",
                     )
                     return
+                # Per-IP media upload rate limit (10/hour).
+                if not self._check_rate_limit(
+                    self._media_rate_limiter, connection, "media_upload"
+                ):
+                    await self._send_event(
+                        connection, "error",
+                        detail="image_rejected", reason="rate_limited",
+                    )
+                    return
                 media_paths, reason = self._save_envelope_media(raw_media)
                 if reason is not None:
                     await self._send_event(
@@ -2485,7 +2663,7 @@ class WebSocketChannel(BaseChannel):
                     envelope,
                     chat_id=cid,
                     chat_running=websocket_turn_wall_started_at(cid) is not None,
-                    controls_available=_is_localhost(connection),
+                    controls_available=self._is_localhost_connection(connection),
                 ),
                 chat_id=cid,
             )

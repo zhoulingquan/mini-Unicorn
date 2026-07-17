@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shlex
 import shutil
 import sys
 from contextlib import suppress
@@ -35,7 +36,10 @@ from miniUnicorn.agent.tools.schema import (
 )
 from miniUnicorn.config.paths import get_media_dir
 from miniUnicorn.config.schema import Base
-from miniUnicorn.security.workspace_access import current_scope_allows_loopback, current_tool_workspace
+from miniUnicorn.security.workspace_access import (
+    current_scope_allows_loopback,
+    current_tool_workspace,
+)
 from miniUnicorn.security.workspace_policy import is_path_within
 
 _IS_WINDOWS = sys.platform == "win32"
@@ -431,8 +435,11 @@ class ExecTool(Tool):
             if _IS_WINDOWS:
                 env["PATH"] = env.get("PATH", "") + os.pathsep + self.path_append
             else:
-                env["MINIUNICORN_PATH_APPEND"] = self.path_append
-                command = f'export PATH="$PATH{os.pathsep}$MINIUNICORN_PATH_APPEND"; {command}'
+                # Inline path_append safely quoted instead of using an injectable
+                # MINIUNICORN_PATH_APPEND env var. shlex.quote prevents command
+                # injection from the configured path_append value.
+                quoted_append = shlex.quote(self.path_append)
+                command = f'export PATH="$PATH"{os.pathsep}{quoted_append}; {command}'
 
         shell_program, shell_error = self._resolve_shell(shell)
         if shell_error:
@@ -500,8 +507,14 @@ class ExecTool(Tool):
         allowed = {"sh", "bash", "zsh"}
         path = Path(shell).expanduser()
         if path.is_absolute():
-            if path.name not in allowed:
-                return None, f"Error: unsupported shell {shell!r}. Allowed: bash, sh, zsh"
+            # Strict path whitelist: only allow known-safe shell binaries.
+            # This prevents pointing the executor at an arbitrary binary
+            # (e.g. ``/tmp/evil``) even if its basename matches ``bash``.
+            if str(path) not in ExecTool._ALLOWED_SHELL_BINARIES:
+                return None, (
+                    f"Error: unsupported shell path {shell!r}. "
+                    f"Allowed: {', '.join(sorted(ExecTool._ALLOWED_SHELL_BINARIES))}"
+                )
             if not path.is_file() or not os.access(path, os.X_OK):
                 return None, f"Error: shell is not executable: {shell}"
             return str(path), None
@@ -512,6 +525,12 @@ class ExecTool(Tool):
         resolved = shutil.which(shell)
         if not resolved:
             return None, f"Error: shell not found: {shell}"
+        # Verify the resolved path is in the whitelist.
+        if resolved not in ExecTool._ALLOWED_SHELL_BINARIES:
+            return None, (
+                f"Error: resolved shell path {resolved!r} is not in the allowed list. "
+                f"Allowed: {', '.join(sorted(ExecTool._ALLOWED_SHELL_BINARIES))}"
+            )
         return resolved, None
 
     @staticmethod
@@ -576,8 +595,20 @@ class ExecTool(Tool):
                 env[key] = val
         return env
 
+    # Whitelist of absolute shell binary paths accepted by the ``shell``
+    # parameter.  This prevents an LLM from pointing the executor at an
+    # arbitrary binary (e.g. ``/tmp/evil``) even if its basename looks safe.
+    _ALLOWED_SHELL_BINARIES: ClassVar[frozenset[str]] = frozenset({
+        "/bin/sh",
+        "/bin/bash",
+        "/usr/bin/bash",
+        "/bin/zsh",
+        "/usr/bin/zsh",
+    })
+
     _BYPASS_PATTERNS: ClassVar[list[tuple[str, str]]] = [
         (r'\$\(', "command substitution $(...)"),
+        (r"\$'", "ANSI-C quoting $'...'"),
         (r'`[^`]+`', "backtick command substitution"),
         (r'base64\s+--decode\b|\bbase64\s+-d\b|\bdbase64\s+-d\b', "base64 decode pipe"),
         (r'xxd\s+-r\b', "hex decode pipe"),

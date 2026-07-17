@@ -8,9 +8,11 @@ import {
   type ReactNode,
 } from "react";
 
+import { STORAGE_KEYS } from "@/lib/storage";
+
 export type Theme = "light" | "dark";
 export type ThemeMode = "light" | "dark" | "system";
-const STORAGE_KEY = "miniUnicorn-webui.theme";
+const STORAGE_KEY = STORAGE_KEYS.theme;
 const ThemeContext = createContext<Theme>("light");
 
 function readStoredMode(): ThemeMode | null {

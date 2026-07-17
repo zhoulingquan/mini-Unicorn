@@ -6,7 +6,7 @@ import asyncio
 import dataclasses
 import os
 import time
-from contextlib import AsyncExitStack, nullcontext, suppress
+from contextlib import AsyncExitStack, nullcontext
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
@@ -24,7 +24,11 @@ from miniUnicorn.agent.progress_hook import AgentProgressHook
 from miniUnicorn.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
 from miniUnicorn.agent.subagent import SubagentManager
 from miniUnicorn.agent.subagent_registry import SubagentDefinition, SubagentRegistry
-from miniUnicorn.agent.tools.context import RequestContext, bind_request_context, reset_request_context
+from miniUnicorn.agent.tools.context import (
+    RequestContext,
+    bind_request_context,
+    reset_request_context,
+)
 from miniUnicorn.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
 from miniUnicorn.agent.tools.message import MessageTool
 from miniUnicorn.agent.tools.registry import ToolRegistry
@@ -61,11 +65,7 @@ from miniUnicorn.utils.runtime import (
 )
 
 if TYPE_CHECKING:
-    from miniUnicorn.config.schema import (
-        ChannelsConfig,
-        ToolsConfig,
-    )
-    from miniUnicorn.cron.service import CronService
+    pass
 
 
 UNIFIED_SESSION_KEY = "unified:default"
@@ -126,6 +126,47 @@ class TurnContext:
     # Subagent takeover: when set, the turn runs as this subagent's identity
     # (system prompt, tools whitelist, model) instead of the default agent.
     agent_override: SubagentDefinition | None = None
+
+
+@dataclass
+class AgentLoopOptions:
+    """Optional AgentLoop parameters grouped into a dataclass.
+
+    Pass to ``AgentLoop(options=...)`` for a cleaner construction path.
+    Individual keyword arguments to ``__init__`` still work (backward
+    compat) and override values from this dataclass. Fields typed as
+    ``Any`` correspond to types only available under ``TYPE_CHECKING``
+    (CronService, ChannelsConfig, ToolsConfig).
+    """
+    model: str | None = None
+    max_iterations: int | None = None
+    max_concurrent_subagents: int | None = None
+    context_window_tokens: int | None = None
+    context_block_limit: int | None = None
+    max_tool_result_chars: int | None = None
+    provider_retry_mode: str = "standard"
+    tool_hint_max_length: int | None = None
+    cron_service: Any | None = None
+    restrict_to_workspace: bool = False
+    session_manager: SessionManager | None = None
+    mcp_servers: dict | None = None
+    channels_config: Any | None = None
+    timezone: str | None = None
+    session_ttl_minutes: int = 0
+    consolidation_ratio: float = 0.5
+    max_messages: int = 120
+    vector_recall: bool = False
+    embedding_model: str = "text-embedding-3-small"
+    hooks: list[AgentHook] | None = None
+    unified_session: bool = False
+    disabled_skills: list[str] | None = None
+    tools_config: Any | None = None
+    provider_snapshot_loader: Callable[..., ProviderSnapshot] | None = None
+    provider_signature: tuple[object, ...] | None = None
+    model_presets: dict[str, ModelPresetConfig] | None = None
+    model_preset: str | None = None
+    preset_snapshot_loader: preset_helpers.PresetSnapshotLoader | None = None
+    runtime_model_publisher: Callable[[str, str | None], None] | None = None
 
 
 class AgentLoop:
@@ -191,37 +232,48 @@ class AgentLoop:
         bus: MessageBus,
         provider: LLMProvider,
         workspace: Path,
-        model: str | None = None,
-        max_iterations: int | None = None,
-        max_concurrent_subagents: int | None = None,
-        context_window_tokens: int | None = None,
-        context_block_limit: int | None = None,
-        max_tool_result_chars: int | None = None,
-        provider_retry_mode: str = "standard",
-        tool_hint_max_length: int | None = None,
-        cron_service: CronService | None = None,
-        restrict_to_workspace: bool = False,
-        session_manager: SessionManager | None = None,
-        mcp_servers: dict | None = None,
-        channels_config: ChannelsConfig | None = None,
-        timezone: str | None = None,
-        session_ttl_minutes: int = 0,
-        consolidation_ratio: float = 0.5,
-        max_messages: int = 120,
-        vector_recall: bool = False,
-        embedding_model: str = "text-embedding-3-small",
-        hooks: list[AgentHook] | None = None,
-        unified_session: bool = False,
-        disabled_skills: list[str] | None = None,
-        tools_config: ToolsConfig | None = None,
-        provider_snapshot_loader: Callable[..., ProviderSnapshot] | None = None,
-        provider_signature: tuple[object, ...] | None = None,
-        model_presets: dict[str, ModelPresetConfig] | None = None,
-        model_preset: str | None = None,
-        preset_snapshot_loader: preset_helpers.PresetSnapshotLoader | None = None,
-        runtime_model_publisher: Callable[[str, str | None], None] | None = None,
+        *,
+        options: AgentLoopOptions | None = None,
+        **overrides: Any,
     ):
         from miniUnicorn.config.schema import ToolsConfig
+
+        # Aggregate optional params via AgentLoopOptions dataclass. Individual
+        # keyword arguments (backward-compat path) override dataclass values.
+        opts = options or AgentLoopOptions()
+        if overrides:
+            opts = dataclasses.replace(opts, **overrides)
+        # Unpack into locals so the body below is unchanged from the
+        # original per-parameter __init__.
+        model = opts.model
+        max_iterations = opts.max_iterations
+        max_concurrent_subagents = opts.max_concurrent_subagents
+        context_window_tokens = opts.context_window_tokens
+        context_block_limit = opts.context_block_limit
+        max_tool_result_chars = opts.max_tool_result_chars
+        provider_retry_mode = opts.provider_retry_mode
+        tool_hint_max_length = opts.tool_hint_max_length
+        cron_service = opts.cron_service
+        restrict_to_workspace = opts.restrict_to_workspace
+        session_manager = opts.session_manager
+        mcp_servers = opts.mcp_servers
+        channels_config = opts.channels_config
+        timezone = opts.timezone
+        session_ttl_minutes = opts.session_ttl_minutes
+        consolidation_ratio = opts.consolidation_ratio
+        max_messages = opts.max_messages
+        vector_recall = opts.vector_recall
+        embedding_model = opts.embedding_model
+        hooks = opts.hooks
+        unified_session = opts.unified_session
+        disabled_skills = opts.disabled_skills
+        tools_config = opts.tools_config
+        provider_snapshot_loader = opts.provider_snapshot_loader
+        provider_signature = opts.provider_signature
+        model_presets = opts.model_presets
+        model_preset = opts.model_preset
+        preset_snapshot_loader = opts.preset_snapshot_loader
+        runtime_model_publisher = opts.runtime_model_publisher
 
         _tc = tools_config or ToolsConfig()
         defaults = AgentDefaults()
@@ -291,6 +343,7 @@ class AgentLoop:
         self._pending_turn_latency_ms: dict[str, int] = {}
         self._extra_hooks: list[AgentHook] = hooks or []
 
+        self.timezone = timezone
         self.context = ContextBuilder(workspace, timezone=timezone, disabled_skills=disabled_skills)
         self.sessions = session_manager or SessionManager(workspace)
         self._webui_turns = WebuiTurnCoordinator(
@@ -335,6 +388,18 @@ class AgentLoop:
         # When a session has an active task, new messages for that session
         # are routed here instead of creating a new task.
         self._pending_queues: dict[str, asyncio.Queue] = {}
+        # SessionManager LRU evict 回调：当会话从缓存淘汰时，清理本 loop 持有的
+        # 锁和待处理队列。**仅当该会话当前没有活跃任务时**才清理，否则任务结束
+        # 后的 finally 块仍会引用这些结构。
+        def _on_session_evict(key: str) -> None:
+            if self._active_tasks.get(key):
+                # 有活跃任务：保留锁和队列，让 _dispatch 的 finally 自行清理。
+                return
+            self._session_locks.pop(key, None)
+            # pending_queues 不应残留（_dispatch finally 会 pop），但保险起见仍清掉。
+            self._pending_queues.pop(key, None)
+            self._pending_turn_latency_ms.pop(key, None)
+        self.sessions.set_on_evict(_on_session_evict)
         # MINIUNICORN_MAX_CONCURRENT_REQUESTS: <=0 means unlimited; default 3.
         _max = int(os.environ.get("MINIUNICORN_MAX_CONCURRENT_REQUESTS", "3"))
         self._concurrency_gate: asyncio.Semaphore | None = (
@@ -543,7 +608,7 @@ class AgentLoop:
             cron_service=self.cron_service,
             sessions=self.sessions,
             provider_snapshot_loader=self._provider_snapshot_loader,
-            timezone="UTC",
+            timezone=self.timezone or "UTC",
             workspace_sandbox=self.workspace_scopes.sandbox_status,
             memory_store=self.context.memory if self._vector_recall else None,
             subagent_registry=self.subagent_registry,
@@ -711,8 +776,16 @@ class AgentLoop:
         tasks = self._active_tasks.pop(key, [])
         cancelled = sum(1 for t in tasks if not t.done() and t.cancel())
         for t in tasks:
-            with suppress(asyncio.CancelledError, Exception):
+            try:
                 await t
+            except asyncio.CancelledError:
+                # Propagate only when the current task itself is being
+                # cancelled; otherwise this is the awaited task's own
+                # (expected) cancellation from t.cancel() above.
+                if asyncio.current_task().cancelling():
+                    raise
+            except Exception:
+                logger.debug("Task cleanup error in _cancel_active_tasks", exc_info=True)
         sub_cancelled = await self.subagents.cancel_by_session(key)
         return cancelled + sub_cancelled
 

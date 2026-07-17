@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Menu, Monitor, Moon, Sun } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { DeleteConfirm } from "@/components/DeleteConfirm";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { RenameChatDialog } from "@/components/RenameChatDialog";
 import { Sidebar } from "@/components/Sidebar";
 import { AgentsView } from "@/components/agents/AgentsView";
@@ -10,6 +11,7 @@ import { SkillsView } from "@/components/skills/SkillsView";
 import { SettingsView, type SettingsSectionKey } from "@/components/settings/SettingsView";
 import { CronView } from "@/components/cron/CronView";
 import { ToolsView } from "@/components/tools/ToolsView";
+import { ChannelsView } from "@/components/channels/ChannelsView";
 import { ThreadShell } from "@/components/thread/ThreadShell";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
@@ -48,6 +50,7 @@ import {
   toRuntimeSurface,
 } from "@/lib/runtime";
 import { projectNameFromPath } from "@/lib/workspace";
+import { STORAGE_KEYS } from "@/lib/storage";
 
 type BootState =
   | { status: "loading" }
@@ -62,14 +65,14 @@ type BootState =
       runtimeSurface: RuntimeSurface;
     };
 
-const SIDEBAR_STORAGE_KEY = "miniUnicorn-webui.sidebar";
-const COMPLETED_RUNS_STORAGE_KEY = "miniUnicorn-webui.sidebar.completed-runs.v1";
-const RESTART_STARTED_KEY = "miniUnicorn-webui.restartStartedAt";
+const SIDEBAR_STORAGE_KEY = STORAGE_KEYS.sidebar;
+const COMPLETED_RUNS_STORAGE_KEY = STORAGE_KEYS.sidebarCompletedRuns;
+const RESTART_STARTED_KEY = STORAGE_KEYS.restartStartedAt;
 const SIDEBAR_WIDTH = 272;
 const SIDEBAR_RAIL_WIDTH = 56;
 const TOKEN_REFRESH_MARGIN_MS = 30_000;
 const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
-type ShellView = "chat" | "settings" | "mcp" | "skills" | "agents" | "cron" | "tools";
+type ShellView = "chat" | "settings" | "mcp" | "skills" | "agents" | "cron" | "tools" | "channels";
 
 function bootstrapTokenExpiresAt(expiresInSeconds: number): number {
   return Date.now() + Math.max(0, expiresInSeconds) * 1000;
@@ -335,6 +338,15 @@ export default function App() {
     [],
   );
 
+  const readyClient = state.status === "ready" ? state.client : null;
+  const readyTokenExpiresAt = state.status === "ready" ? state.tokenExpiresAt : null;
+
+  const handleModelNameChange = useCallback((modelName: string | null) => {
+    setState((current) =>
+      current.status === "ready" ? { ...current, modelName } : current,
+    );
+  }, []);
+
   useEffect(() => {
     if (state.status !== "ready") return;
     const client = state.client;
@@ -365,7 +377,8 @@ export default function App() {
       }
     }, tokenRefreshDelayMs(state.tokenExpiresAt));
     return () => window.clearTimeout(timer);
-  }, [state]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- readyClient/readyTokenExpiresAt are extracted from state union to avoid TS narrowing errors
+  }, [state.status, readyClient, readyTokenExpiresAt]);
 
   useEffect(() => {
     const saved = loadSavedSecret();
@@ -409,23 +422,19 @@ export default function App() {
     );
   }
 
-  const handleModelNameChange = (modelName: string | null) => {
-    setState((current) =>
-      current.status === "ready" ? { ...current, modelName } : current,
-    );
-  };
-
   return (
-    <ClientProvider
-      client={state.client}
-      token={state.token}
-      modelName={state.modelName}
-    >
-      <Shell
-        runtimeSurface={state.runtimeSurface}
-        onModelNameChange={handleModelNameChange}
-      />
-    </ClientProvider>
+    <ErrorBoundary>
+      <ClientProvider
+        client={state.client}
+        token={state.token}
+        modelName={state.modelName}
+      >
+        <Shell
+          runtimeSurface={state.runtimeSurface}
+          onModelNameChange={handleModelNameChange}
+        />
+      </ClientProvider>
+    </ErrorBoundary>
   );
 }
 
@@ -895,6 +904,11 @@ function Shell({
     setMobileSidebarOpen(false);
   }, []);
 
+  const onOpenChannels = useCallback(() => {
+    setView("channels");
+    setMobileSidebarOpen(false);
+  }, []);
+
   const onSelectAgent = useCallback((agentId: string) => {
     setSelectedAgentId(agentId);
   }, []);
@@ -1039,7 +1053,7 @@ function Shell({
       : t("app.documentTitle.base");
   }, [activeSession, headerTitle, i18n.resolvedLanguage, t, view]);
 
-  const sidebarProps = {
+  const sidebarProps = useMemo(() => ({
     sessions,
     activeKey,
     loading,
@@ -1059,6 +1073,7 @@ function Shell({
     onOpenAgents,
     onOpenCron,
     onOpenTools,
+    onOpenChannels,
     onToggleArchived,
     pinnedKeys: sidebarState.pinned_keys,
     archivedKeys: sidebarState.archived_keys,
@@ -1071,7 +1086,36 @@ function Shell({
     showArchived: sidebarState.view.show_archived,
     archivedCount: sidebarState.archived_keys.length,
     defaultWorkspacePath: workspaces?.default_scope.project_path ?? null,
-  };
+  }), [
+    sessions,
+    activeKey,
+    loading,
+    onNewChat,
+    onSelectChat,
+    onTogglePin,
+    onRequestRename,
+    onToggleArchive,
+    onToggleGroup,
+    onRequestRenameProject,
+    onNewChatInProject,
+    onOpenSettings,
+    onOpenMcp,
+    onOpenSkills,
+    onOpenAgents,
+    onOpenCron,
+    onOpenTools,
+    onOpenChannels,
+    onToggleArchived,
+    sidebarState.pinned_keys,
+    sidebarState.archived_keys,
+    sidebarState.title_overrides,
+    sidebarState.project_name_overrides,
+    sidebarState.collapsed_groups,
+    sidebarState.view,
+    runningChatIdList,
+    completedChatIdList,
+    workspaces?.default_scope?.project_path,
+  ]);
   const effectiveRuntimeSurface =
     settingsSnapshot?.surface ?? settingsSnapshot?.runtime_surface ?? runtimeSurface;
   const isNativeHostSetupSurface = effectiveRuntimeSurface === "native";
@@ -1190,53 +1234,68 @@ function Shell({
             </div>
             {view === "settings" && (
               <div className="absolute inset-0 flex flex-col">
-                <SettingsView
-                  themeMode={mode}
-                  initialSection={settingsInitialSection}
-                  showSidebar={view === "settings"}
-                  onSetThemeMode={setMode}
-                  onBackToChat={onBackToChat}
-                  onModelNameChange={onModelNameChange}
-                  onSettingsChange={setSettingsSnapshot}
-                  onRestart={onRestart}
-                  isRestarting={isRestarting}
-                  hostChromeInset={showHostChrome}
-                />
+                <ErrorBoundary>
+                  <SettingsView
+                    themeMode={mode}
+                    initialSection={settingsInitialSection}
+                    showSidebar={view === "settings"}
+                    onSetThemeMode={setMode}
+                    onBackToChat={onBackToChat}
+                    onModelNameChange={onModelNameChange}
+                    onSettingsChange={setSettingsSnapshot}
+                    onRestart={onRestart}
+                    isRestarting={isRestarting}
+                    hostChromeInset={showHostChrome}
+                  />
+                </ErrorBoundary>
               </div>
             )}
             {view === "mcp" && (
               <div className="absolute inset-0 flex flex-col">
-                <McpView
-                  onBack={onBackToChat}
-                  token={token}
-                />
+                <ErrorBoundary>
+                  <McpView
+                    onBack={onBackToChat}
+                    token={token}
+                  />
+                </ErrorBoundary>
               </div>
             )}
             {view === "skills" && (
               <div className="absolute inset-0 flex flex-col">
-                <SkillsView
-                  onBack={onBackToChat}
-                  token={token}
-                />
+                <ErrorBoundary>
+                  <SkillsView
+                    onBack={onBackToChat}
+                    token={token}
+                  />
+                </ErrorBoundary>
               </div>
             )}
             {view === "agents" && (
               <div className="absolute inset-0 flex flex-col">
-                <AgentsView
-                  onBack={onBackToChat}
-                  token={token}
-                  onUseAgent={onUseAgent}
-                />
+                <ErrorBoundary>
+                  <AgentsView
+                    onBack={onBackToChat}
+                    token={token}
+                    onUseAgent={onUseAgent}
+                  />
+                </ErrorBoundary>
               </div>
             )}
             {view === "cron" && (
               <div className="absolute inset-0 flex flex-col">
-                <CronView onBack={onBackToChat} token={token} />
+                <ErrorBoundary>
+                  <CronView onBack={onBackToChat} token={token} />
+                </ErrorBoundary>
               </div>
             )}
             {view === "tools" && (
               <div className="absolute inset-0 flex flex-col">
                 <ToolsView onBack={onBackToChat} token={token} />
+              </div>
+            )}
+            {view === "channels" && (
+              <div className="absolute inset-0 flex flex-col">
+                <ChannelsView onBack={onBackToChat} token={token} />
               </div>
             )}
           </main>

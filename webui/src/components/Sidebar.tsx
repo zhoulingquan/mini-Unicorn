@@ -3,6 +3,7 @@ import {
   Archive,
   CalendarClock,
   Menu,
+  MessageSquare,
   Package,
   PlugZap,
   Settings,
@@ -41,6 +42,7 @@ interface SidebarProps {
   onOpenAgents: () => void;
   onOpenCron: () => void;
   onOpenTools: () => void;
+  onOpenChannels: () => void;
   onToggleArchived: () => void;
   onCollapse: () => void;
   onExpand?: () => void;
@@ -130,6 +132,12 @@ export function Sidebar(props: SidebarProps) {
           label={t("sidebar.mcp")}
           onClick={props.onOpenMcp}
           icon={<PlugZap className="h-4 w-4" />}
+        />
+        <SidebarActionButton
+          collapsed={collapsed}
+          label={t("sidebar.channels")}
+          onClick={props.onOpenChannels}
+          icon={<MessageSquare className="h-4 w-4" />}
         />
         <SidebarActionButton
           collapsed={collapsed}
@@ -227,7 +235,7 @@ function SidebarActionButton({
       aria-label={label}
       aria-current={active ? "page" : undefined}
       title={collapsed ? label : undefined}
-      onClick={() => onClick()}
+      onClick={onClick}
       className={cn(
         "group h-8 min-w-0 gap-2 overflow-hidden rounded-full font-medium text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground",
         "transition-[width,padding,border-radius,color,background-color] duration-300 ease-out",
@@ -241,7 +249,7 @@ function SidebarActionButton({
       <span
         className={cn(
           "flex shrink-0 items-center justify-center transition-transform duration-300 ease-out",
-          collapsed ? "translate-x-0" : "translate-x-0",
+          "translate-x-0",
         )}
         aria-hidden
       >

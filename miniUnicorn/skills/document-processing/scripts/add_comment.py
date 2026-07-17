@@ -12,12 +12,10 @@
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 import tempfile
 import zipfile
 from pathlib import Path
-from xml.etree import ElementTree as ET
 
 
 def add_comment(

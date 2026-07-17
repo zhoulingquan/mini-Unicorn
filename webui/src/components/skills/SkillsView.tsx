@@ -3,6 +3,8 @@ import {
   ChevronRight,
   Eye,
   FileCode,
+  LayoutGrid,
+  List,
   Loader2,
   Pencil,
   Plus,
@@ -31,6 +33,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { ErrorBanner, NoticeBanner } from "@/components/ui/banner";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -45,15 +49,31 @@ import {
 import type { SkillDetail, SkillInfo } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const SKILL_TEMPLATE = `---
+type SkillTFunc = (key: string, options?: Record<string, unknown>) => string;
+
+/** 技能卡片描述的 i18n helper。
+ * 查找顺序：skills.skillDescriptions.{name} → 后端 skill.description */
+function useSkillDescription() {
+  const { t } = useTranslation();
+  return (skill: SkillInfo): string => {
+    const translated = t(`skills.skillDescriptions.${skill.name}`, {
+      defaultValue: "",
+    });
+    return translated || skill.description;
+  };
+}
+
+function buildSkillTemplate(t: SkillTFunc): string {
+  return `---
 name: my-skill
-description: 一句话描述这个技能的作用。
+description: ${t("skills.template.description")}
 ---
 
 # My Skill
 
-在这里编写技能内容。
+${t("skills.template.body")}
 `;
+}
 
 interface SkillsViewProps {
   onBack: () => void;
@@ -68,6 +88,7 @@ export function SkillsView({ onBack, token }: SkillsViewProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SkillInfo | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"list" | "grid">("grid");
 
   // Detail modal
   const [detail, setDetail] = useState<SkillDetail | null>(null);
@@ -78,7 +99,7 @@ export function SkillsView({ onBack, token }: SkillsViewProps) {
   // Editor modal
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorName, setEditorName] = useState("");
-  const [editorContent, setEditorContent] = useState(SKILL_TEMPLATE);
+  const [editorContent, setEditorContent] = useState(() => buildSkillTemplate(t));
   const [editorIsBuiltin, setEditorIsBuiltin] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
@@ -176,7 +197,7 @@ export function SkillsView({ onBack, token }: SkillsViewProps) {
       })();
     } else {
       setEditorName("");
-      setEditorContent(SKILL_TEMPLATE);
+      setEditorContent(buildSkillTemplate(t));
       setEditorIsBuiltin(false);
     }
     setEditorOpen(true);
@@ -252,6 +273,40 @@ export function SkillsView({ onBack, token }: SkillsViewProps) {
             className="hidden"
             onChange={handleUploadFile}
           />
+          <div className="flex items-center rounded-md border bg-muted/40 p-0.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "h-6 w-6 rounded-sm",
+                viewMode === "list"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setViewMode("list")}
+              title={t("skills.listView")}
+              aria-label={t("skills.listView")}
+              aria-pressed={viewMode === "list"}
+            >
+              <List className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "h-6 w-6 rounded-sm",
+                viewMode === "grid"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setViewMode("grid")}
+              title={t("skills.gridView")}
+              aria-label={t("skills.gridView")}
+              aria-pressed={viewMode === "grid"}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+            </Button>
+          </div>
           <Button
             variant="ghost"
             size="sm"
@@ -289,14 +344,10 @@ export function SkillsView({ onBack, token }: SkillsViewProps) {
 
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {notice && (
-          <div className="mb-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
-            {notice}
-          </div>
+          <NoticeBanner className="mb-3">{notice}</NoticeBanner>
         )}
         {error && (
-          <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-            {error}
-          </div>
+          <ErrorBanner className="mb-3">{error}</ErrorBanner>
         )}
 
         {loading && skills.length === 0 ? (
@@ -309,7 +360,7 @@ export function SkillsView({ onBack, token }: SkillsViewProps) {
             {t("skills.empty")}
           </div>
         ) : (
-          <div className="grid grid-cols-4 gap-1.5">
+          <div className={cn(viewMode === "grid" ? "grid grid-cols-4 gap-1.5" : "flex flex-col gap-1.5")}>
             {skills.map((skill) => (
               <SkillCard
                 key={skill.name}
@@ -428,7 +479,8 @@ function SkillCard({
   onDelete: () => void;
 }) {
   const { t } = useTranslation();
-  const active = skill.available && !skill.disabled;
+  const getSkillDescription = useSkillDescription();
+  const iconColor = pickSkillColor(skill.name);
   return (
     <div
       className={cn(
@@ -442,14 +494,10 @@ function SkillCard({
     >
       <div className="flex items-start gap-2">
         <div
-          className={cn(
-            "flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
-            active
-              ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
-              : "bg-muted/60 text-muted-foreground/60",
-          )}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white"
+          style={{ backgroundColor: iconColor }}
         >
-          <Sparkles className="h-3 w-3" />
+          {skill.name.charAt(0).toUpperCase()}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1">
@@ -457,65 +505,82 @@ function SkillCard({
               {skill.name}
             </span>
           </div>
-          <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground/70">
-            {skill.description || "—"}
-          </p>
+          <div className="mt-0.5 flex flex-wrap items-center gap-1">
+            {skill.disabled ? (
+              <Badge className="bg-muted/60 text-muted-foreground/70">{t("skills.disabled")}</Badge>
+            ) : skill.available ? (
+              <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                {t("skills.enabled")}
+              </Badge>
+            ) : (
+              <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                {t("skills.unavailable")}
+              </Badge>
+            )}
+            {skill.always && !skill.disabled && (
+              <Badge className="bg-blue-500/10 text-blue-600 dark:text-blue-400">{t("skills.always")}</Badge>
+            )}
+            <Badge
+              className={
+                skill.source === "workspace"
+                  ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                  : "bg-muted/60 text-muted-foreground/50"
+              }
+            >
+              {skill.source === "workspace" ? t("skills.workspaceBadge") : t("skills.builtinBadge")}
+            </Badge>
+          </div>
         </div>
-      </div>
-
-      <div className="mt-2 flex flex-wrap items-center gap-1">
-        {skill.disabled ? (
-          <Badge className="bg-muted/60 text-muted-foreground/70">{t("skills.disabled")}</Badge>
-        ) : skill.available ? (
-          <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-            {t("skills.enabled")}
-          </Badge>
-        ) : (
-          <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400">
-            {t("skills.unavailable")}
-          </Badge>
-        )}
-        {skill.always && !skill.disabled && (
-          <Badge className="bg-blue-500/10 text-blue-600 dark:text-blue-400">{t("skills.always")}</Badge>
-        )}
-        <Badge
-          className={
-            skill.source === "workspace"
-              ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-              : "bg-muted/60 text-muted-foreground/50"
-          }
-        >
-          {skill.source === "workspace" ? t("skills.workspaceBadge") : t("skills.builtinBadge")}
-        </Badge>
-      </div>
-
-      <div className="mt-2 flex items-center justify-between">
         <ToggleSwitch
           checked={!skill.disabled}
           disabled={toggling}
           onClick={onToggle}
           ariaLabel={skill.disabled ? t("skills.enable") : t("skills.disable")}
         />
-        <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-          <IconButton title={t("skills.viewDetails")} onClick={onView}>
-            <Eye className="h-3 w-3" />
+      </div>
+
+      <p className="mt-1.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground/70">
+        {getSkillDescription(skill) || "—"}
+      </p>
+
+      <div className="mt-2 flex items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <IconButton title={t("skills.viewDetails")} onClick={onView}>
+          <Eye className="h-3 w-3" />
+        </IconButton>
+        <IconButton title={t("skills.edit")} onClick={onEdit}>
+          <Pencil className="h-3 w-3" />
+        </IconButton>
+        {skill.source === "workspace" && (
+          <IconButton
+            title={t("skills.deleteTitle")}
+            onClick={onDelete}
+            className="hover:!bg-destructive/10 hover:!text-destructive"
+          >
+            <Trash2 className="h-3 w-3" />
           </IconButton>
-          <IconButton title={t("skills.edit")} onClick={onEdit}>
-            <Pencil className="h-3 w-3" />
-          </IconButton>
-          {skill.source === "workspace" && (
-            <IconButton
-              title={t("skills.deleteTitle")}
-              onClick={onDelete}
-              className="hover:!bg-destructive/10 hover:!text-destructive"
-            >
-              <Trash2 className="h-3 w-3" />
-            </IconButton>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );
+}
+
+const SKILL_PALETTE = [
+  "#3B82F6", // blue
+  "#8B5CF6", // violet
+  "#10B981", // emerald
+  "#F59E0B", // amber
+  "#EF4444", // red
+  "#0EA5E9", // sky
+  "#EC4899", // pink
+  "#14B8A6", // teal
+];
+
+function pickSkillColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  }
+  return SKILL_PALETTE[Math.abs(hash) % SKILL_PALETTE.length];
 }
 
 function Badge({ className, children }: { className?: string; children: React.ReactNode }) {
@@ -554,40 +619,6 @@ function IconButton({
       )}
     >
       {children}
-    </button>
-  );
-}
-
-function ToggleSwitch({
-  checked,
-  disabled,
-  onClick,
-  ariaLabel,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-  ariaLabel: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={ariaLabel}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
-        checked ? "bg-violet-500" : "bg-muted-foreground/30",
-      )}
-    >
-      <span
-        className={cn(
-          "inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform",
-          checked ? "translate-x-3.5" : "translate-x-0.5",
-        )}
-      />
     </button>
   );
 }

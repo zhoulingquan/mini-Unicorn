@@ -5,7 +5,6 @@ import {
   startTransition,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -117,7 +116,7 @@ function useStreamingMarkdownSource(source: string, streaming: boolean): string 
 
   latestSourceRef.current = source;
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     latestSourceRef.current = source;
     if (!streaming) {
       clearPendingCommit();

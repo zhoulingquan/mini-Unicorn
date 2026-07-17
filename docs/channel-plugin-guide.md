@@ -8,8 +8,8 @@ Build a custom MiniUnicorn channel in three steps: subclass, package, install.
 
 MiniUnicorn discovers channel plugins via Python [entry points](https://packaging.python.org/en/latest/specifications/entry-points/). When `miniUnicorn gateway` starts, it scans:
 
-1. Built-in channels in `MiniUnicorn/channels/`
-2. External packages registered under the `MiniUnicorn.channels` entry point group
+1. Built-in channels in `miniUnicorn/channels/`
+2. External packages registered under the `miniUnicorn.channels` entry point group
 
 If a matching config section has `"enabled": true`, the channel is instantiated and started.
 
@@ -45,10 +45,10 @@ from aiohttp import web
 from loguru import logger
 from pydantic import Field
 
-from MiniUnicorn.channels.base import BaseChannel
-from MiniUnicorn.bus.events import OutboundMessage
-from MiniUnicorn.bus.queue import MessageBus
-from MiniUnicorn.config.schema import Base
+from miniUnicorn.channels.base import BaseChannel
+from miniUnicorn.bus.events import OutboundMessage
+from miniUnicorn.bus.queue import MessageBus
+from miniUnicorn.config.schema import Base
 
 
 class WebhookConfig(Base):
@@ -137,7 +137,7 @@ name = "MiniUnicorn-channel-webhook"
 version = "0.1.0"
 dependencies = ["miniUnicorn-ai", "aiohttp"]
 
-[project.entry-points."MiniUnicorn.channels"]
+[project.entry-points."miniUnicorn.channels"]
 webhook = "miniUnicorn_channel_webhook:WebhookChannel"
 
 [build-system]
@@ -465,15 +465,15 @@ Recommended rendering:
 
 `BaseChannel.is_allowed()` reads the permission list via `getattr(self.config, "allow_from", [])`. This works for Pydantic models where `allow_from` is a real Python attribute, but **fails silently for plain `dict`** — `dict` has no `allow_from` attribute, so `getattr` always returns the default `[]`, causing all messages to be denied.
 
-Built-in channels use Pydantic config models (subclassing `Base` from `MiniUnicorn.config.schema`). Plugin channels **must do the same**.
+Built-in channels use Pydantic config models (subclassing `Base` from `miniUnicorn.config.schema`). Plugin channels **must do the same**.
 
 ### Pattern
 
-1. Define a Pydantic model inheriting from `MiniUnicorn.config.schema.Base`:
+1. Define a Pydantic model inheriting from `miniUnicorn.config.schema.Base`:
 
 ```python
 from pydantic import Field
-from MiniUnicorn.config.schema import Base
+from miniUnicorn.config.schema import Base
 
 class WebhookConfig(Base):
     """Webhook channel configuration."""
@@ -488,7 +488,7 @@ class WebhookConfig(Base):
 
 ```python
 from typing import Any
-from MiniUnicorn.bus.queue import MessageBus
+from miniUnicorn.bus.queue import MessageBus
 
 class WebhookChannel(BaseChannel):
     def __init__(self, config: Any, bus: MessageBus):

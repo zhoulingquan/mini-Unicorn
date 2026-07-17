@@ -12,10 +12,8 @@ All limits are optional: set a limit to None to disable that dimension.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
-
-from loguru import logger
 
 _DEFAULT_MAX_INPUT_TOKENS = 200_000     # ~5-10 turns of dense context
 _DEFAULT_MAX_OUTPUT_TOKENS = 50_000     # generous cap for multi-step reasoning

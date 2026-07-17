@@ -70,6 +70,9 @@ export function ThreadViewport({
   const [composerDockHeight, setComposerDockHeight] = useState(0);
   const [visibleMessageCount, setVisibleMessageCount] =
     useState(INITIAL_HISTORY_WINDOW);
+  const visibleMessageCountRef = useRef(visibleMessageCount);
+  const visibleCountByChatRef = useRef<Map<string, number>>(new Map());
+  const resizeTimerRef = useRef<number | null>(null);
   const hasMessages = messages.length > 0;
   const visibleMessages = useMemo(
     () => windowMessages(messages, visibleMessageCount),
@@ -144,6 +147,10 @@ export function ThreadViewport({
   }, []);
 
   useEffect(() => {
+    visibleMessageCountRef.current = visibleMessageCount;
+  }, [visibleMessageCount]);
+
+  useEffect(() => {
     if (!atBottom) return;
     // Instant jump: CSS scroll-smooth + behavior "auto" still animates in some
     // browsers; session switches and history hydration should never slide from top.
@@ -158,11 +165,18 @@ export function ThreadViewport({
 
   useLayoutEffect(() => {
     if (lastConversationKeyRef.current === conversationKey) return;
+    const prevKey = lastConversationKeyRef.current;
+    if (prevKey) {
+      visibleCountByChatRef.current.set(prevKey, visibleMessageCountRef.current);
+    }
     lastConversationKeyRef.current = conversationKey;
     pendingConversationScrollRef.current = true;
     userReadingHistoryRef.current = false;
     setAtBottom(true);
-    setVisibleMessageCount(INITIAL_HISTORY_WINDOW);
+    const savedCount = conversationKey
+      ? visibleCountByChatRef.current.get(conversationKey)
+      : undefined;
+    setVisibleMessageCount(savedCount ?? INITIAL_HISTORY_WINDOW);
   }, [conversationKey]);
 
   useLayoutEffect(() => {
@@ -198,10 +212,22 @@ export function ThreadViewport({
     if (!target || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
       if (userReadingHistoryRef.current) return;
-      scrollToBottom(false, 4);
+      if (resizeTimerRef.current !== null) {
+        window.clearTimeout(resizeTimerRef.current);
+      }
+      resizeTimerRef.current = window.setTimeout(() => {
+        resizeTimerRef.current = null;
+        scrollToBottom(false, 4);
+      }, 100);
     });
     observer.observe(target);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (resizeTimerRef.current !== null) {
+        window.clearTimeout(resizeTimerRef.current);
+        resizeTimerRef.current = null;
+      }
+    };
   }, [hasMessages, scrollToBottom]);
 
   useEffect(() => {

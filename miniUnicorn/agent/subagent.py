@@ -186,6 +186,13 @@ class SubagentManager:
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._task_statuses: dict[str, SubagentStatus] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
+        # Serializes mutations to the three dicts above. In single-threaded
+        # asyncio dict ops are atomic between awaits, but the lock guards the
+        # read-modify-write sections (e.g. snapshot in cancel_by_session)
+        # against interleaving with spawn()/spawn_and_wait() at await points.
+        # Sync callers (get_running_count*, _cleanup done-callback) rely on
+        # CPython dict atomicity and run while no coroutine holds the lock.
+        self._state_lock = asyncio.Lock()
 
     def _subagent_tools_config(self) -> ToolsConfig:
         """Build a ToolsConfig scoped for subagent use."""
@@ -252,25 +259,13 @@ class SubagentManager:
             task_description=task,
             started_at=time.monotonic(),
         )
-        self._task_statuses[task_id] = status
-
-        bg_task = asyncio.create_task(
-            self._run_subagent(
-                task_id,
-                task,
-                display_label,
-                origin,
-                status,
-                origin_message_id,
-                temperature,
-                workspace_scope,
-            )
-        )
-        self._running_tasks[task_id] = bg_task
-        if session_key:
-            self._session_tasks.setdefault(session_key, set()).add(task_id)
 
         def _cleanup(_: asyncio.Task) -> None:
+            # Done callback runs synchronously in the event loop; cannot
+            # acquire an asyncio.Lock. Safe because it only runs after the
+            # task has finished, at which point no holder of _state_lock is
+            # mid-mutation (the lock is only held during synchronous setup
+            # in spawn/spawn_and_wait). Dict pop/discard are atomic in CPython.
             self._running_tasks.pop(task_id, None)
             self._task_statuses.pop(task_id, None)
             if session_key and (ids := self._session_tasks.get(session_key)):
@@ -278,7 +273,24 @@ class SubagentManager:
                 if not ids:
                     del self._session_tasks[session_key]
 
-        bg_task.add_done_callback(_cleanup)
+        async with self._state_lock:
+            self._task_statuses[task_id] = status
+            bg_task = asyncio.create_task(
+                self._run_subagent(
+                    task_id,
+                    task,
+                    display_label,
+                    origin,
+                    status,
+                    origin_message_id,
+                    temperature,
+                    workspace_scope,
+                )
+            )
+            self._running_tasks[task_id] = bg_task
+            if session_key:
+                self._session_tasks.setdefault(session_key, set()).add(task_id)
+            bg_task.add_done_callback(_cleanup)
 
         logger.info("Spawned subagent [{}]: {}", task_id, display_label)
         return f"Subagent [{display_label}] started (id: {task_id}). I'll notify you when it completes."
@@ -315,9 +327,10 @@ class SubagentManager:
             task_description=task,
             started_at=time.monotonic(),
         )
-        self._task_statuses[task_id] = status
-        if session_key:
-            self._session_tasks.setdefault(session_key, set()).add(task_id)
+        async with self._state_lock:
+            self._task_statuses[task_id] = status
+            if session_key:
+                self._session_tasks.setdefault(session_key, set()).add(task_id)
         try:
             result_status, result_content = await self._run_subagent_direct(
                 task_id, task, display_label, origin, status,
@@ -329,11 +342,111 @@ class SubagentManager:
             )
             return result_status, result_content
         finally:
+            # Synchronous cleanup after await; no lock needed (no coroutine
+            # can interleave during a finally block that doesn't await).
             self._task_statuses.pop(task_id, None)
             if session_key and (ids := self._session_tasks.get(session_key)):
                 ids.discard(task_id)
                 if not ids:
                     del self._session_tasks[session_key]
+
+    async def _execute_subagent(
+        self,
+        task_id: str,
+        task: str,
+        status: SubagentStatus,
+        origin: dict[str, str],
+        temperature: float | None,
+        workspace_scope: WorkspaceScope | None,
+        *,
+        system_prompt_override: str | None = None,
+        model_override: str | None = None,
+        tools_whitelist: list[str] | None = None,
+        use_activity_hook: bool = False,
+        namespaced_session: bool = False,
+    ) -> Any:
+        """Shared skeleton: build tools/messages, run the subagent, return result.
+
+        On success, ``status.phase`` is set to ``"done"`` and
+        ``status.stop_reason`` is populated. Raises on failure so the caller
+        can handle announcement/return uniformly.
+
+        Keyword-only flags select the direct-variant upgrades:
+          * ``use_activity_hook`` — forward tool/reasoning events to clients.
+          * ``namespaced_session`` — isolate consolidation history under a
+            ``{channel}:{chat_id}#sub:{task_id}`` key.
+        """
+        async def _on_checkpoint(payload: dict) -> None:
+            status.phase = payload.get("phase", status.phase)
+            status.iteration = payload.get("iteration", status.iteration)
+
+        root = workspace_scope.project_path if workspace_scope is not None else self.workspace
+        cfg = None
+        if workspace_scope is not None:
+            cfg = self._subagent_tools_config()
+            cfg.restrict_to_workspace = workspace_scope.restrict_to_workspace
+        tools = self._build_tools(workspace=root, tools_config=cfg)
+        if tools_whitelist is not None:
+            tools = self._filter_tools(tools, tools_whitelist)
+        if system_prompt_override:
+            system_prompt = system_prompt_override
+        else:
+            system_prompt = self._build_subagent_prompt(workspace=root)
+        use_model = model_override or self.model
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": task},
+        ]
+        # Parent session key drives per-session concerns (LLM wall timeout,
+        # cancel_by_session tracking). The subagent's own consolidation
+        # history may use a namespaced key so it cannot collide with — or
+        # mutate — the parent's session cursor.
+        parent_session_key = origin.get("session_key")
+        llm_timeout = (
+            self._llm_wall_timeout_for_session(parent_session_key)
+            if self._llm_wall_timeout_for_session
+            else None
+        )
+        if namespaced_session:
+            run_session_key = make_session_key(
+                origin["channel"], origin["chat_id"], f"sub:{task_id}",
+            )
+        else:
+            run_session_key = parent_session_key
+        if use_activity_hook:
+            hook = _SubagentHook(
+                task_id,
+                status,
+                bus=self.bus,
+                origin_channel=origin.get("channel"),
+                origin_chat_id=origin.get("chat_id"),
+            )
+        else:
+            hook = _SubagentHook(task_id, status)
+        token = bind_workspace_scope(workspace_scope) if workspace_scope is not None else None
+        try:
+            result = await self.runner.run(AgentRunSpec(
+                initial_messages=messages,
+                tools=tools,
+                model=use_model,
+                temperature=temperature,
+                max_iterations=self.max_iterations,
+                max_tool_result_chars=self.max_tool_result_chars,
+                hook=hook,
+                max_iterations_message="Task completed but no final response was generated.",
+                error_message=None,
+                fail_on_tool_error=True,
+                checkpoint_callback=_on_checkpoint,
+                session_key=run_session_key,
+                workspace=root,
+                llm_timeout_s=llm_timeout,
+            ))
+        finally:
+            if token is not None:
+                reset_workspace_scope(token)
+        status.phase = "done"
+        status.stop_reason = result.stop_reason
+        return result
 
     async def _run_subagent(
         self,
@@ -349,53 +462,10 @@ class SubagentManager:
         """Execute the subagent task and announce the result."""
         logger.info("Subagent [{}] starting task: {}", task_id, label)
 
-        async def _on_checkpoint(payload: dict) -> None:
-            status.phase = payload.get("phase", status.phase)
-            status.iteration = payload.get("iteration", status.iteration)
-
         try:
-            root = workspace_scope.project_path if workspace_scope is not None else self.workspace
-            cfg = None
-            if workspace_scope is not None:
-                cfg = self._subagent_tools_config()
-                cfg.restrict_to_workspace = workspace_scope.restrict_to_workspace
-            tools = self._build_tools(workspace=root, tools_config=cfg)
-            system_prompt = self._build_subagent_prompt(workspace=root)
-            messages: list[dict[str, Any]] = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": task},
-            ]
-
-            sess_key = origin.get("session_key")
-            llm_timeout = (
-                self._llm_wall_timeout_for_session(sess_key)
-                if self._llm_wall_timeout_for_session
-                else None
+            result = await self._execute_subagent(
+                task_id, task, status, origin, temperature, workspace_scope,
             )
-            token = bind_workspace_scope(workspace_scope) if workspace_scope is not None else None
-            try:
-                result = await self.runner.run(AgentRunSpec(
-                    initial_messages=messages,
-                    tools=tools,
-                    model=self.model,
-                    temperature=temperature,
-                    max_iterations=self.max_iterations,
-                    max_tool_result_chars=self.max_tool_result_chars,
-                    hook=_SubagentHook(task_id, status),
-                    max_iterations_message="Task completed but no final response was generated.",
-                    error_message=None,
-                    fail_on_tool_error=True,
-                    checkpoint_callback=_on_checkpoint,
-                    session_key=sess_key,
-                    workspace=root,
-                    llm_timeout_s=llm_timeout,
-                ))
-            finally:
-                if token is not None:
-                    reset_workspace_scope(token)
-            status.phase = "done"
-            status.stop_reason = result.stop_reason
-
             if result.stop_reason == "tool_error":
                 status.tool_events = list(result.tool_events)
                 await self._announce_result(
@@ -447,74 +517,15 @@ class SubagentManager:
         """
         logger.info("Subagent [{}] starting (direct): {}", task_id, label)
 
-        async def _on_checkpoint(payload: dict) -> None:
-            status.phase = payload.get("phase", status.phase)
-            status.iteration = payload.get("iteration", status.iteration)
-
         try:
-            root = workspace_scope.project_path if workspace_scope is not None else self.workspace
-            cfg = None
-            if workspace_scope is not None:
-                cfg = self._subagent_tools_config()
-                cfg.restrict_to_workspace = workspace_scope.restrict_to_workspace
-            tools = self._build_tools(workspace=root, tools_config=cfg)
-            if tools_whitelist is not None:
-                tools = self._filter_tools(tools, tools_whitelist)
-            if system_prompt_override:
-                system_prompt = system_prompt_override
-            else:
-                system_prompt = self._build_subagent_prompt(workspace=root)
-            use_model = model_override or self.model
-            messages: list[dict[str, Any]] = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": task},
-            ]
-            # Parent session key drives per-session concerns (LLM wall timeout,
-            # cancel_by_session tracking). The subagent's own consolidation
-            # history uses a namespaced key so it cannot collide with — or
-            # mutate — the parent's session cursor.
-            parent_session_key = origin.get("session_key")
-            llm_timeout = (
-                self._llm_wall_timeout_for_session(parent_session_key)
-                if self._llm_wall_timeout_for_session
-                else None
+            result = await self._execute_subagent(
+                task_id, task, status, origin, temperature, workspace_scope,
+                system_prompt_override=system_prompt_override,
+                model_override=model_override,
+                tools_whitelist=tools_whitelist,
+                use_activity_hook=True,
+                namespaced_session=True,
             )
-            sub_session_key = make_session_key(
-                origin["channel"], origin["chat_id"], f"sub:{task_id}",
-            )
-            origin_channel = origin.get("channel")
-            origin_chat_id = origin.get("chat_id")
-            hook = _SubagentHook(
-                task_id,
-                status,
-                bus=self.bus,
-                origin_channel=origin_channel,
-                origin_chat_id=origin_chat_id,
-            )
-            token = bind_workspace_scope(workspace_scope) if workspace_scope is not None else None
-            try:
-                result = await self.runner.run(AgentRunSpec(
-                    initial_messages=messages,
-                    tools=tools,
-                    model=use_model,
-                    temperature=temperature,
-                    max_iterations=self.max_iterations,
-                    max_tool_result_chars=self.max_tool_result_chars,
-                    hook=hook,
-                    max_iterations_message="Task completed but no final response was generated.",
-                    error_message=None,
-                    fail_on_tool_error=True,
-                    checkpoint_callback=_on_checkpoint,
-                    session_key=sub_session_key,
-                    workspace=root,
-                    llm_timeout_s=llm_timeout,
-                ))
-            finally:
-                if token is not None:
-                    reset_workspace_scope(token)
-            status.phase = "done"
-            status.stop_reason = result.stop_reason
-
             if result.stop_reason == "tool_error":
                 return "error", self._format_partial_progress(result)
             elif result.stop_reason == "error":
@@ -616,8 +627,14 @@ class SubagentManager:
 
     async def cancel_by_session(self, session_key: str) -> int:
         """Cancel all subagents for the given session. Returns count cancelled."""
-        tasks = [self._running_tasks[tid] for tid in self._session_tasks.get(session_key, [])
-                 if tid in self._running_tasks and not self._running_tasks[tid].done()]
+        async with self._state_lock:
+            tasks = [self._running_tasks[tid] for tid in self._session_tasks.get(session_key, [])
+                     if tid in self._running_tasks and not self._running_tasks[tid].done()]
+        # Release the lock before cancelling/gathering: gather awaits task
+        # completion, during which done_callbacks fire and mutate the dicts.
+        # Holding the lock across gather would deadlock with _cleanup (which
+        # can't acquire the async lock from a sync callback) — and we don't
+        # need to: we already snapshotted the tasks we care about.
         for t in tasks:
             t.cancel()
         if tasks:

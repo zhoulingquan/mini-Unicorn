@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
@@ -10,6 +11,26 @@ if TYPE_CHECKING:
     from miniUnicorn.session.manager import Session
 
 Handler = Callable[["CommandContext"], Awaitable["OutboundMessage | None"]]
+_BOT_SUFFIX_RE = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+def normalize_command_text(text: str) -> str:
+    """Normalize slash-command transport variants before routing.
+
+    Telegram and Discord-style command dispatch can produce ``/cmd@bot args``.
+    The bot suffix belongs to the transport, not the command name, so strip it
+    once at the router boundary while preserving user arguments verbatim.
+    """
+    stripped = text.strip()
+    if not stripped.startswith("/"):
+        return stripped
+    first, sep, rest = stripped.partition(" ")
+    if "@" not in first:
+        return stripped
+    command, suffix = first.rsplit("@", 1)
+    if command and suffix and _BOT_SUFFIX_RE.fullmatch(suffix):
+        return f"{command}{sep}{rest}" if sep else command
+    return stripped
 
 
 @dataclass

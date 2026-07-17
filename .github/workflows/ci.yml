@@ -21,8 +21,8 @@ jobs:
       fail-fast: false
       matrix:
         os: ${{ fromJSON('["ubuntu-latest","windows-latest"]') }}
-        # CI concentrates on newer runtimes (3.11/3.12 still supported per pyproject requires-python).
-        python-version: ${{ fromJSON('["3.13","3.14"]') }}
+        # pyproject requires-python = ">=3.11"; test the full supported range.
+        python-version: ${{ fromJSON('["3.11","3.12","3.13","3.14"]') }}
 
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +35,22 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-${{ matrix.python-version }}-uv-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.python-version }}-uv-
+
+      - name: Cache ruff
+        uses: actions/cache@v4
+        with:
+          path: .ruff_cache
+          key: ${{ runner.os }}-ruff-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-ruff-
+
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libolm-dev build-essential
@@ -43,7 +59,10 @@ jobs:
         run: uv sync --all-extras
 
       - name: Lint with ruff
-        run: uv run ruff check miniUnicorn --select F
+        run: uv run ruff check miniUnicorn
 
-      - name: Run tests
-        run: uv run pytest tests/
+      - name: Run tests with coverage
+        run: uv run pytest tests/ --cov=miniUnicorn --cov-report=term --cov-report=xml
+
+      - name: Run pip-audit
+        run: uv run pip-audit

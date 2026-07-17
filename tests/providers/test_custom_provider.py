@@ -83,20 +83,3 @@ def test_custom_provider_parse_chunks_deduplicates_parallel_tool_call_ids() -> N
     assert ids[0] == "call_dup"
     assert len(ids) == 2
     assert len(set(ids)) == 2
-
-
-def test_local_provider_502_error_includes_reachability_hint() -> None:
-    spec = find_by_name("ollama")
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
-        provider = OpenAICompatProvider(api_base="http://localhost:11434/v1", spec=spec)
-
-    result = provider._handle_error(
-        Exception("Error code: 502"),
-        spec=spec,
-        api_base="http://localhost:11434/v1",
-    )
-
-    assert result.finish_reason == "error"
-    assert "local model endpoint" in result.content
-    assert "http://localhost:11434/v1" in result.content
-    assert "proxy/tunnel" in result.content

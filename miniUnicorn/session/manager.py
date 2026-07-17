@@ -4,11 +4,12 @@ import json
 import os
 import re
 import shutil
+from collections import OrderedDict
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from loguru import logger
 
@@ -337,11 +338,47 @@ class SessionManager:
     Sessions are stored as JSONL files in the sessions directory.
     """
 
-    def __init__(self, workspace: Path):
+    # 进程内缓存上限：超出后 evict 最旧会话（磁盘已有持久化，安全）。
+    # 通过 MINIUNICORN_SESSION_CACHE_SIZE 环境变量可调整；<=0 表示无上限（向后兼容）。
+    _DEFAULT_CACHE_MAX = 50
+
+    def __init__(self, workspace: Path, *, cache_max: int | None = None):
         self.workspace = workspace
         self.sessions_dir = ensure_dir(self.workspace / "sessions")
         self.legacy_sessions_dir = get_legacy_sessions_dir()
-        self._cache: dict[str, Session] = {}
+        # OrderedDict 以 LRU 方式淘汰：get_or_create/save 时 move_to_end，
+        # 超过 cache_max 时 popitem(last=False) 丢弃最旧。
+        self._cache: "OrderedDict[str, Session]" = OrderedDict()
+        if cache_max is None:
+            try:
+                env_val = int(os.environ.get("MINIUNICORN_SESSION_CACHE_SIZE", str(self._DEFAULT_CACHE_MAX)))
+            except ValueError:
+                env_val = self._DEFAULT_CACHE_MAX
+            cache_max = env_val
+        self._cache_max = cache_max  # <=0 表示无上限
+        # 当会话从缓存中 evict 时触发，供 AgentLoop 同步清理锁/队列/任务。
+        # 回调签名：(session_key: str) -> None
+        self._on_evict: Callable[[str], None] | None = None
+
+    def set_on_evict(self, cb: Callable[[str], None]) -> None:
+        """注册 evict 回调，AgentLoop 在此清理 _session_locks/_pending_queues 等。"""
+        self._on_evict = cb
+
+    def _touch(self, key: str) -> None:
+        """LRU 更新：把 key 移到末尾（最近使用）。"""
+        self._cache.move_to_end(key)
+
+    def _enforce_max(self) -> None:
+        """淘汰最旧条目直到满足 cache_max。"""
+        if self._cache_max <= 0:
+            return
+        while len(self._cache) > self._cache_max:
+            evicted_key, _ = self._cache.popitem(last=False)
+            if self._on_evict is not None:
+                try:
+                    self._on_evict(evicted_key)
+                except Exception:
+                    logger.exception("Session on_evict callback failed for {}", evicted_key)
 
     @staticmethod
     def safe_key(key: str) -> str:
@@ -367,6 +404,7 @@ class SessionManager:
             The session.
         """
         if key in self._cache:
+            self._touch(key)
             return self._cache[key]
 
         session = self._load(key)
@@ -374,6 +412,7 @@ class SessionManager:
             session = Session(key=key)
 
         self._cache[key] = session
+        self._enforce_max()
         return session
 
     def _load(self, key: str) -> Session | None:
@@ -541,7 +580,12 @@ class SessionManager:
             tmp_path.unlink(missing_ok=True)
             raise
 
-        self._cache[session.key] = session
+        # 保存即最近使用，更新 LRU 顺序。
+        if session.key in self._cache:
+            self._touch(session.key)
+        else:
+            self._cache[session.key] = session
+            self._enforce_max()
 
     def flush_all(self) -> int:
         """Re-save every cached session with fsync for durable shutdown.
