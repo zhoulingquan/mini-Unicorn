@@ -1559,7 +1559,7 @@ function SlashCommandPalette({
                     {command.badge ?? t("thread.composer.slash.badges.recent")}
                   </span>
                 ) : null}
-                <span className="font-mono text-[12px] text-muted-foreground/60">
+                <span className="text-[12px] text-muted-foreground/60">
                   {command.argHint ? `${command.command} ${command.argHint}` : command.command}
                 </span>
               </span>

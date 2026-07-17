@@ -20,6 +20,7 @@ import {
   Database,
   Eye,
   EyeOff,
+  FileText,
   Gem,
   Globe2,
   Grid3X3,
@@ -35,7 +36,6 @@ import {
   Pencil,
   RotateCcw,
   Search,
-  Server,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -63,18 +63,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   createModelConfiguration,
   fetchProviderModels,
   fetchSettings,
   loginProviderOAuth,
   logoutProviderOAuth,
+  readBootstrapFile,
+  saveBootstrapFile,
   updateModelConfiguration,
   updateNetworkSafetySettings,
   updateProviderSettings,
   updateRuntimeSettings,
   updateSettings,
-  updateWebSearchSettings,
 } from "@/lib/api";
 import { getHostApi } from "@/lib/runtime";
 import {
@@ -89,7 +91,6 @@ import type {
   NetworkSafetySettingsUpdate,
   RuntimeSettingsUpdate,
   SettingsPayload,
-  WebSearchSettingsUpdate,
   WebuiDefaultAccessMode,
 } from "@/lib/types";
 
@@ -220,6 +221,7 @@ export function SettingsView({
   const [settings, setSettings] = useState<SettingsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [contextWindowLearning, setContextWindowLearning] = useState(false);
   const [modelConfigurationOpen, setModelConfigurationOpen] = useState(false);
   const [modelConfigurationSaving, setModelConfigurationSaving] = useState(false);
   const [modelConfigurationForm, setModelConfigurationForm] = useState<ModelConfigurationDraft>({
@@ -231,7 +233,6 @@ export function SettingsView({
   const [providerSaved, setProviderSaved] = useState<Record<string, boolean>>({});
   const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
   const [providerModelsLoading, setProviderModelsLoading] = useState<string | null>(null);
-  const [webSearchSaving, setWebSearchSaving] = useState(false);
   const [networkSafetySaving, setNetworkSafetySaving] = useState(false);
   const [runtimeSaving, setRuntimeSaving] = useState(false);
   const [runtimeForm, setRuntimeForm] = useState<RuntimeSettingsUpdate>({
@@ -249,14 +250,6 @@ export function SettingsView({
     EMPTY_PENDING_RESTART_SECTIONS,
   );
   const [localPrefs, setLocalPrefs] = useState<LocalPreferences>(() => readLocalPreferences());
-  const [webSearchForm, setWebSearchForm] = useState<WebSearchSettingsUpdate>({
-    provider: "duckduckgo",
-    apiKey: "",
-    baseUrl: "",
-    maxResults: 5,
-    timeout: 30,
-    useJinaReader: true,
-  });
   const [networkSafetyForm, setNetworkSafetyForm] = useState<NetworkSafetySettingsUpdate>({
     webuiAllowLocalServiceAccess: true,
     webuiDefaultAccessMode: "default",
@@ -265,8 +258,6 @@ export function SettingsView({
   useEffect(() => {
     setActiveSection(initialSection);
   }, [initialSection]);
-  const [webSearchKeyVisible, setWebSearchKeyVisible] = useState(false);
-  const [webSearchKeyEditing, setWebSearchKeyEditing] = useState(false);
   const [form, setForm] = useState<AgentSettingsDraft>({
     model: "",
     provider: "",
@@ -296,14 +287,6 @@ export function SettingsView({
       presetLabel: activePreset?.label ?? activePresetName,
       toolHintMaxLength: payload.agent.tool_hint_max_length,
     });
-    setWebSearchForm((prev) => ({
-      provider: payload.web_search.provider,
-      apiKey: prev.provider === payload.web_search.provider ? prev.apiKey ?? "" : "",
-      baseUrl: payload.web_search.base_url ?? "",
-      maxResults: payload.web_search.max_results,
-      timeout: payload.web_search.timeout,
-      useJinaReader: payload.web.fetch.use_jina_reader,
-    }));
     setNetworkSafetyForm({
       webuiAllowLocalServiceAccess: payload.advanced.webui_allow_local_service_access ?? payload.advanced.allow_local_preview_access ?? true,
       webuiDefaultAccessMode: visibleWebuiDefaultAccessMode(payload.advanced.webui_default_access_mode),
@@ -355,8 +338,6 @@ export function SettingsView({
   const settingsAgent = settings?.agent;
   const settingsAdvanced = settings?.advanced;
   const settingsRuntime = settings?.runtime;
-  const settingsWebSearch = settings?.web_search;
-  const settingsWeb = settings?.web;
 
   useEffect(() => {
     if (!settingsProviders || !settingsModelPresets || !settingsAgent) return;
@@ -503,7 +484,14 @@ export function SettingsView({
 
   const saveModelSettings = async () => {
     if (!settings || !modelDirty || saving) return;
+    // 预测：切换到目标模型且该模型尚未学习过上下文窗口 → 后端会同步查 HF
+    // 新模型不在 model_presets 里时,视为 unknown(肯定没查过 HF)
+    const modelChanged = form.model !== settings.agent.model;
+    const matchingPreset = settings.model_presets.find((p) => p.model === form.model);
+    const targetStatus = matchingPreset?.resolved_context_window_status ?? "unknown";
+    const willQueryContext = modelChanged && targetStatus === "unknown";
     setSaving(true);
+    setContextWindowLearning(willQueryContext);
     try {
       const selectedPreset = settings.model_presets.find((preset) => preset.name === form.modelPreset);
       let payload: SettingsPayload;
@@ -530,8 +518,32 @@ export function SettingsView({
       setError((err as Error).message);
     } finally {
       setSaving(false);
+      setContextWindowLearning(false);
     }
   };
+
+  // 单独保存上下文窗口大小,用于在 HF 查询失败时让用户手动设置
+  const saveContextWindow = useCallback(
+    async (value: number) => {
+      if (!settings) return;
+      const selectedPreset = settings.model_presets.find((preset) => preset.name === form.modelPreset);
+      let payload: SettingsPayload;
+      if (selectedPreset && !selectedPreset.is_default) {
+        payload = await updateModelConfiguration(token, {
+          name: selectedPreset.name,
+          contextWindowTokens: value,
+        });
+      } else {
+        payload = await updateSettings(token, {
+          modelPreset: form.modelPreset,
+          contextWindowTokens: value,
+        });
+      }
+      applyPayload(payload);
+      setError(null);
+    },
+    [applyPayload, settings, token, form.modelPreset],
+  );
 
   const openModelConfigurationDialog = () => {
     if (!settings) return;
@@ -708,63 +720,6 @@ export function SettingsView({
     }
   };
 
-  const saveWebSearch = async () => {
-    if (!settings || webSearchSaving) return;
-    const provider = settings.web_search.providers.find((item) => item.name === webSearchForm.provider);
-    if (!provider) return;
-    const apiKey = webSearchForm.apiKey?.trim() ?? "";
-    const baseUrl = webSearchForm.baseUrl?.trim() ?? "";
-    const hasExistingSecret =
-      provider.credential === "api_key" &&
-      webSearchForm.provider === settings.web_search.provider &&
-      !!settings.web_search.api_key_hint;
-
-    if (provider.credential === "api_key" && !apiKey && !hasExistingSecret) {
-      setError(t("settings.byok.webSearch.apiKeyRequired"));
-      return;
-    }
-    if (provider.credential === "base_url" && !baseUrl) {
-      setError(t("settings.byok.webSearch.baseUrlRequired"));
-      return;
-    }
-
-    setWebSearchSaving(true);
-    try {
-      const webFetchRestartRequired =
-        (webSearchForm.useJinaReader ?? settings.web.fetch.use_jina_reader) !==
-        settings.web.fetch.use_jina_reader;
-      const update: WebSearchSettingsUpdate = {
-        provider: webSearchForm.provider,
-        maxResults: webSearchForm.maxResults,
-        timeout: webSearchForm.timeout,
-        useJinaReader: webSearchForm.useJinaReader,
-      };
-      if (provider.credential === "api_key" && apiKey) update.apiKey = apiKey;
-      if (provider.credential === "base_url") update.baseUrl = baseUrl;
-      const payload = await updateWebSearchSettings(token, update);
-      applyPayload(payload);
-      if (payload.requires_restart || webFetchRestartRequired) {
-        setPendingRestartSections((prev) => ({ ...prev, browser: true }));
-      }
-      await maybeRestartHostEngine(payload);
-      setWebSearchForm((prev) => ({
-        provider: payload.web_search.provider,
-        apiKey: "",
-        baseUrl: payload.web_search.base_url ?? prev.baseUrl ?? "",
-        maxResults: payload.web_search.max_results,
-        timeout: payload.web_search.timeout,
-        useJinaReader: payload.web.fetch.use_jina_reader,
-      }));
-      setWebSearchKeyVisible(false);
-      setWebSearchKeyEditing(false);
-      setError(null);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setWebSearchSaving(false);
-    }
-  };
-
   const resetProviderDraft = useCallback((providerName: string) => {
     const provider = settingsProviders?.find((item) => item.name === providerName);
     if (!provider) return;
@@ -806,34 +761,6 @@ export function SettingsView({
       setExpandedProvider(providerName);
     }
   }, [expandedProvider, resetProviderDraft]);
-
-  const resetWebSearchDraft = useCallback(() => {
-    if (!settingsWebSearch || !settingsWeb) return;
-    setWebSearchForm({
-      provider: settingsWebSearch.provider,
-      apiKey: "",
-      baseUrl: settingsWebSearch.base_url ?? "",
-      maxResults: settingsWebSearch.max_results,
-      timeout: settingsWebSearch.timeout,
-      useJinaReader: settingsWeb.fetch.use_jina_reader,
-    });
-    setWebSearchKeyVisible(false);
-    setWebSearchKeyEditing(false);
-  }, [settingsWebSearch, settingsWeb]);
-
-  const handleWebSearchProviderChange = useCallback((provider: string) => {
-    if (!settingsWebSearch || !settingsWeb) return;
-    setWebSearchForm((prev) => ({
-      provider,
-      apiKey: "",
-      baseUrl: provider === settingsWebSearch.provider ? settingsWebSearch.base_url ?? "" : "",
-      maxResults: prev.maxResults ?? settingsWebSearch.max_results,
-      timeout: prev.timeout ?? settingsWebSearch.timeout,
-      useJinaReader: prev.useJinaReader ?? settingsWeb.fetch.use_jina_reader,
-    }));
-    setWebSearchKeyVisible(false);
-    setWebSearchKeyEditing(false);
-  }, [settingsWebSearch, settingsWeb]);
 
   const toggleProviderKeyVisibility = (providerName: string) => {
     const isVisible = visibleProviderKeys[providerName];
@@ -896,10 +823,12 @@ export function SettingsView({
               settings={settings}
               dirty={modelDirty}
               saving={saving}
+              contextWindowLearning={contextWindowLearning}
               showBrandLogos={localPrefs.brandLogos}
               providerSaving={providerSaving}
               onProviderOAuthLogin={(provider) => runProviderOAuth(provider, "login")}
               onSave={saveModelSettings}
+              onSaveContextWindow={saveContextWindow}
               onCreateConfiguration={openModelConfigurationDialog}
             />
           <ProvidersSettings
@@ -937,29 +866,7 @@ export function SettingsView({
           </div>
         );
       case "browser":
-        return (
-          <WebSettings
-            settings={settings}
-            form={webSearchForm}
-            keyVisible={webSearchKeyVisible}
-            keyEditing={webSearchKeyEditing}
-            saving={webSearchSaving}
-            onChangeForm={setWebSearchForm}
-            onChangeProvider={handleWebSearchProviderChange}
-            onToggleKey={() => setWebSearchKeyVisible((visible) => !visible)}
-            onToggleKeyEditing={() => {
-              setWebSearchKeyEditing((editing) => !editing);
-              setWebSearchKeyVisible(false);
-              setWebSearchForm((prev) => ({ ...prev, apiKey: "" }));
-            }}
-            onReset={resetWebSearchDraft}
-            onSave={saveWebSearch}
-            showBrandLogos={localPrefs.brandLogos}
-            onRestart={restartViaSettingsSurface}
-            isRestarting={isRestarting || hostEngineApplying}
-            requiresRestartPending={pendingRestartSections.browser}
-          />
-        );
+        return <div className="space-y-7" />;
       case "advanced":
         return (
           <AdvancedSettings
@@ -1233,18 +1140,16 @@ function OverviewSettings({
       </section>
 
       <section>
+        <SettingsSectionTitle>{tx("settings.sections.persona", "Persona")}</SettingsSectionTitle>
+        <SettingsGroup>
+          <BootstrapFileRow fileName="AGENTS.md" />
+          <BootstrapFileRow fileName="SOUL.md" />
+        </SettingsGroup>
+      </section>
+
+      <section>
         <SettingsSectionTitle>{tx("settings.sections.system", "System")}</SettingsSectionTitle>
         <SettingsGroup>
-          <OverviewListRow
-            icon={Server}
-            title={tx("settings.rows.gateway", "Gateway")}
-            value={`${settings.runtime.gateway_host}:${settings.runtime.gateway_port}`}
-            caption={
-              requiresRestart
-                ? tx("settings.values.restartPending", "Restart pending")
-                : tx("settings.values.ready", "Ready")
-            }
-          />
           <OverviewListRow
             icon={HardDrive}
             title={tx("settings.overview.workspace", "Workspace")}
@@ -1252,6 +1157,7 @@ function OverviewSettings({
             caption={tx("settings.rows.configPath", "Config path")}
           />
           <SettingsRow
+            icon={Activity}
             title={tx("settings.overview.heartbeat", "Heartbeat")}
             description={tx("settings.help.heartbeat", "Idle check interval in seconds (60-86400).")}
           >
@@ -1266,6 +1172,7 @@ function OverviewSettings({
             />
           </SettingsRow>
           <SettingsRow
+            icon={Moon}
             title={tx("settings.overview.dream", "Dream")}
             description={tx("settings.help.dream", "Memory consolidation interval in hours (1-48).")}
           >
@@ -1518,10 +1425,12 @@ function ModelsSettings({
   settings,
   dirty,
   saving,
+  contextWindowLearning,
   showBrandLogos,
   providerSaving,
   onProviderOAuthLogin,
   onSave,
+  onSaveContextWindow,
   onCreateConfiguration,
 }: {
   form: AgentSettingsDraft;
@@ -1529,10 +1438,12 @@ function ModelsSettings({
   settings: SettingsPayload;
   dirty: boolean;
   saving: boolean;
+  contextWindowLearning: boolean;
   showBrandLogos: boolean;
   providerSaving: string | null;
   onProviderOAuthLogin: (provider: string) => void;
   onSave: () => void;
+  onSaveContextWindow: (value: number) => Promise<void>;
   onCreateConfiguration: () => void;
 }) {
   const { t } = useTranslation();
@@ -1622,6 +1533,7 @@ function ModelsSettings({
               configured={settings.agent.context_window_tokens}
               status={settings.agent.resolved_context_window_status}
               error={settings.agent.resolved_context_window_error}
+              onSave={onSaveContextWindow}
             />
           </SettingsRow>
           {selectedProviderNeedsSignIn ? (
@@ -1653,6 +1565,7 @@ function ModelsSettings({
             saving={saving}
             saved={false}
             disabled={selectedProviderNeedsSignIn || modelFieldsMissing}
+            savingLabel={contextWindowLearning ? t("settings.actions.queryingContext") : undefined}
             message={
               selectedProviderNeedsSignIn
                 ? tx("settings.oauth.signInBeforeSaving", "Sign in before saving this OAuth provider as the active model provider.")
@@ -2014,235 +1927,6 @@ function ProvidersSettings({
       >
         {unconfiguredProviders.map(renderProviderRow)}
       </ProviderSection>
-    </div>
-  );
-}
-
-function WebSettings({
-  settings,
-  form,
-  keyVisible,
-  keyEditing,
-  saving,
-  onChangeForm,
-  onChangeProvider,
-  onToggleKey,
-  onToggleKeyEditing,
-  onReset,
-  onSave,
-  showBrandLogos,
-  onRestart,
-  isRestarting,
-  requiresRestartPending,
-}: {
-  settings: SettingsPayload;
-  form: WebSearchSettingsUpdate;
-  keyVisible: boolean;
-  keyEditing: boolean;
-  saving: boolean;
-  onChangeForm: Dispatch<SetStateAction<WebSearchSettingsUpdate>>;
-  onChangeProvider: (provider: string) => void;
-  onToggleKey: () => void;
-  onToggleKeyEditing: () => void;
-  onReset: () => void;
-  onSave: () => void;
-  showBrandLogos: boolean;
-  onRestart?: () => void;
-  isRestarting?: boolean;
-  requiresRestartPending: boolean;
-}) {
-  const { t } = useTranslation();
-  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
-  const selectedProvider =
-    settings.web_search.providers.find((provider) => provider.name === form.provider) ??
-    settings.web_search.providers[0];
-  const hasExistingSecret =
-    selectedProvider?.credential === "api_key" &&
-    form.provider === settings.web_search.provider &&
-    !!settings.web_search.api_key_hint;
-  const showKeyInput = selectedProvider?.credential === "api_key" && (!hasExistingSecret || keyEditing);
-  const apiKey = form.apiKey?.trim() ?? "";
-  const baseUrl = form.baseUrl?.trim() ?? "";
-  const effectiveJinaReader = form.useJinaReader ?? settings.web.fetch.use_jina_reader;
-  const dirty =
-    form.provider !== settings.web_search.provider ||
-    apiKey.length > 0 ||
-    baseUrl !== (settings.web_search.base_url ?? "") ||
-    form.maxResults !== settings.web_search.max_results ||
-    form.timeout !== settings.web_search.timeout ||
-    effectiveJinaReader !== settings.web.fetch.use_jina_reader;
-  const jinaReaderDirty = effectiveJinaReader !== settings.web.fetch.use_jina_reader;
-  const missingCredential =
-    selectedProvider?.credential === "api_key"
-      ? !apiKey && !hasExistingSecret
-      : selectedProvider?.credential === "base_url"
-        ? !baseUrl
-        : false;
-
-  return (
-    <div className="space-y-7">
-      <section>
-        <SettingsSectionTitle>{tx("settings.sections.webSearch", "Web search")}</SettingsSectionTitle>
-        <SettingsGroup>
-          <SettingsRow
-            title={t("settings.byok.webSearch.provider")}
-            description={t("settings.byok.webSearch.providerHelp")}
-          >
-            <ProviderPicker
-              providers={settings.web_search.providers}
-              value={form.provider}
-              emptyLabel={t("settings.byok.webSearch.selectProvider")}
-              showProviderLogos={showBrandLogos}
-              onChange={onChangeProvider}
-            />
-          </SettingsRow>
-
-          {selectedProvider?.credential === "none" ? (
-            <SettingsRow
-              title={t("settings.byok.webSearch.credentials")}
-              description={t("settings.byok.webSearch.noCredentialHelp")}
-            >
-              <StatusPill tone="success">{t("settings.byok.webSearch.noCredentialRequired")}</StatusPill>
-            </SettingsRow>
-          ) : null}
-
-          {selectedProvider?.credential === "api_key" ? (
-            <SettingsRow
-              title={t("settings.byok.apiKey")}
-              description={t("settings.byok.webSearch.apiKeyHelp")}
-            >
-              <div className="relative w-[280px] max-w-full">
-                {showKeyInput ? (
-                  <>
-                    <Input
-                      type={keyVisible ? "text" : "password"}
-                      value={form.apiKey ?? ""}
-                      onChange={(event) =>
-                        onChangeForm((prev) => ({ ...prev, apiKey: event.target.value }))
-                      }
-                      placeholder={
-                        hasExistingSecret
-                          ? t("settings.byok.apiKeyConfiguredPlaceholder")
-                          : t("settings.byok.apiKeyPlaceholder")
-                      }
-                      className="h-9 rounded-full pr-11 text-[13px]"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={onToggleKey}
-                      aria-label={
-                        keyVisible ? t("settings.byok.hideApiKey") : t("settings.byok.showApiKey")
-                      }
-                      className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
-                    >
-                      {keyVisible ? (
-                        <EyeOff className="h-3.5 w-3.5" aria-hidden />
-                      ) : (
-                        <Eye className="h-3.5 w-3.5" aria-hidden />
-                      )}
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex h-9 items-center rounded-full border border-input bg-background px-3 pr-11 text-[13px] text-muted-foreground">
-                      {settings.web_search.api_key_hint ?? t("settings.byok.configuredKeyHint")}
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={onToggleKeyEditing}
-                      aria-label={t("settings.actions.edit")}
-                      className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
-                    >
-                      <Pencil className="h-3.5 w-3.5" aria-hidden />
-                    </Button>
-                  </>
-                )}
-              </div>
-            </SettingsRow>
-          ) : null}
-
-          {selectedProvider?.credential === "base_url" ? (
-            <SettingsRow
-              title={t("settings.byok.webSearch.baseUrl")}
-              description={t("settings.byok.webSearch.baseUrlHelp")}
-            >
-              <Input
-                value={form.baseUrl ?? ""}
-                onChange={(event) =>
-                  onChangeForm((prev) => ({ ...prev, baseUrl: event.target.value }))
-                }
-                placeholder={t("settings.byok.webSearch.baseUrlPlaceholder")}
-                className="h-9 w-[280px] rounded-full text-[13px]"
-              />
-            </SettingsRow>
-          ) : null}
-        </SettingsGroup>
-      </section>
-
-      <section>
-        <SettingsSectionTitle>{tx("settings.sections.webBehavior", "Behavior")}</SettingsSectionTitle>
-        <SettingsGroup>
-          <SettingsRow
-            title={tx("settings.rows.maxResults", "Max results")}
-            description={tx("settings.help.maxResults", "Results returned by each web_search call.")}
-          >
-            <NumberInput
-              value={form.maxResults ?? settings.web_search.max_results}
-              min={1}
-              max={10}
-              onChange={(maxResults) => onChangeForm((prev) => ({ ...prev, maxResults }))}
-            />
-          </SettingsRow>
-          <SettingsRow
-            title={tx("settings.rows.timeout", "Timeout")}
-            description={tx("settings.help.timeout", "Seconds before a search provider request times out.")}
-          >
-            <NumberInput
-              value={form.timeout ?? settings.web_search.timeout}
-              min={1}
-              max={120}
-              onChange={(timeout) => onChangeForm((prev) => ({ ...prev, timeout }))}
-              suffix="s"
-            />
-          </SettingsRow>
-          <SettingsRow
-            title={tx("settings.rows.jinaReader", "Jina reader")}
-            description={tx("settings.help.jinaReader", "Use Jina Reader for web_fetch when available.")}
-          >
-            <ToggleButton
-              checked={effectiveJinaReader}
-              onChange={(useJinaReader) => onChangeForm((prev) => ({ ...prev, useJinaReader }))}
-              ariaLabel={tx("settings.rows.jinaReader", "Jina reader")}
-              label={effectiveJinaReader ? tx("settings.values.on", "On") : tx("settings.values.off", "Off")}
-            />
-          </SettingsRow>
-          <RestartSettingsFooter
-            dirty={dirty}
-            saving={saving}
-            pendingRestart={requiresRestartPending}
-            disabled={missingCredential}
-            message={
-              missingCredential
-                ? t("settings.byok.webSearch.missingCredential")
-                : requiresRestartPending && !dirty
-                  ? tx("settings.status.savedRestartApply", "Saved. Restart when ready.")
-                  : jinaReaderDirty
-                    ? tx("settings.status.restartAfterSaving", "Save changes, then restart when ready.")
-                    : dirty
-                      ? t("settings.byok.webSearch.saveHint")
-                      : undefined
-            }
-            onSave={onSave}
-            onRestart={onRestart}
-            onReset={onReset}
-            isRestarting={isRestarting}
-          />
-        </SettingsGroup>
-      </section>
     </div>
   );
 }
@@ -2715,6 +2399,119 @@ function OverviewListRow({
   );
 }
 
+function BootstrapFileRow({ fileName }: { fileName: string }) {
+  const { t } = useTranslation();
+  const { token } = useClient();
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [content, setContent] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [exists, setExists] = useState<boolean | null>(null);
+
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+
+  const openEditor = async () => {
+    setOpen(true);
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await readBootstrapFile(token, fileName);
+      setContent(data.content);
+      setExists(data.exists);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!content.trim()) {
+      setError(tx("settings.bootstrap.emptyError", "Content must not be empty"));
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await saveBootstrapFile(token, fileName, content);
+      setExists(true);
+      setOpen(false);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={openEditor}
+        className="group flex min-h-[68px] w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-muted/30 sm:px-5"
+      >
+        <OverviewRowIcon icon={FileText} />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[14px] font-medium leading-5 text-foreground">{fileName}</span>
+          <span className="mt-0.5 block truncate text-[12px] leading-5 text-muted-foreground">
+            {exists === null
+              ? tx("settings.bootstrap.tapToView", "Tap to view / edit")
+              : exists
+                ? tx("settings.bootstrap.configured", "Configured")
+                : tx("settings.bootstrap.notConfigured", "Not configured — using template")}
+          </span>
+        </span>
+        <span className="ml-auto flex min-w-0 items-center gap-2">
+          <Pencil className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" aria-hidden />
+        </span>
+      </button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <FileText className="h-4 w-4 text-muted-foreground" />
+              {fileName}
+            </DialogTitle>
+            <DialogDescription>
+              {tx(
+                "settings.bootstrap.editorDescription",
+                "Loaded into the system prompt every turn. Edits apply on next message.",
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {loading ? (
+              <div className="flex h-[360px] items-center justify-center text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {tx("settings.bootstrap.loading", "Loading…")}
+              </div>
+            ) : (
+              <Textarea
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder={tx("settings.bootstrap.placeholder", "Markdown content…")}
+                className="min-h-[360px] font-mono text-[12px] leading-relaxed"
+              />
+            )}
+            {error && <p className="text-[11px] text-destructive">{error}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" className="h-8" onClick={() => setOpen(false)} disabled={saving}>
+              {tx("settings.bootstrap.cancel", "Cancel")}
+            </Button>
+            <Button size="sm" className="h-8" onClick={handleSave} disabled={saving || loading}>
+              {saving ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : null}
+              {saving ? tx("settings.bootstrap.saving", "Saving…") : tx("settings.bootstrap.save", "Save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 function SettingsSectionTitle({ children }: { children: ReactNode }) {
   return (
     <h2 className="mb-2 px-1 text-[13px] font-semibold tracking-[-0.01em] text-foreground/85">
@@ -2732,23 +2529,32 @@ function SettingsGroup({ children }: { children: ReactNode }) {
 }
 
 function SettingsRow({
+  icon: Icon,
   title,
   description,
   children,
 }: {
+  icon?: LucideIcon;
   title: string;
   description?: string;
   children?: ReactNode;
 }) {
   return (
-    <div className="flex min-h-[62px] flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-      <div className="min-w-0">
-        <div className="text-[14px] font-medium leading-5 text-foreground">{title}</div>
-        {description ? (
-          <div className="mt-0.5 max-w-[28rem] text-[12px] leading-5 text-muted-foreground">
-            {description}
-          </div>
+    <div className="flex min-h-[68px] flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+      <div className="flex min-w-0 items-center gap-3">
+        {Icon ? (
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[12px] bg-muted text-foreground/82 transition-colors group-hover:bg-muted/80 dark:bg-muted/70">
+            <Icon className="h-4 w-4" aria-hidden />
+          </span>
         ) : null}
+        <div className="min-w-0">
+          <div className="text-[14px] font-medium leading-5 text-foreground">{title}</div>
+          {description ? (
+            <div className="mt-0.5 max-w-[28rem] text-[12px] leading-5 text-muted-foreground">
+              {description}
+            </div>
+          ) : null}
+        </div>
       </div>
       {children ? <div className="shrink-0 sm:ml-6">{children}</div> : null}
     </div>
@@ -2761,76 +2567,73 @@ function ContextWindowBadge({
   configured,
   status,
   error,
+  onSave,
 }: {
   resolved?: number;
   configured?: number;
   status?: "configured" | "learned" | "unknown" | "failed" | "default";
   error?: string | null;
+  onSave: (value: number) => Promise<void>;
 }) {
   const { t } = useTranslation();
-  // 用户是否在 config 里显式配置了 context_window_tokens
   const isConfigured = typeof configured === "number" && configured > 0;
-  // 显示值:优先用 resolved(后端解析后的最终值),兜底到 configured
   const value = typeof resolved === "number" && resolved > 0 ? resolved : configured ?? 0;
+  // 已学习状态:HF 查询成功且用户未手动配置
+  const isLearned = status === "learned" && !isConfigured;
 
-  // 失败状态:HF 查不到且未手动配置 → 提示需要手动设置
-  if (status === "failed" && !isConfigured) {
-    return (
-      <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="whitespace-nowrap text-[13px] font-medium text-amber-600 dark:text-amber-400">
-          {t("settings.models.contextWindowFailed")}
-        </span>
-        {error ? (
-          <span
-            className="whitespace-nowrap text-[11px] text-muted-foreground"
-            title={error}
-          >
-            {error.length > 40 ? `${error.slice(0, 40)}…` : error}
-          </span>
-        ) : null}
-      </span>
-    );
-  }
+  const [inputValue, setInputValue] = useState(value ? String(value) : "");
+  const [saving, setSaving] = useState(false);
 
-  // 未知状态:尚未查询(保存后将自动查询)
-  if (status === "unknown" && !isConfigured) {
-    return (
-      <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="whitespace-nowrap text-[13px] font-medium text-muted-foreground">
-          {t("settings.models.contextWindowUnknown")}
-        </span>
-      </span>
-    );
-  }
+  // 同步外部值变化(如切换模型后)
+  useEffect(() => {
+    setInputValue(value ? String(value) : "");
+  }, [value]);
 
-  if (!value) {
-    return (
-      <span className="text-[12px] text-muted-foreground">—</span>
-    );
-  }
-  // 格式化:1_000_000 -> "1,000,000" / 65_536 -> "65,536"
-  const formatted = value.toLocaleString();
-  // 徽章颜色:已配置=绿色;已学习(HF)=天蓝;失败/未知=不显示徽章(上面已处理)
-  const badgeClass = isConfigured
-    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-    : "bg-sky-500/10 text-sky-600 dark:text-sky-400";
-  const badgeLabel = isConfigured
-    ? t("settings.models.contextWindowConfigured")
-    : t("settings.models.contextWindowLearned");
+  const numValue = parseInt(inputValue, 10);
+  const isValid = Number.isFinite(numValue) && numValue > 0;
+  const inputChanged = inputValue !== "" && numValue !== value;
+
+  // 按钮文本:已学习且未修改 → "已学习";否则 → "保存"
+  const buttonLabel = saving
+    ? t("settings.actions.saving")
+    : isLearned && !inputChanged
+      ? t("settings.models.contextWindowLearned")
+      : t("settings.actions.save");
+
+  // 按钮禁用:保存中,或输入无效,或(已学习且未修改)
+  const buttonDisabled = saving || !isValid || (isLearned && !inputChanged);
+
+  const handleSave = async () => {
+    if (!isValid) return;
+    setSaving(true);
+    try {
+      await onSave(numValue);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
-      <span className="whitespace-nowrap tabular-nums text-[13px] font-medium text-foreground">
-        {t("settings.models.contextWindowValue", { count: formatted })}
-      </span>
-      <span
-        className={cn(
-          "whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium",
-          badgeClass,
-        )}
+    <div className="inline-flex items-center gap-2" title={error ?? undefined}>
+      <Input
+        type="number"
+        value={inputValue}
+        onChange={(e) => setInputValue(e.target.value)}
+        placeholder={t("settings.models.contextWindowPlaceholder")}
+        className="h-7 w-28 text-center text-[12px] tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        disabled={saving}
+      />
+      <Button
+        size="sm"
+        variant={isLearned && !inputChanged ? "outline" : "default"}
+        onClick={handleSave}
+        disabled={buttonDisabled}
+        className="h-7 gap-1 px-2 text-[11px]"
       >
-        {badgeLabel}
-      </span>
-    </span>
+        {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+        {buttonLabel}
+      </Button>
+    </div>
   );
 }
 
@@ -3069,6 +2872,7 @@ function SettingsFooter({
   disabled = false,
   message,
   onSave,
+  savingLabel,
 }: {
   dirty: boolean;
   saving: boolean;
@@ -3076,6 +2880,7 @@ function SettingsFooter({
   disabled?: boolean;
   message?: string;
   onSave: () => void;
+  savingLabel?: string;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -3093,7 +2898,7 @@ function SettingsFooter({
       </div>
       <div className="flex justify-end">
         <Button size="sm" variant="outline" onClick={onSave} disabled={!dirty || disabled || saving} className="rounded-full">
-          {saving ? t("settings.actions.saving") : t("settings.actions.save")}
+          {saving ? (savingLabel ?? t("settings.actions.saving")) : t("settings.actions.save")}
         </Button>
       </div>
     </div>

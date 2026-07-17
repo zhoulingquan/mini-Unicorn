@@ -393,13 +393,13 @@ class TestToolHintInlineStreaming:
 
         msg = OutboundMessage(
             channel="feishu", chat_id="oc_chat1",
-            content='web_fetch("https://example.com")',
+            content='read_file("example.txt")',
             metadata={"_tool_hint": True},
         )
         await ch.send(msg)
 
         buf = ch._stream_bufs["oc_chat1"]
-        assert '🔧 web_fetch("https://example.com")' in buf.text
+        assert '🔧 read_file("example.txt")' in buf.text
         assert buf.sequence == 3
         ch._client.cardkit.v1.card_element.content.assert_called_once()
         ch._client.im.v1.message.create.assert_not_called()
@@ -409,7 +409,7 @@ class TestToolHintInlineStreaming:
         """When new delta arrives, the tool hint is kept as permanent content and delta appends after it."""
         ch = _make_channel()
         ch._stream_bufs["oc_chat1"] = _FeishuStreamBuf(
-            text="Partial answer\n\n🔧 web_fetch(\"url\")\n\n",
+            text="Partial answer\n\n🔧 read_file(\"url\")\n\n",
             card_id="card_1", sequence=3, last_edit=0.0,
         )
         ch._client.cardkit.v1.card_element.content.return_value = _mock_content_response()
@@ -418,7 +418,7 @@ class TestToolHintInlineStreaming:
 
         buf = ch._stream_bufs["oc_chat1"]
         assert "Partial answer" in buf.text
-        assert "🔧 web_fetch" in buf.text
+        assert "🔧 read_file" in buf.text
         assert buf.text.endswith(" continued")
 
     @pytest.mark.asyncio
@@ -528,7 +528,7 @@ class TestToolHintInlineStreaming:
         """When final _stream_end closes the card, tool hint is kept in the final text."""
         ch = _make_channel()
         ch._stream_bufs["oc_chat1"] = _FeishuStreamBuf(
-            text="Final content\n\n🔧 web_fetch(\"url\")\n\n",
+            text="Final content\n\n🔧 read_file(\"url\")\n\n",
             card_id="card_1", sequence=3, last_edit=0.0,
         )
         ch._client.cardkit.v1.card_element.content.return_value = _mock_content_response()

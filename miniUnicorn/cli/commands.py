@@ -714,7 +714,27 @@ def gateway(
             filter=lambda record: record["extra"].setdefault("channel", "-") or True,
         )
     cfg = _load_runtime_config(config, workspace)
+    _ensure_local_allow_from(cfg)
     _run_gateway(cfg)
+
+
+def _ensure_local_allow_from(cfg: Config) -> None:
+    """For local dev (``miniUnicorn gateway``), auto-allow all clients on the
+    configured WebSocket channel so the WebUI can connect without manual
+    pairing. Only applied when ``allow_from`` is unset and the host is
+    loopback, preserving explicit user configuration otherwise."""
+    extras = dict(getattr(cfg.channels, "__pydantic_extra__", None) or {})
+    ws_cfg = extras.get("websocket")
+    if not isinstance(ws_cfg, dict):
+        return
+    host = ws_cfg.get("host", "127.0.0.1")
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        return
+    if ws_cfg.get("allow_from"):
+        return
+    ws_cfg["allow_from"] = ["*"]
+    extras["websocket"] = ws_cfg
+    cfg.channels.__pydantic_extra__ = extras
 
 
 def _load_or_create_desktop_config(config: str | None, workspace: str | None) -> Config:

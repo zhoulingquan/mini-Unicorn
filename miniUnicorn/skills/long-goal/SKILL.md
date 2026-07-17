@@ -74,6 +74,6 @@ Use this when the goal is to **build or reshape a codebase** (app, service, tool
 
 Facts (API specifics, tooling flags, deprecations, best practices newer than cutoff) fail silently in sustained work unless you anchor them early:
 
-1. **Use discovery tools when appropriate** — If the ecosystem is unfamiliar or brittle, **`web_search`**, doc/web fetch (or MCP) **early**—before committing to architecture or rewriting large areas. Narrow queries tied to decisions you must make next.
+1. **Use discovery tools when appropriate** — If the ecosystem is unfamiliar or brittle, **`web_fetch`** for known URLs, or MCP search **early**—before committing to architecture or rewriting large areas. Narrow queries tied to decisions you must make next.
 2. **Turn findings into scoped action** — Summarize conclusions into repo artifacts only when helpful (comments, README, small design note); keep **compact**—not a substitute for executing the objective.
 3. **Re-consult when stuck** — If errors contradict assumptions or loops repeat, pause and refresh context with targeted search/fetch rather than hammering blindly.

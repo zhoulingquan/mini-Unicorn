@@ -329,7 +329,6 @@ class AgentLoop:
         self._max_input_tokens_per_turn = getattr(defaults, "max_input_tokens_per_turn", None)
         self._max_cost_per_turn_usd = getattr(defaults, "max_cost_per_turn_usd", None)
         self.tools_config = _tc
-        self.web_config = _tc.web
         self.exec_config = _tc.exec
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace

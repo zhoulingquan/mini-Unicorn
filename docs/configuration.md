@@ -52,21 +52,6 @@ If a referenced variable is unset, MiniUnicorn fails fast at startup with `Value
 }
 ```
 
-**Web search providers:**
-
-```json
-{
-  "tools": {
-    "web": {
-      "search": {
-        "provider": "brave",
-        "apiKey": "${BRAVE_API_KEY}"
-      }
-    }
-  }
-}
-```
-
 ### Loading variables at startup
 
 Pick whatever fits your deployment — MiniUnicorn only reads `os.environ` at startup, so any mechanism that populates the process environment works.
@@ -1102,11 +1087,13 @@ When a channel `send()` raises, MiniUnicorn retries at the channel-manager layer
 >
 > If a channel is completely unreachable, MiniUnicorn cannot notify the user through that same channel. Watch logs for `Failed to send to {channel} after N attempts` to spot persistent delivery failures.
 
-## Web Tools
+## Web Fetch
 
-MiniUnicorn incorporates basic tools for accessing the web. These include searching via APIs, and fetching arbitrary web pages in Markdown format. They are enabled by default, and can be configured in `~/.miniUnicorn/config.json` under `tools.web`.
+MiniUnicorn ships a built-in `web_fetch` tool that fetches a URL and extracts readable content (HTML → markdown/text). It is enabled by default, and can be configured in `~/.miniUnicorn/config.json` under `tools.web`.
 
-If you want to disable them, which removes both `web_search` and `web_fetch` from the tool list sent to the LLM, set `tools.web.enable` to `false`:
+The `web_search` tool was removed (all built-in providers were blocked in mainland China). For keyword search, route requests through an MCP search server (e.g. Tavily MCP or DashScope MCP) — see [MCP Servers](#mcp-servers) below.
+
+If you want to disable `web_fetch` (removes it from the tool list sent to the LLM), set `tools.web.enable` to `false`:
 
 ```json
 {
@@ -1129,7 +1116,7 @@ If you need to allow trusted private ranges such as Tailscale / CGNAT addresses,
 ```
 
 > [!TIP]
-> Use `proxy` in `tools.web` to route all web requests (search + fetch) through a proxy:
+> Use `proxy` in `tools.web` to route all web_fetch requests through a proxy:
 > ```json
 > { "tools": { "web": { "proxy": "http://127.0.0.1:7890" } } }
 > ```
@@ -1138,135 +1125,11 @@ If you need to allow trusted private ranges such as Tailscale / CGNAT addresses,
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `enable` | boolean | `true` | Enable or disable all built-in web tools (`web_search` + `web_fetch`) |
-| `proxy` | string or null | `null` | Proxy for all web requests, for example `http://127.0.0.1:7890` |
-| `userAgent` | string or null | `null` | User-Agent header for all web requests. If null, a browser one will be used |
+| `enable` | boolean | `true` | Enable or disable the `web_fetch` tool |
+| `proxy` | string or null | `null` | Proxy for all web_fetch requests, for example `http://127.0.0.1:7890` |
+| `userAgent` | string or null | `null` | User-Agent header for all web_fetch requests. If null, a browser one will be used |
 
-### Web Search
-
-MiniUnicorn supports multiple web search providers. Configure in `~/.miniUnicorn/config.json` under `tools.web.search`.
-
-By default, web search uses `duckduckgo`, and it works out of the box without an API key.
-
-| Provider | Config fields | Env var fallback | Free |
-|----------|--------------|------------------|------|
-| `brave` | `apiKey` | `BRAVE_API_KEY` | No |
-| `tavily` | `apiKey` | `TAVILY_API_KEY` | No |
-| `jina` | `apiKey` | `JINA_API_KEY` | Free tier (10M tokens) |
-| `kagi` | `apiKey` | `KAGI_API_KEY` | No |
-| `olostep` | `apiKey` | `OLOSTEP_API_KEY` | No |
-| `searxng` | `baseUrl` | `SEARXNG_BASE_URL` | Yes (self-hosted) |
-| `duckduckgo` (default) | — | — | Yes |
-
-**Brave:**
-```json
-{
-  "tools": {
-    "web": {
-      "search": {
-        "provider": "brave",
-        "apiKey": "${BRAVE_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-**Tavily:**
-```json
-{
-  "tools": {
-    "web": {
-      "search": {
-        "provider": "tavily",
-        "apiKey": "${TAVILY_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-**Jina** (free tier with 10M tokens):
-```json
-{
-  "tools": {
-    "web": {
-      "search": {
-        "provider": "jina",
-        "apiKey": "${JINA_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-**Kagi:**
-```json
-{
-  "tools": {
-    "web": {
-      "search": {
-        "provider": "kagi",
-        "apiKey": "${KAGI_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-**Olostep:**
-```json
-{
-  "tools": {
-    "web": {
-      "search": {
-        "provider": "olostep",
-        "apiKey": "${OLOSTEP_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-You can also set `OLOSTEP_API_KEY` in the environment instead of storing it in config.
-
-**SearXNG** (self-hosted, no API key needed):
-```json
-{
-  "tools": {
-    "web": {
-      "search": {
-        "provider": "searxng",
-        "baseUrl": "https://searx.example"
-      }
-    }
-  }
-}
-```
-
-**DuckDuckGo** (zero config):
-```json
-{
-  "tools": {
-    "web": {
-      "search": {
-        "provider": "duckduckgo"
-      }
-    }
-  }
-}
-```
-
-#### `tools.web.search`
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `provider` | string | `"duckduckgo"` | Search backend: `brave`, `tavily`, `jina`, `searxng`, `duckduckgo` |
-| `apiKey` | string | `""` | API key for Brave or Tavily |
-| `baseUrl` | string | `""` | Base URL for SearXNG |
-| `maxResults` | integer | `5` | Results per search (1–10) |
-
-### Web Fetch
+### Jina Reader
 
 > [!TIP]
 > If you are having issues with JS proof-of-work or Cloudflare captchas, set a random user agent and disable Jina Reader:
@@ -1295,6 +1158,15 @@ If you want to always use the local conversion, you can force it using:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `useJinaReader` | boolean | `true` | If true, Jina Reader will be preferred over the local conversion |
+
+### SSRF Protection
+
+`web_fetch` enforces SSRF protection at two layers:
+
+1. **Pre-flight validation** in the redirect-safe fetch wrappers: each URL (initial + every redirect) is resolved and checked against a blocklist of private/internal networks (RFC1918, link-local, loopback, cloud metadata `169.254.0.0/16`).
+2. **Dial-time request hook** (Reasonix-style `ssrfGuardedTransport` design): an httpx request event hook re-validates the target IP just before the connection is opened. For IP-literal hosts this runs even when a proxy is configured; for hostname hosts without a proxy the pre-flight check is re-applied; for hostname hosts with a proxy the proxy resolves DNS (GFW-friendly) but IP-literal targets are still blocked client-side.
+
+Loopback (`127.0.0.0/8`, `::1`, `localhost`) is allowed only when every resolved address is loopback — useful for local development.
 
 ## Image Generation
 

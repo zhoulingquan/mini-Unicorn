@@ -185,7 +185,6 @@ const SessionItem = memo(function SessionItem({
               onSelect={() => {
                 window.setTimeout(() => onRequestDelete(session.key, title), 0);
               }}
-              className="text-destructive focus:text-destructive"
             >
               <Trash2 className="mr-2 h-4 w-4" />
               {t("chat.delete")}

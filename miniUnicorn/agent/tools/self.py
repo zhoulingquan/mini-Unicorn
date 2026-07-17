@@ -75,7 +75,6 @@ class MyTool(Tool, ContextAware):
         "subagents",  # observable but replacing it would break the system
         "_current_iteration",  # updated by runner only
         "exec_config",  # inspect allowed (e.g. check sandbox), modify blocked
-        "web_config",  # inspect allowed (e.g. check enable), modify blocked
         "workspace_sandbox",  # read-only view of workspace enforcement level
     })
 
@@ -139,12 +138,12 @@ class MyTool(Tool, ContextAware):
             "Actions: check, set.\n"
             "- check (no key): full config overview — start here.\n"
             "- check (key): drill into a value. Dot-paths allowed "
-            "(e.g. '_last_usage.prompt_tokens', 'web_config.enable').\n"
+            "(e.g. '_last_usage.prompt_tokens', 'exec_config.sandbox').\n"
             "- set (key, value): change config or store notes in your scratchpad. "
             "Scratchpad keys persist across turns but not restarts.\n"
             "Key values: _current_iteration (current progress), "
             "max_iterations - _current_iteration = remaining iterations.\n"
-            "Note: web_config and exec_config are readable but read-only.\n"
+            "Note: exec_config is readable but read-only.\n"
             "\n"
             "When to use:\n"
             "- User asks about your model, settings, or token usage → check that key.\n"
@@ -358,7 +357,7 @@ class MyTool(Tool, ContextAware):
             parts.append(self._format_value(getattr(state, k, None), k))
         parts.append(self._format_value(state.model_preset, "model_preset"))
         # Other useful top-level keys shown in description
-        for k in ("workspace", "provider_retry_mode", "max_tool_result_chars", "_current_iteration", "web_config", "exec_config", "workspace_sandbox", "subagents"):
+        for k in ("workspace", "provider_retry_mode", "max_tool_result_chars", "_current_iteration", "exec_config", "workspace_sandbox", "subagents"):
             if _has_real_attr(state, k):
                 parts.append(self._format_value(getattr(state, k, None), k))
         # Token usage

@@ -50,7 +50,7 @@ async def test_tool_hint_sends_interactive_card(mock_feishu_channel):
     msg = OutboundMessage(
         channel="feishu",
         chat_id="oc_123456",
-        content='web_search("test query")',
+        content='read_file("test.txt")',
         metadata={"_tool_hint": True}
     )
 
@@ -62,7 +62,7 @@ async def test_tool_hint_sends_interactive_card(mock_feishu_channel):
         assert card["config"]["wide_screen_mode"] is True
         md = card["elements"][0]["content"]
         assert "\U0001f527" in md
-        assert "web_search" in md
+        assert "read_file" in md
 
 
 @mark.asyncio
@@ -106,7 +106,7 @@ async def test_tool_hint_multiple_tools_in_one_message(mock_feishu_channel):
     msg = OutboundMessage(
         channel="feishu",
         chat_id="oc_123456",
-        content='web_search("query"), read_file("/path/to/file")',
+        content='list_dir("query"), read_file("/path/to/file")',
         metadata={"_tool_hint": True}
     )
 
@@ -115,7 +115,7 @@ async def test_tool_hint_multiple_tools_in_one_message(mock_feishu_channel):
 
         card = _get_tool_hint_card(mock_send)
         md = card["elements"][0]["content"]
-        assert "web_search" in md
+        assert "list_dir" in md
         assert "read_file" in md
         assert "\U0001f527" in md
 
@@ -201,7 +201,7 @@ async def test_tool_hint_keeps_commas_inside_arguments(mock_feishu_channel):
     msg = OutboundMessage(
         channel="feishu",
         chat_id="oc_123456",
-        content='web_search("foo, bar"), read_file("/path/to/file")',
+        content='list_dir("foo, bar"), read_file("/path/to/file")',
         metadata={"_tool_hint": True}
     )
 
@@ -210,5 +210,5 @@ async def test_tool_hint_keeps_commas_inside_arguments(mock_feishu_channel):
 
         card = _get_tool_hint_card(mock_send)
         md = card["elements"][0]["content"]
-        assert 'web_search("foo, bar")' in md
+        assert 'list_dir("foo, bar")' in md
         assert 'read_file("/path/to/file")' in md

@@ -336,7 +336,7 @@ describe("useSessions", () => {
           role: "tool",
           kind: "trace",
           content: "web_fetch({})",
-          traces: ["web_search({\"query\":\"agents\"})", "web_fetch({\"url\":\"https://example.com\"})"],
+          traces: ["read_file({\"path\":\"agents.txt\"})", "web_fetch({\"url\":\"https://example.com\"})"],
           createdAt: 2,
         },
         { id: "a1", role: "assistant", content: "summary", createdAt: 3 },
@@ -353,7 +353,7 @@ describe("useSessions", () => {
     const trace = result.current.messages[1]!;
     expect(trace.kind).toBe("trace");
     expect(trace.traces).toEqual([
-      "web_search({\"query\":\"agents\"})",
+      "read_file({\"path\":\"agents.txt\"})",
       "web_fetch({\"url\":\"https://example.com\"})",
     ]);
     expect(result.current.messages[2]!.content).toBe("summary");

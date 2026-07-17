@@ -192,7 +192,7 @@ export function ToolsView({ onBack, token }: ToolsViewProps) {
           <Button
             variant="outline"
             size="sm"
-            className="h-7 gap-1.5"
+            className="h-7 gap-1 px-2 text-[11px]"
             onClick={() => {
               setShowImport((v) => !v);
               setImportName("");
@@ -309,7 +309,7 @@ function ToolSection({ title, tools, actingName, onDelete, viewMode, t }: ToolSe
         className={cn(
           viewMode === "grid"
             ? "grid grid-cols-4 gap-1.5"
-            : "flex flex-col gap-1.5",
+            : "mx-auto flex w-full max-w-2xl flex-col gap-2.5",
         )}
       >
         {tools.map((tool) => (
@@ -368,9 +368,14 @@ function ToolCard({ tool, acting, onDelete, viewMode, t }: ToolCardProps) {
   return (
     <div
       className={cn(
-        "group flex flex-col rounded-lg border px-2.5 py-2 transition-colors",
+        "group flex flex-col transition-colors",
+        viewMode === "grid"
+          ? "rounded-lg border px-2.5 py-2"
+          : "rounded-xl border bg-card px-3.5 py-3 shadow-sm",
         tool.loaded
-          ? "border-border/60 bg-background hover:border-violet-500/40"
+          ? viewMode === "grid"
+            ? "border-border/60 bg-background hover:border-violet-500/40"
+            : "border-border/60 hover:bg-accent/20"
           : "border-amber-500/30 bg-amber-500/[0.03]",
       )}
     >
@@ -383,14 +388,14 @@ function ToolCard({ tool, acting, onDelete, viewMode, t }: ToolCardProps) {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1">
-            <span className="truncate font-mono text-[11px] font-medium leading-tight" title={tool.name}>
+            <span className="truncate text-sm font-medium leading-tight" title={tool.name}>
               {tool.name}
             </span>
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-1">
             <span
               className={cn(
-                "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide",
+                "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
                 tool.source === "user"
                   ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
                   : tool.source === "mcp"
@@ -401,12 +406,12 @@ function ToolCard({ tool, acting, onDelete, viewMode, t }: ToolCardProps) {
               {sourceLabel}
             </span>
             {!tool.loaded ? (
-              <span className="shrink-0 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
+              <span className="shrink-0 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
                 {t("tools.badge.notLoaded")}
               </span>
             ) : null}
             {tool.read_only ? (
-              <span className="shrink-0 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+              <span className="shrink-0 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
                 {t("tools.badge.readOnly")}
               </span>
             ) : null}
@@ -432,7 +437,7 @@ function ToolCard({ tool, acting, onDelete, viewMode, t }: ToolCardProps) {
 
       <p
         className={cn(
-          "mt-1.5 text-[10px] leading-snug text-muted-foreground/70",
+          "mt-1.5 text-xs leading-snug text-muted-foreground",
           viewMode === "grid" ? "line-clamp-2" : "line-clamp-2",
         )}
       >

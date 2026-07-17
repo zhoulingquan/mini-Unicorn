@@ -203,7 +203,7 @@ export function Sidebar(props: SidebarProps) {
         <SidebarActionButton
           collapsed={collapsed}
           label={t("sidebar.settings")}
-          onClick={props.onOpenSettings}
+          onClick={() => props.onOpenSettings()}
           className={collapsed ? undefined : "flex-1"}
           icon={<Settings className="h-4 w-4" />}
         />

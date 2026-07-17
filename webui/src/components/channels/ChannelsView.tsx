@@ -521,11 +521,11 @@ export function ChannelsView({ onBack, token }: ChannelsViewProps) {
                             {getDisplayName(ch)}
                           </span>
                           {ch.configured ? (
-                            <span className="shrink-0 rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-600 dark:text-violet-300">
+                            <span className="shrink-0 rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-600 dark:text-violet-300">
                               {t("channels.badge.configured")}
                             </span>
                           ) : (
-                            <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                               {t("channels.badge.unconfigured")}
                             </span>
                           )}

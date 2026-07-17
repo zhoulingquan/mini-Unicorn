@@ -22,7 +22,6 @@ import {
   updateNetworkSafetySettings,
   updateProviderSettings,
   updateSettings,
-  updateWebSearchSettings,
 } from "@/lib/api";
 
 describe("webui API helpers", () => {
@@ -173,23 +172,6 @@ describe("webui API helpers", () => {
     await logoutProviderOAuth("tok", "opencode");
     expect(fetch).toHaveBeenCalledWith(
       "/api/settings/provider/oauth-logout?provider=opencode",
-      expect.objectContaining({
-        headers: { Authorization: "Bearer tok" },
-      }),
-    );
-  });
-
-  it("serializes web search settings updates", async () => {
-    await updateWebSearchSettings("tok", {
-      provider: "searxng",
-      baseUrl: "https://search.example.com",
-      maxResults: 8,
-      timeout: 45,
-      useJinaReader: false,
-    });
-
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/web-search/update?provider=searxng&base_url=https%3A%2F%2Fsearch.example.com&max_results=8&timeout=45&use_jina_reader=false",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),

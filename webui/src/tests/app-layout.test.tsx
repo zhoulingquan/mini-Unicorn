@@ -50,19 +50,10 @@ function baseSettingsPayload() {
       reasoning_effort: null,
     }],
     providers: [],
-    web_search: {
-      provider: "duckduckgo",
-      api_key_hint: null,
-      base_url: null,
-      max_results: 5,
-      timeout: 30,
-      providers: [{ name: "duckduckgo", label: "DuckDuckGo", credential: "none" }],
-    },
     web: {
       enable: true,
       proxy: null,
       user_agent: null,
-      search: { max_results: 5, timeout: 30 },
       fetch: { use_jina_reader: true },
     },
     runtime: {
@@ -634,23 +625,10 @@ describe("App layout", () => {
                   default_api_base: "https://opencode.ai/zen/v1",
                 },
               ],
-              web_search: {
-                provider: "brave",
-                api_key_hint: "BSAo••••ew20",
-                base_url: null,
-                max_results: 5,
-                timeout: 30,
-                providers: [
-                  { name: "duckduckgo", label: "DuckDuckGo", credential: "none" },
-                  { name: "brave", label: "Brave Search", credential: "api_key" },
-                  { name: "tavily", label: "Tavily", credential: "api_key" },
-                ],
-              },
               web: {
                 enable: true,
                 proxy: null,
                 user_agent: null,
-                search: { max_results: 5, timeout: 30 },
                 fetch: { use_jina_reader: true },
               },
               runtime: {
@@ -883,22 +861,10 @@ describe("App layout", () => {
                 },
               ],
               providers: [{ name: "deepseek", label: "DeepSeek", configured: true }],
-              web_search: {
-                provider: "duckduckgo",
-                api_key_hint: null,
-                base_url: null,
-                max_results: 5,
-                timeout: 30,
-                providers: [
-                  { name: "duckduckgo", label: "DuckDuckGo", credential: "none" },
-                  { name: "brave", label: "Brave Search", credential: "api_key" },
-                ],
-              },
               web: {
                 enable: true,
                 proxy: null,
                 user_agent: null,
-                search: { max_results: 5, timeout: 30 },
                 fetch: { use_jina_reader: true },
               },
               runtime: {

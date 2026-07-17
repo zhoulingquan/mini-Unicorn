@@ -722,7 +722,7 @@ def test_deepseek_backfills_reasoning_content_on_legacy_tool_call_messages() -> 
     messages = [
         {"role": "user", "content": "search for news"},
         {"role": "assistant", "content": "", "tool_calls": [
-            {"id": "tc1", "type": "function", "function": {"name": "web_search", "arguments": "{}"}}
+            {"id": "tc1", "type": "function", "function": {"name": "read_file", "arguments": "{}"}}
         ]},
         {"role": "tool", "tool_call_id": "tc1", "content": "result"},
         {"role": "assistant", "content": "Here are the results."},
@@ -747,7 +747,7 @@ def test_backfill_does_not_touch_messages_when_thinking_explicitly_off() -> None
     messages = [
         {"role": "user", "content": "hi"},
         {"role": "assistant", "content": "", "tool_calls": [
-            {"id": "tc1", "type": "function", "function": {"name": "web_search", "arguments": "{}"}}
+            {"id": "tc1", "type": "function", "function": {"name": "read_file", "arguments": "{}"}}
         ]},
         {"role": "tool", "tool_call_id": "tc1", "content": "result"},
         {"role": "user", "content": "thanks"},
@@ -772,7 +772,7 @@ def test_deepseek_v4_backfills_incomplete_reasoning_history_when_effort_implicit
         {"role": "system", "content": "system"},
         {"role": "user", "content": "hi"},
         {"role": "assistant", "content": "", "tool_calls": [
-            {"id": "tc1", "type": "function", "function": {"name": "web_search", "arguments": "{}"}}
+            {"id": "tc1", "type": "function", "function": {"name": "read_file", "arguments": "{}"}}
         ]},
         {"role": "tool", "tool_call_id": "tc1", "content": "result"},
         {"role": "user", "content": "thanks"},
@@ -800,7 +800,7 @@ def test_deepseek_chat_keeps_tool_history_when_effort_implicit() -> None:
     messages = [
         {"role": "user", "content": "hi"},
         {"role": "assistant", "content": "", "tool_calls": [
-            {"id": "tc1", "type": "function", "function": {"name": "web_search", "arguments": "{}"}}
+            {"id": "tc1", "type": "function", "function": {"name": "read_file", "arguments": "{}"}}
         ]},
         {"role": "tool", "tool_call_id": "tc1", "content": "result"},
         {"role": "user", "content": "thanks"},

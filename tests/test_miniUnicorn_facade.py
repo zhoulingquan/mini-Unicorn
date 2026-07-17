@@ -175,7 +175,7 @@ async def test_run_populates_tools_used_across_iterations(tmp_path):
             await h.after_iteration(ctx1)
         messages.append({"role": "assistant", "content": "ok"})
         ctx2 = AgentHookContext(iteration=1, messages=messages)
-        ctx2.tool_calls = [ToolCallRequest(id="c3", name="web_fetch", arguments={})]
+        ctx2.tool_calls = [ToolCallRequest(id="c3", name="list_dir", arguments={})]
         for h in extras:
             await h.after_iteration(ctx2)
         return OutboundMessage(channel="cli", chat_id="direct", content="final")
@@ -183,7 +183,7 @@ async def test_run_populates_tools_used_across_iterations(tmp_path):
     bot._loop.process_direct = fake_process_direct
     result = await bot.run("do stuff")
     assert result.content == "final"
-    assert result.tools_used == ["read_file", "grep", "web_fetch"]
+    assert result.tools_used == ["read_file", "grep", "list_dir"]
 
 
 @pytest.mark.asyncio

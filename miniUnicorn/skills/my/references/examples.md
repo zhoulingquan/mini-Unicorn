@@ -4,13 +4,6 @@ Concrete scenarios showing when and how to use the my tool effectively.
 
 ## Diagnosis
 
-### "Why can't you search the web?"
-```
-→ my(action="check", key="web_config.enable")
-  → False
-→ "Web search is disabled. Add web.enable: true to your config to enable it."
-```
-
 ### "Why did you stop?"
 ```
 → my(action="check", key="max_iterations")

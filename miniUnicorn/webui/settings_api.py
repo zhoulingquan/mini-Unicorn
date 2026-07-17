@@ -60,19 +60,6 @@ _NATIVE_RESTART_BEHAVIOR_BY_SECTION = {
     "apps": "engineRestart",
 }
 
-_WEB_SEARCH_PROVIDER_OPTIONS: tuple[dict[str, str], ...] = (
-    {"name": "duckduckgo", "label": "DuckDuckGo", "credential": "none"},
-    {"name": "brave", "label": "Brave Search", "credential": "api_key"},
-    {"name": "tavily", "label": "Tavily", "credential": "api_key"},
-    {"name": "searxng", "label": "SearXNG", "credential": "base_url"},
-    {"name": "jina", "label": "Jina", "credential": "api_key"},
-    {"name": "kagi", "label": "Kagi", "credential": "api_key"},
-    {"name": "olostep", "label": "Olostep", "credential": "api_key"},
-)
-_WEB_SEARCH_PROVIDER_BY_NAME = {
-    provider["name"]: provider for provider in _WEB_SEARCH_PROVIDER_OPTIONS
-}
-
 _MODEL_CONFIGURATION_SLUG_RE = re.compile(r"[^a-z0-9_-]+")
 
 
@@ -417,24 +404,6 @@ def _build_model_presets_section(
     return model_presets
 
 
-def _build_search_section(config: Any) -> dict[str, Any]:
-    """Build the ``web_search`` sub-payload for the settings payload."""
-    search_config = config.tools.web.search
-    search_provider = (
-        search_config.provider
-        if search_config.provider in _WEB_SEARCH_PROVIDER_BY_NAME
-        else "duckduckgo"
-    )
-    return {
-        "provider": search_provider,
-        "api_key_hint": _mask_secret_hint(search_config.api_key),
-        "base_url": search_config.base_url or None,
-        "max_results": search_config.max_results,
-        "timeout": search_config.timeout,
-        "providers": list(_WEB_SEARCH_PROVIDER_OPTIONS),
-    }
-
-
 def settings_payload(
     *,
     requires_restart: bool = False,
@@ -462,7 +431,6 @@ def settings_payload(
         spec = find_by_name(effective_preset.provider)
         selected_provider = spec.name if spec else provider_name
 
-    search_config = config.tools.web.search
     exec_config = config.tools.exec
     sandbox_status = workspace_sandbox_status(
         restrict_to_workspace=config.tools.restrict_to_workspace,
@@ -484,15 +452,10 @@ def settings_payload(
         },
         "model_presets": _build_model_presets_section(config, active_preset_name, defaults),
         "providers": _build_providers_section(config),
-        "web_search": _build_search_section(config),
         "web": {
             "enable": config.tools.web.enable,
             "proxy": config.tools.web.proxy,
             "user_agent": config.tools.web.user_agent,
-            "search": {
-                "max_results": search_config.max_results,
-                "timeout": search_config.timeout,
-            },
             "fetch": {
                 "use_jina_reader": config.tools.web.fetch.use_jina_reader,
             },
@@ -880,88 +843,24 @@ def update_runtime_settings(query: QueryParams) -> dict[str, Any]:
     return settings_payload(requires_restart=False)
 
 
-def update_web_search_settings(query: QueryParams) -> dict[str, Any]:
-    provider_name = (_query_first(query, "provider") or "").strip().lower()
-    provider_option = _WEB_SEARCH_PROVIDER_BY_NAME.get(provider_name)
-    if provider_option is None:
-        raise WebUISettingsError("unknown web search provider")
+def update_web_fetch_settings(query: QueryParams) -> dict[str, Any]:
+    """Update web_fetch settings (currently only ``use_jina_reader``).
+
+    The ``web_search`` tool and its 7 providers were removed (all blocked in
+    mainland China). The web_fetch tool remains; its only WebUI-exposed knob
+    is the Jina Reader toggle.
+    """
+    use_jina_reader_raw = _query_first_alias(query, "use_jina_reader", "useJinaReader")
+    if use_jina_reader_raw is None:
+        raise WebUISettingsError("use_jina_reader is required")
+    normalized = use_jina_reader_raw.strip().lower()
+    if normalized not in {"1", "0", "true", "false", "yes", "no"}:
+        raise WebUISettingsError("use_jina_reader must be boolean")
 
     config = load_config()
-    search_config = config.tools.web.search
     web_config = config.tools.web
-    previous_provider = search_config.provider
-    changed = False
-    restart_required = False
-
-    def set_search_value(attr: str, value: object) -> None:
-        nonlocal changed
-        if getattr(search_config, attr) != value:
-            setattr(search_config, attr, value)
-            changed = True
-
-    def set_fetch_value(attr: str, value: object) -> None:
-        nonlocal changed
-        if getattr(web_config.fetch, attr) != value:
-            setattr(web_config.fetch, attr, value)
-            changed = True
-
-    if search_config.provider != provider_name:
-        search_config.provider = provider_name
-        changed = True
-
-    credential = provider_option["credential"]
-    if credential == "none":
-        set_search_value("api_key", "")
-        set_search_value("base_url", "")
-    elif credential == "base_url":
-        base_url = _query_first_alias(query, "base_url", "baseUrl")
-        base_url = base_url.strip() if base_url is not None else None
-        if not base_url and previous_provider == provider_name and search_config.base_url:
-            base_url = search_config.base_url
-        if not base_url:
-            raise WebUISettingsError("base_url is required")
-        set_search_value("base_url", base_url)
-        set_search_value("api_key", "")
-    else:
-        api_key = _query_first_alias(query, "api_key", "apiKey")
-        api_key = api_key.strip() if api_key is not None else None
-        if not api_key and previous_provider == provider_name and search_config.api_key:
-            api_key = search_config.api_key
-        if not api_key:
-            raise WebUISettingsError("api_key is required")
-        set_search_value("api_key", api_key)
-        set_search_value("base_url", "")
-
-    max_results = _query_first_alias(query, "max_results", "maxResults")
-    if max_results is not None:
-        try:
-            parsed = int(max_results)
-        except ValueError:
-            raise WebUISettingsError("max_results must be an integer") from None
-        if parsed < 1 or parsed > 10:
-            raise WebUISettingsError("max_results must be between 1 and 10")
-        set_search_value("max_results", parsed)
-
-    timeout = _query_first(query, "timeout")
-    if timeout is not None:
-        try:
-            parsed_timeout = int(timeout)
-        except ValueError:
-            raise WebUISettingsError("timeout must be an integer") from None
-        if parsed_timeout < 1 or parsed_timeout > 120:
-            raise WebUISettingsError("timeout must be between 1 and 120")
-        set_search_value("timeout", parsed_timeout)
-
-    use_jina_reader = _query_first_alias(query, "use_jina_reader", "useJinaReader")
-    if use_jina_reader is not None:
-        normalized = use_jina_reader.strip().lower()
-        if normalized not in {"1", "0", "true", "false", "yes", "no"}:
-            raise WebUISettingsError("use_jina_reader must be boolean")
-        previous_jina_reader = web_config.fetch.use_jina_reader
-        set_fetch_value("use_jina_reader", normalized in {"1", "true", "yes"})
-        if web_config.fetch.use_jina_reader != previous_jina_reader:
-            restart_required = True
-
-    if changed:
+    new_value = normalized in {"1", "true", "yes"}
+    if web_config.fetch.use_jina_reader != new_value:
+        web_config.fetch.use_jina_reader = new_value
         save_config(config)
-    return settings_payload(requires_restart=restart_required)
+    return settings_payload(requires_restart=True)

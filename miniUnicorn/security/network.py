@@ -1,4 +1,14 @@
-"""Network security utilities — SSRF protection and internal URL detection."""
+"""Network security utilities — SSRF protection and internal URL detection.
+
+The ``create_ssrf_safe_client`` factory and ``_SSRFSafeRequestHook`` borrow
+the design of Reasonix's ``ssrfGuardedTransport``: outbound HTTP requests are
+intercepted just before dial so IP-literal targets can be blocked at the
+transport layer. Hostname targets are validated pre-flight by
+``validate_url_target`` in the redirect-safe fetch wrappers (covering both
+initial requests and any explicit redirects). When a proxy is configured,
+hostnames are forwarded to the proxy for resolution (matching Reasonix's
+GFW-friendly behaviour); IP-literal targets are still checked client-side.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +16,10 @@ import ipaddress
 import re
 import socket
 from contextlib import suppress
+from typing import Any
 from urllib.parse import urlparse
+
+import httpx
 
 _BLOCKED_NETWORKS = [
     ipaddress.ip_network("0.0.0.0/8"),
@@ -172,3 +185,72 @@ def _is_allowed_loopback_target(
     with suppress(ValueError):
         return ipaddress.ip_address(hostname).is_loopback
     return False
+
+
+def _ssrf_request_hook(proxy: str | None) -> Any:
+    """Build an httpx request event hook that blocks SSRF at dial time.
+
+    Defence-in-depth complement to the pre-flight ``validate_url_target``
+    call in ``_get_with_safe_redirects`` / ``_stream_with_safe_redirects``.
+
+    - For IP-literal hosts: always checked against the private/internal
+      blocklist (this is the path that catches a re-bound dial even when
+      a proxy is configured).
+    - For hostname hosts without a proxy: re-validated via
+      ``validate_url_target`` so any redirect followed by httpx internally
+      is also covered.
+    - For hostname hosts with a proxy: the proxy resolves DNS (matches
+      Reasonix's behaviour for GFW-friendly operation); we skip local
+      resolution to avoid leaking the queried hostname through a
+      side-channel DNS lookup.
+    """
+
+    async def _hook(request: httpx.Request) -> None:
+        host = request.url.host
+        if not host:
+            return
+        # IP-literal hosts are checked directly regardless of proxy.
+        try:
+            addr = ipaddress.ip_address(host)
+        except ValueError:
+            if not proxy:
+                ok, err = validate_url_target(str(request.url))
+                if not ok:
+                    raise httpx.ConnectError(
+                        f"SSRF blocked: {err}",
+                        request=request,
+                    )
+            return
+        if _is_private(addr):
+            raise httpx.ConnectError(
+                f"SSRF blocked: target {host} is a private/internal address",
+                request=request,
+            )
+
+    return _hook
+
+
+def create_ssrf_safe_client(
+    *,
+    proxy: str | None = None,
+    timeout: float | httpx.Timeout = 10.0,
+    **kwargs: Any,
+) -> httpx.AsyncClient:
+    """Create an httpx.AsyncClient that blocks SSRF attacks on every request.
+
+    Installs a request event hook (Reasonix ``ssrfGuardedTransport`` style)
+    that re-validates each outbound request's target IP just before dial.
+    This catches redirect-based SSRF that httpx might follow internally, on
+    top of the explicit redirect-safe wrappers used by WebFetchTool.
+
+    When ``proxy`` is set, hostnames are forwarded to the proxy for DNS
+    resolution (no local lookup, GFW-friendly) but IP-literal hosts are
+    still blocked client-side — matching Reasonix's IP-literal check path.
+    """
+    hook = _ssrf_request_hook(proxy)
+    return httpx.AsyncClient(
+        proxy=proxy,
+        timeout=timeout,
+        event_hooks={"request": [hook]},
+        **kwargs,
+    )

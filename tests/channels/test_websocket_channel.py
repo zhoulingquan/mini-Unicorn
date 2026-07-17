@@ -713,7 +713,7 @@ async def test_send_progress_includes_structured_tool_events() -> None:
                     "version": 1,
                     "phase": "start",
                     "call_id": "call-1",
-                    "name": "web_search",
+                    "name": "read_file",
                     "arguments": {"query": "hermes", "count": 8},
                     "result": None,
                     "error": None,
@@ -732,7 +732,7 @@ async def test_send_progress_includes_structured_tool_events() -> None:
             "version": 1,
             "phase": "start",
             "call_id": "call-1",
-            "name": "web_search",
+            "name": "read_file",
             "arguments": {"query": "hermes", "count": 8},
             "result": None,
             "error": None,
@@ -1434,8 +1434,7 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         provider="deepseek",
         reasoning_effort="high",
     )
-    config.tools.web.search.provider = "brave"
-    config.tools.web.search.api_key = "brave-secret"
+    # web_search was removed; only web.fetch.use_jina_reader remains configurable
     save_config(config, config_path)
     monkeypatch.setattr("miniUnicorn.config.loader._current_config_path", config_path)
 
@@ -1464,13 +1463,7 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         assert providers["deepseek"]["configured"] is True
         assert providers["deepseek"]["api_key_hint"] == "secr••••-key"
         assert body["agent"]["has_api_key"] is True
-        assert body["web_search"]["provider"] == "brave"
-        assert body["web_search"]["api_key_hint"] == "brav••••cret"
-        assert body["web_search"]["max_results"] == 5
         assert body["web"]["fetch"]["use_jina_reader"] is True
-        search_providers = {provider["name"]: provider for provider in body["web_search"]["providers"]}
-        assert search_providers["duckduckgo"]["credential"] == "none"
-        assert search_providers["searxng"]["credential"] == "base_url"
         assert body["runtime"]["config_path"] == str(config_path)
         workspace_path = body["runtime"]["workspace_path"].replace("\\", "/")
         assert workspace_path.endswith("/.miniUnicorn/workspace")
@@ -1585,19 +1578,13 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
 
         search_updated = await _http_get(
             "http://127.0.0.1:"
-            f"{port}/api/settings/web-search/update?provider=searxng"
-            "&base_url=https%3A%2F%2Fsearch.example.com"
-            "&max_results=8&timeout=45&use_jina_reader=false",
+            f"{port}/api/settings/web-fetch/update?use_jina_reader=false",
             headers={"Authorization": "Bearer tok"},
         )
         assert search_updated.status_code == 200
         search_body = search_updated.json()
         assert search_body["requires_restart"] is True
         assert search_body["restart_required_sections"] == ["browser", "runtime"]
-        assert search_body["web_search"]["provider"] == "searxng"
-        assert search_body["web_search"]["api_key_hint"] is None
-        assert search_body["web_search"]["base_url"] == "https://search.example.com"
-        assert search_body["web_search"]["max_results"] == 8
         assert search_body["web"]["fetch"]["use_jina_reader"] is False
 
         network_safety_updated = await _http_get(
@@ -1629,7 +1616,7 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
 
         bad_web = await _http_get(
             "http://127.0.0.1:"
-            f"{port}/api/settings/web-search/update?provider=duckduckgo&max_results=99",
+            f"{port}/api/settings/web-fetch/update?use_jina_reader=invalid",
             headers={"Authorization": "Bearer tok"},
         )
         assert bad_web.status_code == 400
@@ -1644,11 +1631,6 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         assert saved.agents.defaults.tool_hint_max_length == 120
         assert saved.providers.deepseek.api_key == "sk-deep-next"
         assert saved.providers.custom.api_base == "http://localhost:8080/v1"
-        assert saved.tools.web.search.provider == "searxng"
-        assert saved.tools.web.search.api_key == ""
-        assert saved.tools.web.search.base_url == "https://search.example.com"
-        assert saved.tools.web.search.max_results == 8
-        assert saved.tools.web.search.timeout == 45
         assert saved.tools.web.fetch.use_jina_reader is False
         assert saved.tools.webui_allow_local_service_access is False
     finally:

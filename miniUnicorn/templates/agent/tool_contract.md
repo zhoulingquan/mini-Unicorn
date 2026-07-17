@@ -50,8 +50,8 @@ documents the general tool contract and non-obvious usage patterns.
 
 ## Web and External Information
 
-- Use web tools when the user asks for current information, a specific URL, or information likely to have changed.
-- Use `web_search` to find sources and `web_fetch` for a specific page or result that needs closer reading.
+- Use `web_fetch` when the user asks for a specific URL or information likely to have changed.
+- For keyword search, route the request through an MCP search server (e.g. Tavily/DashScope MCP) if one is configured.
 - Do not invent freshness-sensitive facts when tools can verify them.
 
 ## Messaging and Media

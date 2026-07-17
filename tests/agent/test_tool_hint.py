@@ -95,10 +95,6 @@ class TestToolHintKnownTools:
         assert "\u2026/" in result  # path folded
         assert "npm" in result  # chained command still visible
 
-    def test_web_search(self):
-        result = _hint([_tc("web_search", {"query": "Claude 4 vs GPT-4"})])
-        assert result == 'search "Claude 4 vs GPT-4"'
-
     def test_web_fetch(self):
         result = _hint([_tc("web_fetch", {"url": "https://example.com/page"})])
         assert result == "fetch https://example.com/page"

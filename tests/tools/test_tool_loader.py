@@ -257,33 +257,9 @@ def test_exec_tool_create():
 
 
 def test_web_tools_config_cls():
-    from miniUnicorn.agent.tools.web import WebSearchTool, WebFetchTool, WebToolsConfig
-    assert WebSearchTool.config_key == "web"
-    assert WebSearchTool.config_cls() is WebToolsConfig
+    from miniUnicorn.agent.tools.web import WebFetchTool, WebToolsConfig
     assert WebFetchTool.config_key == "web"
     assert WebFetchTool.config_cls() is WebToolsConfig
-
-
-def test_web_tools_enabled():
-    from miniUnicorn.agent.tools.web import WebSearchTool
-    mock_config = MagicMock()
-    mock_config.web.enable = True
-    ctx = ToolContext(config=mock_config, workspace="/tmp")
-    assert WebSearchTool.enabled(ctx) is True
-    mock_config.web.enable = False
-    assert WebSearchTool.enabled(ctx) is False
-
-
-def test_web_search_tool_create():
-    from miniUnicorn.agent.tools.web import WebSearchTool
-    mock_config = MagicMock()
-    mock_config.web.enable = True
-    mock_config.web.search = MagicMock()
-    mock_config.web.proxy = None
-    mock_config.web.user_agent = None
-    ctx = ToolContext(config=mock_config, workspace="/tmp")
-    tool = WebSearchTool.create(ctx)
-    assert isinstance(tool, WebSearchTool)
 
 
 def test_web_fetch_tool_create():
@@ -333,7 +309,7 @@ def test_config_round_trip():
 
     config_dict = {
         "tools": {
-            "web": {"enable": True, "search": {"provider": "brave", "api_key": "test"}},
+            "web": {"enable": True, "fetch": {"use_jina_reader": True}},
             "exec": {"enable": False, "timeout": 120},
             "my": {"allowSet": True},
         }
@@ -344,7 +320,7 @@ def test_config_round_trip():
     assert dumped["tools"]["my"]["allowSet"] is True
     assert config.tools.exec.enable is False
     assert config.tools.exec.timeout == 120
-    assert config.tools.web.search.provider == "brave"
+    assert config.tools.web.fetch.use_jina_reader is True
 
 
 def test_config_defaults():
@@ -355,7 +331,6 @@ def test_config_defaults():
     assert config.tools.exec.enable is True
     assert config.tools.exec.timeout == 60
     assert config.tools.web.enable is True
-    assert config.tools.web.search.provider == "duckduckgo"
     assert config.tools.my.enable is True
     assert config.tools.my.allow_set is False
     assert config.tools.cli_apps.enable is True
@@ -380,7 +355,6 @@ def test_loader_registers_same_tools_as_old_hardcoded():
     mock_config.exec.deny_patterns = []
     mock_config.restrict_to_workspace = False
     mock_config.web.enable = True
-    mock_config.web.search = MagicMock()
     mock_config.web.fetch = MagicMock()
     mock_config.web.proxy = None
     mock_config.web.user_agent = None
@@ -401,7 +375,7 @@ def test_loader_registers_same_tools_as_old_hardcoded():
     expected = {
         "read_file", "write_file", "edit_file", "list_dir",
         "find_files", "grep", "exec", "write_stdin", "list_exec_sessions",
-        "web_search", "web_fetch",
+        "web_fetch",
         "message", "spawn", "cron",
     }
     actual = set(registered)

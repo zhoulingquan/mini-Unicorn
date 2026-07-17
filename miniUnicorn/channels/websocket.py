@@ -74,7 +74,7 @@ from miniUnicorn.webui.settings_api import (
     update_network_safety_settings,
     update_provider_settings,
     update_runtime_settings,
-    update_web_search_settings,
+    update_web_fetch_settings,
 )
 from miniUnicorn.webui.sidebar_state import (
     read_webui_sidebar_state,
@@ -711,8 +711,8 @@ class WebSocketChannel(BaseChannel):
         # become self-expiring (callers just refresh the session list).
         self._media_secret: bytes = secrets.token_bytes(32)
         # IP-level rate limiters (sliding window, per client IP).
-        self._conn_rate_limiter = _RateLimiter(max_count=10, window_s=60.0)
-        self._token_rate_limiter = _RateLimiter(max_count=5, window_s=60.0)
+        self._conn_rate_limiter = _RateLimiter(max_count=60, window_s=60.0)
+        self._token_rate_limiter = _RateLimiter(max_count=60, window_s=60.0)
         self._media_rate_limiter = _RateLimiter(max_count=10, window_s=3600.0)
 
     # -- Client IP resolution and rate limiting ----------------------------
@@ -1011,6 +1011,12 @@ class WebSocketChannel(BaseChannel):
         if got == "/api/agents/delete":
             return self._handle_agents_delete(request)
 
+        if got == "/api/bootstrap-file":
+            return self._handle_bootstrap_file_read(request)
+
+        if got == "/api/bootstrap-file/save":
+            return self._handle_bootstrap_file_save(request)
+
         if got == "/api/cron/jobs":
             return self._handle_cron_jobs_list(request)
         if got == "/api/cron/jobs/create":
@@ -1112,6 +1118,90 @@ class WebSocketChannel(BaseChannel):
             return _http_json_response({"deleted": True, "name": name})
         except Exception as exc:
             return _http_error(500, str(exc))
+
+    # Allowed bootstrap files (workspace-root markdown loaded into the system
+    # prompt by ContextBuilder). Kept to a fixed allowlist to avoid arbitrary
+    # file reads/writes through this endpoint.
+    _BOOTSTRAP_FILE_ALLOWLIST: tuple[str, ...] = ("AGENTS.md", "SOUL.md")
+
+    def _handle_bootstrap_file_read(self, request: WsRequest) -> Response:
+        """Read a workspace bootstrap markdown file (AGENTS.md / SOUL.md)."""
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        name = _query_first(query, "name")
+        if name not in self._BOOTSTRAP_FILE_ALLOWLIST:
+            return _http_error(400, "invalid or missing 'name' parameter")
+        try:
+            path = (self._workspace_path / name).resolve()
+            try:
+                path.relative_to(self._workspace_path.resolve())
+            except ValueError:
+                return _http_error(400, "path escapes workspace")
+            if not path.exists():
+                return _http_json_response({"name": name, "content": "", "exists": False})
+            content = path.read_text(encoding="utf-8")
+            return _http_json_response({"name": name, "content": content, "exists": True})
+        except Exception as exc:
+            return _http_error(500, str(exc))
+
+    def _handle_bootstrap_file_save(self, request: WsRequest) -> Response:
+        """Create or update a workspace bootstrap markdown file.
+
+        Accepts content via repeated ``X-MiniUnicorn-Bootstrap-Content`` headers
+        (URL-encoded chunks concatenated in order) to stay within the HTTP line
+        limit for large files.
+        """
+        from urllib.parse import unquote
+
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        name = _query_first(query, "name")
+        if name not in self._BOOTSTRAP_FILE_ALLOWLIST:
+            return _http_error(400, "invalid or missing 'name' parameter")
+        header_b64 = _collect_chunked_header(request.headers, "X-MiniUnicorn-Bootstrap-Content")
+        if header_b64:
+            content = unquote(header_b64)
+        else:
+            content_values = query.get("content", [])
+            content = unquote(content_values[0]) if content_values else ""
+        if not content.strip():
+            return _http_error(400, "content must not be empty")
+        try:
+            path = (self._workspace_path / name).resolve()
+            try:
+                path.relative_to(self._workspace_path.resolve())
+            except ValueError:
+                return _http_error(400, "path escapes workspace")
+            path.write_text(content, encoding="utf-8")
+            # Invalidate ContextBuilder's bootstrap cache so the next turn sees
+            # the new content without waiting for mtime to change (mtime
+            # resolution is sufficient on most filesystems, but explicit
+            # invalidation guarantees immediacy for same-mtime writes).
+            self._invalidate_bootstrap_cache(name)
+            return _http_json_response({"saved": True, "name": name, "path": str(path)})
+        except Exception as exc:
+            return _http_error(500, str(exc))
+
+    def _invalidate_bootstrap_cache(self, name: str) -> None:
+        """Best-effort invalidation of ContextBuilder's bootstrap file cache."""
+        try:
+            agent = getattr(self, "_agent_loop", None) or getattr(self, "agent_loop", None)
+            ctx = getattr(agent, "context", None) if agent else None
+            cache = getattr(ctx, "_bootstrap_cache", None) if ctx else None
+            if cache is None:
+                return
+            target = self._workspace_path / name
+            for key in list(cache):
+                try:
+                    if str(key) == str(target):
+                        cache.pop(key, None)
+                except Exception:
+                    continue
+        except Exception:
+            # Cache invalidation is best-effort; mtime check covers it anyway.
+            pass
 
     def _handle_cron_jobs_list(self, request: WsRequest) -> Response:
         """List all cron jobs (including system jobs and disabled ones)."""
@@ -1609,8 +1699,8 @@ class WebSocketChannel(BaseChannel):
         if got == "/api/settings/provider/oauth-logout":
             return await self._handle_settings_provider_oauth(request, "logout")
 
-        if got == "/api/settings/web-search/update":
-            return self._handle_settings_web_search_update(request)
+        if got == "/api/settings/web-fetch/update":
+            return self._handle_settings_web_fetch_update(request)
 
         if got == "/api/settings/network-safety/update":
             return self._handle_settings_network_safety_update(request)
@@ -1946,12 +2036,12 @@ class WebSocketChannel(BaseChannel):
             return _http_error(e.status, e.message)
         return _http_json_response(self._with_settings_restart_state(payload))
 
-    def _handle_settings_web_search_update(self, request: WsRequest) -> Response:
+    def _handle_settings_web_fetch_update(self, request: WsRequest) -> Response:
         if not self._check_api_token(request):
             return _http_error(401, "Unauthorized")
         query = _parse_query(request.path)
         try:
-            payload = update_web_search_settings(query)
+            payload = update_web_fetch_settings(query)
         except WebUISettingsError as e:
             return _http_error(e.status, e.message)
         return _http_json_response(self._with_settings_restart_state(payload, section="browser"))

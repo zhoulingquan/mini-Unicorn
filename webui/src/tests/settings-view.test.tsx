@@ -40,19 +40,10 @@ function settingsPayload(): SettingsPayload {
       reasoning_effort: null,
     }],
     providers: [],
-    web_search: {
-      provider: "duckduckgo",
-      api_key_hint: null,
-      base_url: null,
-      max_results: 5,
-      timeout: 30,
-      providers: [{ name: "duckduckgo", label: "DuckDuckGo", credential: "none" }],
-    },
     web: {
       enable: true,
       proxy: null,
       user_agent: null,
-      search: { max_results: 5, timeout: 30 },
       fetch: { use_jina_reader: true },
     },
     runtime: {

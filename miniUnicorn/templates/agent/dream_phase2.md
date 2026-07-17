@@ -28,7 +28,7 @@ Do NOT guess paths.
 - Keep SKILL.md under 2000 words — concise and actionable
 - Include: when to use, steps, output format, at least one example
 - Do NOT overwrite existing skills — skip if the skill directory already exists
-- Reference specific tools the agent has access to (read_file, write_file, exec, web_search, etc.)
+- Reference specific tools the agent has access to (read_file, write_file, exec, web_fetch, etc.)
 - Skills are instruction sets, not code — do not include implementation code
 
 ## Quality

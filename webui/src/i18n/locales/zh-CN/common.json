@@ -81,12 +81,11 @@
     "sections": {
       "interface": "界面",
       "ai": "AI",
+      "persona": "人格",
       "system": "系统",
       "status": "状态",
       "localPreferences": "本地偏好",
       "presets": "预设",
-      "webSearch": "网页搜索",
-      "webBehavior": "行为",
       "cliApps": "CLI 应用",
       "mcp": "MCP 服务",
       "identity": "身份",
@@ -107,7 +106,8 @@
       "contextWindowLearned": "已学习",
       "contextWindowFailed": "查询失败,需手动设置",
       "contextWindowUnknown": "保存后自动查询",
-      "contextWindowValue": "{{count}} tokens"
+      "contextWindowValue": "{{count}} tokens",
+      "contextWindowPlaceholder": "如 128000"
     },
     "rows": {
       "theme": "主题",
@@ -128,9 +128,7 @@
       "activityMode": "活动细节",
       "codeWrap": "代码换行",
       "brandLogos": "品牌 Logo",
-      "maxResults": "最大结果数",
       "timeout": "超时",
-      "jinaReader": "Jina Reader",
       "workspacePath": "默认工作区",
       "localServiceAccess": "本机服务",
       "webuiDefaultAccess": "默认权限",
@@ -157,9 +155,7 @@
       "activityMode": "选择默认显示多少 agent 活动细节。",
       "codeWrap": "让较小屏幕上的长代码行更易读。",
       "brandLogos": "在设置页显示第三方服务商和 CLI 的 Logo。",
-      "maxResults": "每次 web_search 返回的结果数量。",
       "timeout": "搜索服务商请求超时秒数。",
-      "jinaReader": "可用时为 web_fetch 使用 Jina Reader。",
       "cliAppsCatalog": "只安装 MiniUnicorn 在本机调用应用时需要的 CLI 适配层，不触碰应用本体。",
       "cliAppsFilter": "按应用、分类或能力搜索。",
       "localServiceAccess": "允许完全访问模式下的 shell 命令访问 localhost 服务。",
@@ -245,6 +241,7 @@
     "actions": {
       "save": "保存",
       "saving": "保存中",
+      "queryingContext": "正在查询上下文大小...",
       "edit": "编辑",
       "cancel": "取消",
       "open": "打开",
@@ -279,24 +276,7 @@
       "openByok": "打开 BYOK",
       "tabs": {
         "ariaLabel": "BYOK 凭证类型",
-        "llm": "LLM",
-        "webSearch": "网页搜索"
-      },
-      "webSearch": {
-        "provider": "搜索服务商",
-        "providerHelp": "选择网页搜索工具使用的后端。",
-        "selectProvider": "选择服务商",
-        "credentials": "凭证",
-        "noCredentialRequired": "无需 key",
-        "noCredentialHelp": "DuckDuckGo 不需要保存 API key。",
-        "apiKeyHelp": "保存到 config 后只显示掩码提示。",
-        "baseUrl": "Base URL",
-        "baseUrlHelp": "SearXNG 需要你自己的实例地址。",
-        "baseUrlPlaceholder": "https://search.example.com",
-        "apiKeyRequired": "这个搜索服务商需要 API key。",
-        "baseUrlRequired": "SearXNG 需要 Base URL。",
-        "missingCredential": "填写所需凭证后才能保存。",
-        "saveHint": "改动会应用到新的网页搜索请求。"
+        "llm": "LLM"
       }
     },
     "overview": {
@@ -304,11 +284,22 @@
       "providers": "提供商",
       "configuredCount": "已配置 {{count}} 个",
       "totalProviders": "共 {{count}} 个可用",
-      "webSearch": "网页搜索",
       "workspace": "工作区",
       "heartbeat": "心跳",
       "dream": "Dream",
       "dreamHint": "记忆整合"
+    },
+    "bootstrap": {
+      "tapToView": "点击查看 / 编辑",
+      "configured": "已配置",
+      "notConfigured": "未配置 — 使用模板",
+      "editorDescription": "每个对话回合都会加载到系统提示词中，编辑后下一条消息立即生效。",
+      "placeholder": "Markdown 内容…",
+      "loading": "加载中…",
+      "save": "保存",
+      "saving": "保存中…",
+      "cancel": "取消",
+      "emptyError": "内容不能为空"
     },
     "providers": {
       "saveProvider": "保存服务商",
@@ -764,7 +755,6 @@
       "body": "在这里编写技能内容。"
     },
     "skillDescriptions": {
-      "clawhub": "从 ClawHub 公共技能仓库搜索并安装 agent 技能",
       "cron": "调度提醒和定时任务",
       "document-processing": "创建、编辑、转换、分析文档（PDF/Word/Excel/PPT）",
       "github": "通过 gh CLI 与 GitHub 交互，管理 issue、PR、CI 等",
@@ -930,7 +920,6 @@
       "run_cli_app": "运行用户在设置中安装的 CLI 应用",
       "spawn": "在后台生成子代理处理任务",
       "web_fetch": "抓取 URL 并提取可读内容",
-      "web_search": "搜索网页，返回标题、链接和摘要",
       "write_file": "创建新文件或整体替换文件内容",
       "write_stdin": "向运行中的 exec 会话写入 stdin 或控制进程"
     }

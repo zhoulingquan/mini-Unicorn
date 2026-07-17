@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from miniUnicorn.agent.tools.cli_apps import CliAppsToolConfig
     from miniUnicorn.agent.tools.self import MyToolConfig
     from miniUnicorn.agent.tools.shell import ExecToolConfig
-    from miniUnicorn.agent.tools.web import WebToolsConfig
+    from miniUnicorn.agent.tools.web import WebFetchConfig, WebToolsConfig
 
 
 class Base(BaseModel):
@@ -522,14 +522,13 @@ def _resolve_tool_config_refs() -> None:
     from miniUnicorn.agent.tools.cli_apps import CliAppsToolConfig
     from miniUnicorn.agent.tools.self import MyToolConfig
     from miniUnicorn.agent.tools.shell import ExecToolConfig
-    from miniUnicorn.agent.tools.web import WebFetchConfig, WebSearchConfig, WebToolsConfig
+    from miniUnicorn.agent.tools.web import WebFetchConfig, WebToolsConfig
 
     # Re-export into this module's namespace
     mod = sys.modules[__name__]
     mod.ExecToolConfig = ExecToolConfig  # type: ignore[attr-defined]
     mod.CliAppsToolConfig = CliAppsToolConfig  # type: ignore[attr-defined]
     mod.WebToolsConfig = WebToolsConfig  # type: ignore[attr-defined]
-    mod.WebSearchConfig = WebSearchConfig  # type: ignore[attr-defined]
     mod.WebFetchConfig = WebFetchConfig  # type: ignore[attr-defined]
     mod.MyToolConfig = MyToolConfig  # type: ignore[attr-defined]
 

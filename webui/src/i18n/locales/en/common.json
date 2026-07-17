@@ -81,12 +81,11 @@
     "sections": {
       "interface": "Interface",
       "ai": "AI",
+      "persona": "Persona",
       "system": "System",
       "status": "Status",
       "localPreferences": "Local preferences",
       "presets": "Presets",
-      "webSearch": "Web search",
-      "webBehavior": "Behavior",
       "cliApps": "CLI apps",
       "mcp": "MCP services",
       "identity": "Identity",
@@ -107,7 +106,8 @@
       "contextWindowLearned": "Learned",
       "contextWindowFailed": "Lookup failed, set manually",
       "contextWindowUnknown": "Auto-query on save",
-      "contextWindowValue": "{{count}} tokens"
+      "contextWindowValue": "{{count}} tokens",
+      "contextWindowPlaceholder": "e.g. 128000"
     },
     "rows": {
       "theme": "Theme",
@@ -128,9 +128,7 @@
       "activityMode": "Activity detail",
       "codeWrap": "Code wrapping",
       "brandLogos": "Brand logos",
-      "maxResults": "Max results",
       "timeout": "Timeout",
-      "jinaReader": "Jina reader",
       "workspacePath": "Default workspace",
       "localServiceAccess": "Local services",
       "webuiDefaultAccess": "Default access",
@@ -157,9 +155,7 @@
       "activityMode": "Choose how much agent activity chrome to show by default.",
       "codeWrap": "Keep long code lines readable on smaller screens.",
       "brandLogos": "Show third-party provider and CLI logos in Settings.",
-      "maxResults": "Results returned by each web_search call.",
       "timeout": "Seconds before a search provider request times out.",
-      "jinaReader": "Use Jina Reader for web_fetch when available.",
       "cliAppsCatalog": "Install only the app-specific CLI adapters MiniUnicorn can run locally; native apps stay untouched.",
       "cliAppsFilter": "Search by app, category, or capability.",
       "localServiceAccess": "Allow Full Access shell commands to reach localhost services.",
@@ -245,6 +241,7 @@
     "actions": {
       "save": "Save",
       "saving": "Saving",
+      "queryingContext": "Querying context window...",
       "edit": "Edit",
       "cancel": "Cancel",
       "open": "Open",
@@ -274,24 +271,7 @@
       "openByok": "Open BYOK",
       "tabs": {
         "ariaLabel": "BYOK credential type",
-        "llm": "LLM",
-        "webSearch": "Web Search"
-      },
-      "webSearch": {
-        "provider": "Search provider",
-        "providerHelp": "Choose the backend used by the web search tool.",
-        "selectProvider": "Select provider",
-        "credentials": "Credentials",
-        "noCredentialRequired": "No key required",
-        "noCredentialHelp": "DuckDuckGo works without a saved API key.",
-        "apiKeyHelp": "Stored in config and masked after saving.",
-        "baseUrl": "Base URL",
-        "baseUrlHelp": "SearXNG needs the URL of your own instance.",
-        "baseUrlPlaceholder": "https://search.example.com",
-        "apiKeyRequired": "API key is required for this search provider.",
-        "baseUrlRequired": "Base URL is required for SearXNG.",
-        "missingCredential": "Add the required credential before saving.",
-        "saveHint": "Changes apply to new web search requests."
+        "llm": "LLM"
       }
     },
     "overview": {
@@ -299,11 +279,22 @@
       "providers": "Providers",
       "configuredCount": "{{count}} configured",
       "totalProviders": "{{count}} available",
-      "webSearch": "Web search",
       "workspace": "Workspace",
       "heartbeat": "Heartbeat",
       "dream": "Dream",
       "dreamHint": "Memory consolidation"
+    },
+    "bootstrap": {
+      "tapToView": "Tap to view / edit",
+      "configured": "Configured",
+      "notConfigured": "Not configured — using template",
+      "editorDescription": "Loaded into the system prompt every turn. Edits apply on next message.",
+      "placeholder": "Markdown content…",
+      "loading": "Loading…",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "emptyError": "Content must not be empty"
     },
     "providers": {
       "saveProvider": "Save provider"
@@ -739,7 +730,6 @@
       "body": "Write the skill content here."
     },
     "skillDescriptions": {
-      "clawhub": "Search and install agent skills from the ClawHub registry",
       "cron": "Schedule reminders and recurring tasks",
       "document-processing": "Create, edit, convert, and analyze documents (PDF/Word/Excel/PPT)",
       "github": "Interact with GitHub via the gh CLI (issues, PRs, CI, API)",
@@ -905,7 +895,6 @@
       "run_cli_app": "Run a CLI App installed in Settings",
       "spawn": "Spawn a subagent to handle a task in the background",
       "web_fetch": "Fetch a URL and extract readable content",
-      "web_search": "Search the web; returns titles, URLs, and snippets",
       "write_file": "Create a new file or intentionally replace an entire file",
       "write_stdin": "Write to stdin or control a running exec session"
     }

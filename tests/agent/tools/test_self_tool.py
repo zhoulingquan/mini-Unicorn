@@ -35,15 +35,12 @@ def _make_mock_loop(**overrides):
     loop._unified_session = False
     loop._extra_hooks = []
 
-    # web_config mock — needed for check tests
-    loop.web_config = MagicMock()
-    loop.web_config.enable = True
-    loop.web_config.search = MagicMock()
-    loop.web_config.search.api_key = "sk-secret-key-12345"
+    # web_config mock removed — web_search tool was deleted; web_fetch config
+    # is not exercised by self-tool tests.
 
     # Tools registry mock
     loop.tools = MagicMock()
-    loop.tools.tool_names = ["read_file", "write_file", "exec", "web_search", "self"]
+    loop.tools.tool_names = ["read_file", "write_file", "exec", "web_fetch", "self"]
     loop.tools.has.side_effect = lambda n: n in loop.tools.tool_names
     loop.tools.get.return_value = None
 
@@ -141,11 +138,11 @@ class TestInspectPathNavigation:
     @pytest.mark.asyncio
     async def test_inspect_config_subfield(self):
         loop = _make_mock_loop()
-        loop.web_config = MagicMock()
-        loop.web_config.enable = True
+        loop.exec_config = MagicMock()
+        loop.exec_config.sandbox = "none"
         tool = _make_tool(runtime_state=loop)
-        result = await tool.execute(action="check", key="web_config.enable")
-        assert "True" in result
+        result = await tool.execute(action="check", key="exec_config.sandbox")
+        assert "none" in result
 
     @pytest.mark.asyncio
     async def test_inspect_dict_key_via_dotpath(self):
@@ -170,20 +167,19 @@ class TestInspectPathNavigation:
 
     @pytest.mark.asyncio
     async def test_inspect_nested_config_redacts_sensitive_scalar_fields(self):
-        class SearchConfig(BaseModel):
-            provider: str = "tavily"
+        class ProviderConfig(BaseModel):
+            label: str = "OpenAI"
             api_key: str = "sk-test-secret"
-            base_url: str = ""
-            max_results: int = 5
+            api_base: str = ""
 
         loop = _make_mock_loop()
-        loop.web_config = MagicMock()
-        loop.web_config.search = SearchConfig()
+        loop.some_config = MagicMock()
+        loop.some_config.entry = ProviderConfig()
         tool = _make_tool(loop)
 
-        result = await tool.execute(action="check", key="web_config.search")
+        result = await tool.execute(action="check", key="some_config.entry")
 
-        assert "provider='tavily'" in result
+        assert "label='OpenAI'" in result
         assert "sk-test-secret" not in result
         assert "api_key" not in result.lower()
 
@@ -929,9 +925,12 @@ class TestSensitiveSubFieldBlocking:
 
     @pytest.mark.asyncio
     async def test_inspect_api_key_blocked(self):
-        """web_config.search.api_key must not be accessible."""
-        tool = _make_tool()
-        result = await tool.execute(action="check", key="web_config.search.api_key")
+        """api_key fields must not be accessible."""
+        loop = _make_mock_loop()
+        loop.some_config = MagicMock()
+        loop.some_config.api_key = "sk-test-secret"
+        tool = _make_tool(runtime_state=loop)
+        result = await tool.execute(action="check", key="some_config.api_key")
         assert "not accessible" in result
 
     @pytest.mark.asyncio
@@ -964,11 +963,12 @@ class TestSensitiveSubFieldBlocking:
 
     @pytest.mark.asyncio
     async def test_modify_api_key_blocked(self):
-        """web_config is READ_ONLY, so any set under it is blocked."""
-        tool = _make_tool()
-        result = await tool.execute(action="set", key="web_config.search.api_key", value="evil")
-        # Blocked either by READ_ONLY (web_config) or sensitive name (api_key)
-        assert "read-only" in result or "not accessible" in result
+        """api_key is sensitive, so any set under it is blocked."""
+        loop = _make_mock_loop()
+        loop.some_config = MagicMock()
+        tool = _make_tool(runtime_state=loop)
+        result = await tool.execute(action="set", key="some_config.api_key", value="evil")
+        assert "not accessible" in result
 
     @pytest.mark.asyncio
     async def test_modify_password_blocked(self):
@@ -980,10 +980,10 @@ class TestSensitiveSubFieldBlocking:
 
     @pytest.mark.asyncio
     async def test_inspect_non_sensitive_subfield_allowed(self):
-        """web_config.enable should still be inspectable."""
+        """exec_config.sandbox should still be inspectable."""
         tool = _make_tool()
-        result = await tool.execute(action="check", key="web_config.enable")
-        assert "True" in result
+        result = await tool.execute(action="check", key="exec_config.sandbox")
+        assert "none" in result or "Error" not in result
 
     @pytest.mark.asyncio
     async def test_modify_sensitive_top_level_blocked(self):
@@ -1014,13 +1014,6 @@ class TestSecurityAttributeProtection:
         assert "read-only" in result
 
     @pytest.mark.asyncio
-    async def test_modify_web_config_blocked(self):
-        """web_config is READ_ONLY — cannot be modified."""
-        tool = _make_tool()
-        result = await tool.execute(action="set", key="web_config", value=MagicMock())
-        assert "read-only" in result
-
-    @pytest.mark.asyncio
     async def test_modify_channels_config_blocked(self):
         """channels_config is BLOCKED — cannot be modified."""
         tool = _make_tool()
@@ -1042,24 +1035,10 @@ class TestSecurityAttributeProtection:
         assert "Error" not in result
 
     @pytest.mark.asyncio
-    async def test_inspect_web_config_allowed(self):
-        """web_config is READ_ONLY — check should work."""
-        tool = _make_tool()
-        result = await tool.execute(action="check", key="web_config")
-        assert "Error" not in result
-
-    @pytest.mark.asyncio
     async def test_modify_exec_config_dotpath_blocked(self):
         """exec_config.enable = False should be blocked because exec_config is READ_ONLY."""
         tool = _make_tool()
         result = await tool.execute(action="set", key="exec_config.enable", value=False)
-        assert "read-only" in result
-
-    @pytest.mark.asyncio
-    async def test_modify_web_config_dotpath_blocked(self):
-        """web_config.enable = False should be blocked because web_config is READ_ONLY."""
-        tool = _make_tool()
-        result = await tool.execute(action="set", key="web_config.enable", value=False)
         assert "read-only" in result
 
 

@@ -67,7 +67,7 @@ _MICROCOMPACT_KEEP_RECENT = 10
 _MICROCOMPACT_MIN_CHARS = 500
 _COMPACTABLE_TOOLS = frozenset({
     "read_file", "exec", "grep", "find_files",
-    "web_search", "web_fetch", "list_dir", "list_exec_sessions",
+    "web_fetch", "list_dir", "list_exec_sessions",
 })
 _BACKFILL_CONTENT = "[Tool result unavailable — call was interrupted or lost]"
 

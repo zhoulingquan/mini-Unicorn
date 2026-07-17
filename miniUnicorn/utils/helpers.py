@@ -557,17 +557,10 @@ def build_status_content(
     context_window_tokens: int,
     session_msg_count: int,
     context_tokens_estimate: int,
-    search_usage_text: str | None = None,
     active_task_count: int = 0,
     max_completion_tokens: int = 8192,
 ) -> str:
-    """Build a human-readable runtime status snapshot.
-
-    Args:
-        search_usage_text: Optional pre-formatted web search usage string
-                           (produced by SearchUsageInfo.format()). When provided
-                           it is appended as an extra section.
-    """
+    """Build a human-readable runtime status snapshot."""
     uptime_s = int(time.time() - start_time)
     uptime = (
         f"{uptime_s // 3600}h {(uptime_s % 3600) // 60}m"
@@ -599,8 +592,6 @@ def build_status_content(
         f"\u23f1 Uptime: {uptime}",
         f"\u26a1 Tasks: {active_task_count} active",
     ]
-    if search_usage_text:
-        lines.append(search_usage_text)
     return "\n".join(lines)
 
 
@@ -631,6 +622,14 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
     _write(tpl / "memory" / "MEMORY.md", workspace / "memory" / "MEMORY.md")
     _write(None, workspace / "memory" / "history.jsonl")
     (workspace / "skills").mkdir(exist_ok=True)
+
+    # Seed sample subagent definitions (templates/agents/*.md → workspace/agents/).
+    # Only creates files that don't exist; user edits are preserved.
+    agents_tpl = tpl / "agents"
+    if agents_tpl.is_dir():
+        for item in agents_tpl.iterdir():
+            if item.name.endswith(".md") and not item.name.startswith("."):
+                _write(item, workspace / "agents" / item.name)
 
     if added and not silent:
         from rich.console import Console

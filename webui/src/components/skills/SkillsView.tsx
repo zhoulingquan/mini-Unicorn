@@ -360,11 +360,12 @@ export function SkillsView({ onBack, token }: SkillsViewProps) {
             {t("skills.empty")}
           </div>
         ) : (
-          <div className={cn(viewMode === "grid" ? "grid grid-cols-4 gap-1.5" : "flex flex-col gap-1.5")}>
+          <div className={cn(viewMode === "grid" ? "grid grid-cols-4 gap-1.5" : "mx-auto flex w-full max-w-2xl flex-col gap-2.5")}>
             {skills.map((skill) => (
               <SkillCard
                 key={skill.name}
                 skill={skill}
+                viewMode={viewMode}
                 toggling={toggling === skill.name}
                 onToggle={() => handleToggle(skill)}
                 onView={() => openDetail(skill)}
@@ -465,6 +466,7 @@ export function SkillsView({ onBack, token }: SkillsViewProps) {
 
 function SkillCard({
   skill,
+  viewMode,
   toggling,
   onToggle,
   onView,
@@ -472,6 +474,7 @@ function SkillCard({
   onDelete,
 }: {
   skill: SkillInfo;
+  viewMode: "list" | "grid";
   toggling: boolean;
   onToggle: () => void;
   onView: () => void;
@@ -484,11 +487,16 @@ function SkillCard({
   return (
     <div
       className={cn(
-        "group flex flex-col rounded-lg border px-2.5 py-2 transition-colors",
+        "group flex flex-col transition-colors",
+        viewMode === "grid"
+          ? "rounded-lg border px-2.5 py-2"
+          : "rounded-xl border bg-card px-3.5 py-3 shadow-sm",
         skill.disabled
           ? "border-muted/60 bg-muted/20 opacity-70"
           : skill.available
-            ? "border-border/60 bg-background hover:border-violet-500/40"
+            ? viewMode === "grid"
+              ? "border-border/60 bg-background hover:border-violet-500/40"
+              : "border-border/60 hover:bg-accent/20"
             : "border-amber-500/30 bg-amber-500/[0.03]",
       )}
     >
@@ -501,7 +509,7 @@ function SkillCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1">
-            <span className="truncate text-[11px] font-medium leading-tight" title={skill.name}>
+            <span className="truncate text-sm font-medium leading-tight" title={skill.name}>
               {skill.name}
             </span>
           </div>
@@ -539,7 +547,7 @@ function SkillCard({
         />
       </div>
 
-      <p className="mt-1.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground/70">
+      <p className="mt-1.5 line-clamp-2 text-xs leading-snug text-muted-foreground">
         {getSkillDescription(skill) || "—"}
       </p>
 
@@ -587,7 +595,7 @@ function Badge({ className, children }: { className?: string; children: React.Re
   return (
     <span
       className={cn(
-        "rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide",
+        "rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
         className,
       )}
     >

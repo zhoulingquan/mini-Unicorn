@@ -58,7 +58,7 @@ def test_signature_falls_back_to_working_dir_when_no_absolute_in_command():
 
 
 def test_signature_is_none_for_unknown_tool_with_no_path():
-    assert workspace_violation_signature("web_search", {"query": "anything"}) is None
+    assert workspace_violation_signature("read_file", {"query": "anything"}) is None
     assert workspace_violation_signature("exec", {"command": "echo hello"}) is None
 
 

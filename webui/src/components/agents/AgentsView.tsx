@@ -368,7 +368,7 @@ export function AgentsView({ onBack, token, onUseAgent }: AgentsViewProps) {
                   value={createForm.model}
                   onChange={(e) => setCreateForm((f) => ({ ...f, model: e.target.value }))}
                   placeholder={t("agents.modelPlaceholder")}
-                  className="h-8 text-xs font-mono"
+                className="h-8 text-xs"
                 />
               </FormField>
               <FormField label={t("agents.tools")}>
@@ -376,7 +376,7 @@ export function AgentsView({ onBack, token, onUseAgent }: AgentsViewProps) {
                   value={createForm.tools}
                   onChange={(e) => setCreateForm((f) => ({ ...f, tools: e.target.value }))}
                   placeholder={t("agents.toolsPlaceholder")}
-                  className="h-8 text-xs font-mono"
+                className="h-8 text-xs"
                 />
               </FormField>
             </div>
@@ -522,10 +522,10 @@ function AgentCard({
           <Users className="h-3.5 w-3.5" />
         </div>
         <div className="min-w-0 flex-1">
-          <span className="block truncate text-xs font-medium leading-tight" title={agent.name}>
+          <span className="block truncate text-sm font-medium leading-tight" title={agent.name}>
             {agent.name}
           </span>
-          <p className="mt-0.5 line-clamp-2 text-[10.5px] leading-snug text-muted-foreground/70">
+          <p className="mt-0.5 line-clamp-2 text-xs leading-snug text-muted-foreground">
             {agent.description || "—"}
           </p>
         </div>
@@ -550,7 +550,7 @@ function AgentCard({
           tools.map((tool) => (
             <Badge
               key={tool}
-              className="bg-muted/60 font-mono text-muted-foreground/80"
+              className="bg-muted/60 text-muted-foreground/80"
             >
               {tool}
             </Badge>
@@ -562,7 +562,7 @@ function AgentCard({
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 gap-1 px-2 text-[10.5px] text-sky-600 hover:!bg-sky-500/10 hover:!text-sky-600 dark:text-sky-400"
+          className="h-7 gap-1 px-2 text-[11px] text-sky-600 hover:!bg-sky-500/10 hover:!text-sky-600 dark:text-sky-400"
           onClick={() => onUseAgent?.(agent.name)}
         >
           <Sparkles className="h-3 w-3" />
@@ -589,7 +589,7 @@ function Badge({ className, children }: { className?: string; children: React.Re
   return (
     <span
       className={cn(
-        "rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide",
+        "rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
         className,
       )}
     >

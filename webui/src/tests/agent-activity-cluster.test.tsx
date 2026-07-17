@@ -493,11 +493,11 @@ describe("AgentActivityCluster", () => {
       <AgentActivityCluster
         messages={[
           {
-            id: "t-search",
+            id: "t-shell",
             role: "tool",
             kind: "trace",
-            content: 'web_search({"query":"miniUnicorn architecture"})',
-            traces: ['web_search({"query":"miniUnicorn architecture"})'],
+            content: 'exec({"cmd":"ls -la"})',
+            traces: ['exec({"cmd":"ls -la"})'],
             createdAt: 1,
           },
           {
@@ -528,14 +528,14 @@ describe("AgentActivityCluster", () => {
       />,
     );
 
-    const searchRow = screen.getByText("Searching").closest("li");
+    const shellRow = screen.getByText("Shell").closest("li");
     const cliRow = screen.getByText("@blender").closest("li");
     const fetchRow = screen.getByText("Reading").closest("li");
 
-    expect(searchRow).not.toBeNull();
+    expect(shellRow).not.toBeNull();
     expect(cliRow).not.toBeNull();
     expect(fetchRow).not.toBeNull();
-    expect(searchRow!.compareDocumentPosition(cliRow!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(shellRow!.compareDocumentPosition(cliRow!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(cliRow!.compareDocumentPosition(fetchRow!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 

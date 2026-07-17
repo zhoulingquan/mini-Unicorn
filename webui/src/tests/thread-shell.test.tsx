@@ -141,19 +141,10 @@ function modelSettings(model: string, provider: string): SettingsPayload {
       { name: "deepseek", label: "DeepSeek", configured: true },
       { name: "opencode", label: "OpenCode Zen", configured: true },
     ],
-    web_search: {
-      provider: "duckduckgo",
-      api_key_hint: null,
-      base_url: null,
-      max_results: 5,
-      timeout: 30,
-      providers: [],
-    },
     web: {
       enable: true,
       proxy: null,
       user_agent: null,
-      search: { max_results: 5, timeout: 30 },
       fetch: { use_jina_reader: true },
     },
     runtime: {

@@ -188,9 +188,6 @@ describe("webui i18n", () => {
     const settings = resources["zh-CN"].common.settings;
 
     expect(settings.nav.browser).toBe("网页");
-    expect(settings.sections.webSearch).toBe("网页搜索");
-    expect(settings.byok.tabs.webSearch).toBe("网页搜索");
-    expect(settings.overview.webSearch).toBe("网页搜索");
     expect(settings.overview.workspace).toBe("工作区");
   });
 });

@@ -33,7 +33,7 @@ Anything written into memory, session history, or prompt inputs can be replayed 
 
 ## Skills as Extension Point
 
-Built-in skills live in `miniUnicorn/skills/` (markdown + YAML frontmatter format). Agent capabilities that are "know-how" rather than code should be added as skills, not hardcoded into the agent loop. External skills can be published to and installed from ClawHub.
+Built-in skills live in `miniUnicorn/skills/` (markdown + YAML frontmatter format). Agent capabilities that are "know-how" rather than code should be added as skills, not hardcoded into the agent loop.
 
 ## Atomic Session Writes
 

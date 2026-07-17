@@ -147,12 +147,12 @@ def test_unprocessed_history_injected_into_system_prompt(tmp_path) -> None:
     builder = ContextBuilder(workspace)
 
     builder.memory.append_history("User asked about weather in Tokyo")
-    builder.memory.append_history("Agent fetched forecast via web_search")
+    builder.memory.append_history("Agent fetched forecast via web_fetch")
 
     prompt = builder.build_system_prompt()
     assert "# Recent History" in prompt
     assert "User asked about weather in Tokyo" in prompt
-    assert "Agent fetched forecast via web_search" in prompt
+    assert "Agent fetched forecast via web_fetch" in prompt
     assert re.search(r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]", prompt)
 
 

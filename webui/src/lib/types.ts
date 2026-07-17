@@ -274,26 +274,10 @@ export interface SettingsPayload {
     oauth_expires_at?: number | null;
     oauth_login_supported?: boolean;
   }>;
-  web_search: {
-    provider: string;
-    api_key_hint?: string | null;
-    base_url?: string | null;
-    max_results: number;
-    timeout: number;
-    providers: Array<{
-      name: string;
-      label: string;
-      credential: "none" | "api_key" | "base_url";
-    }>;
-  };
   web: {
     enable: boolean;
     proxy?: string | null;
     user_agent?: string | null;
-    search: {
-      max_results: number;
-      timeout: number;
-    };
     fetch: {
       use_jina_reader: boolean;
     };
@@ -575,13 +559,8 @@ export interface ProviderSettingsUpdate {
   apiType?: "auto" | "chat_completions" | "responses";
 }
 
-export interface WebSearchSettingsUpdate {
-  provider: string;
-  apiKey?: string;
-  baseUrl?: string;
-  maxResults?: number;
-  timeout?: number;
-  useJinaReader?: boolean;
+export interface WebFetchSettingsUpdate {
+  useJinaReader: boolean;
 }
 
 export interface NetworkSafetySettingsUpdate {

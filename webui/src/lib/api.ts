@@ -22,7 +22,7 @@ import type {
   SlashCommand,
   ToolImportResult,
   ToolsPayload,
-  WebSearchSettingsUpdate,
+  WebFetchSettingsUpdate,
   WorkspacesPayload,
   WebuiThreadPersistedPayload,
   WorkspaceScopePayload,
@@ -334,6 +334,48 @@ export async function saveSkill(
   );
 }
 
+export interface BootstrapFilePayload {
+  name: string;
+  content: string;
+  exists: boolean;
+}
+
+export async function readBootstrapFile(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<BootstrapFilePayload> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  return request<BootstrapFilePayload>(
+    `${base}/api/bootstrap-file?${query}`,
+    token,
+  );
+}
+
+export async function saveBootstrapFile(
+  token: string,
+  name: string,
+  content: string,
+  base: string = "",
+): Promise<{ saved: boolean; name: string; path: string }> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  const headers: Record<string, string> = {};
+  chunkHeaderValue(content).forEach((chunk, idx) => {
+    if (idx === 0) {
+      headers["X-MiniUnicorn-Bootstrap-Content"] = chunk;
+    } else {
+      headers[`X-MiniUnicorn-Bootstrap-Content-${idx}`] = chunk;
+    }
+  });
+  return request<{ saved: boolean; name: string; path: string }>(
+    `${base}/api/bootstrap-file/save?${query}`,
+    token,
+    { headers },
+  );
+}
+
 export async function uploadSkillZip(
   token: string,
   file: File | Blob,
@@ -597,22 +639,15 @@ export async function logoutProviderOAuth(
   );
 }
 
-export async function updateWebSearchSettings(
+export async function updateWebFetchSettings(
   token: string,
-  update: WebSearchSettingsUpdate,
+  update: WebFetchSettingsUpdate,
   base: string = "",
 ): Promise<SettingsPayload> {
   const query = new URLSearchParams();
-  query.set("provider", update.provider);
-  if (update.apiKey !== undefined) query.set("api_key", update.apiKey);
-  if (update.baseUrl !== undefined) query.set("base_url", update.baseUrl);
-  if (update.maxResults !== undefined) query.set("max_results", String(update.maxResults));
-  if (update.timeout !== undefined) query.set("timeout", String(update.timeout));
-  if (update.useJinaReader !== undefined) {
-    query.set("use_jina_reader", String(update.useJinaReader));
-  }
+  query.set("use_jina_reader", String(update.useJinaReader));
   return request<SettingsPayload>(
-    `${base}/api/settings/web-search/update?${query}`,
+    `${base}/api/settings/web-fetch/update?${query}`,
     token,
   );
 }

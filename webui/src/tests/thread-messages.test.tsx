@@ -216,8 +216,8 @@ describe("ThreadMessages", () => {
         id: "t1",
         role: "tool",
         kind: "trace",
-        content: "web_search()",
-        traces: ["web_search()"],
+        content: "read_file()",
+        traces: ["read_file()"],
         createdAt: 2,
       },
       {
@@ -418,8 +418,8 @@ describe("ThreadMessages", () => {
         id: "t1",
         role: "tool",
         kind: "trace",
-        content: "web_search()",
-        traces: ["web_search()"],
+        content: "read_file()",
+        traces: ["read_file()"],
         createdAt: 1,
       },
       {

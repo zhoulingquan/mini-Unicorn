@@ -491,7 +491,7 @@ export function McpView({ onBack, token }: McpViewProps) {
                 type="button"
                 onClick={() => setActiveTab("all")}
                 className={cn(
-                  "rounded px-2.5 py-1 text-[11px] font-medium transition-colors",
+                  "rounded px-2.5 py-1 text-xs font-medium transition-colors",
                   activeTab === "all"
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground/70 hover:text-foreground",
@@ -506,7 +506,7 @@ export function McpView({ onBack, token }: McpViewProps) {
                 type="button"
                 onClick={() => setActiveTab("connected")}
                 className={cn(
-                  "rounded px-2.5 py-1 text-[11px] font-medium transition-colors",
+                  "rounded px-2.5 py-1 text-xs font-medium transition-colors",
                   activeTab === "connected"
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground/70 hover:text-foreground",
@@ -523,17 +523,18 @@ export function McpView({ onBack, token }: McpViewProps) {
             {activeTab === "all" && (
               <div className="space-y-2">
                 {allServers.length === 0 ? (
-                  <p className="py-8 text-center text-[11px] text-muted-foreground/50">
+                  <p className="py-8 text-center text-sm text-muted-foreground/50">
                     {t("mcp.noPresets")}
                   </p>
                 ) : (
-                  <div className={cn(viewMode === "grid" ? "grid grid-cols-4 gap-1.5" : "flex flex-col gap-1.5")}>
+                  <div className={cn(viewMode === "grid" ? "grid grid-cols-4 gap-1.5" : "mx-auto flex w-full max-w-2xl flex-col gap-2.5")}>
                     {allServers.map((server) => {
                       const isConnected = server.installed || server.status === "configured";
                       return isConnected ? (
                         <ServerCard
                           key={server.name}
                           server={server}
+                          viewMode={viewMode}
                           acting={acting}
                           testing={testing[server.name] ?? false}
                           testResult={testResults[server.name]}
@@ -558,6 +559,7 @@ export function McpView({ onBack, token }: McpViewProps) {
                         <PresetCard
                           key={server.name}
                           server={server}
+                          viewMode={viewMode}
                           expanded={expandedPreset === server.name}
                           formValues={presetFormValues[server.name] ?? {}}
                           enabling={enablingPreset === server.name}
@@ -595,15 +597,16 @@ export function McpView({ onBack, token }: McpViewProps) {
             {activeTab === "connected" && (
               <div className="space-y-2">
                 {connectedServers.length === 0 ? (
-                  <p className="py-8 text-center text-[11px] text-muted-foreground/50">
+                  <p className="py-8 text-center text-sm text-muted-foreground/50">
                     {t("mcp.empty")}
                   </p>
                 ) : (
-                  <div className={cn(viewMode === "grid" ? "grid grid-cols-4 gap-1.5" : "flex flex-col gap-1.5")}>
+                  <div className={cn(viewMode === "grid" ? "grid grid-cols-4 gap-1.5" : "mx-auto flex w-full max-w-2xl flex-col gap-2.5")}>
                     {connectedServers.map((server) => (
                       <ServerCard
                         key={server.name}
                         server={server}
+                        viewMode={viewMode}
                         acting={acting}
                         testing={testing[server.name] ?? false}
                         testResult={testResults[server.name]}
@@ -744,7 +747,7 @@ export function McpView({ onBack, token }: McpViewProps) {
                       placeholder="*"
                       value={form.enabled_tools}
                       onChange={(e) => setForm((f) => ({ ...f, enabled_tools: e.target.value }))}
-                      className="h-8 text-[12.5px] font-mono"
+                      className="h-8 text-[12.5px]"
                     />
                   </FormField>
 
@@ -784,14 +787,14 @@ export function McpView({ onBack, token }: McpViewProps) {
 
       <div className="border-t px-4 py-2.5">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] text-muted-foreground/70">
+          <span className="text-xs text-muted-foreground/70">
             {installed.length} {t("mcp.connected").toLowerCase()}
           </span>
           <div className="flex items-center gap-1.5">
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 gap-1.5 rounded-full px-3 text-[11px] text-muted-foreground/70 hover:text-foreground"
+              className="h-7 gap-1 px-2 text-[11px] text-muted-foreground/70 hover:text-foreground"
               onClick={() => {
                 setShowImport(true);
                 setImportError(null);
@@ -803,7 +806,7 @@ export function McpView({ onBack, token }: McpViewProps) {
             </Button>
             <Button
               size="sm"
-              className="h-8 gap-1.5 rounded-full px-3 text-[11px]"
+              className="h-7 gap-1 px-2 text-[11px]"
               onClick={() => setShowForm(true)}
             >
               <Plus className="h-3.5 w-3.5" />
@@ -859,6 +862,7 @@ export function McpView({ onBack, token }: McpViewProps) {
 
 function PresetCard({
   server,
+  viewMode,
   expanded,
   formValues,
   enabling,
@@ -870,6 +874,7 @@ function PresetCard({
   t,
 }: {
   server: McpPresetInfo;
+  viewMode: "list" | "grid";
   expanded: boolean;
   formValues: Record<string, string>;
   enabling: boolean;
@@ -889,11 +894,16 @@ function PresetCard({
   return (
     <div
       className={cn(
-        "group flex flex-col rounded-lg border px-2.5 py-2 transition-colors",
+        "group flex flex-col transition-colors",
+        viewMode === "grid"
+          ? "rounded-lg border px-2.5 py-2"
+          : "rounded-xl border bg-card px-3.5 py-3 shadow-sm",
         hasError
           ? "border-amber-500/40 bg-amber-500/[0.03]"
           : isConfigured
-            ? "border-border bg-background hover:border-violet-500/60"
+            ? viewMode === "grid"
+              ? "border-border bg-background hover:border-violet-500/60"
+              : "border-border hover:bg-accent/20"
             : "border-border bg-muted/20 opacity-70 hover:opacity-100",
       )}
     >
@@ -906,12 +916,12 @@ function PresetCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1">
-            <span className="truncate text-[11px] font-medium leading-tight">
+            <span className="truncate text-sm font-medium leading-tight">
               {server.display_name}
             </span>
             {statusIcon(server.status)}
           </div>
-          <div className="mt-0.5 flex items-center gap-1 text-[9px] text-muted-foreground/50">
+          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground/60">
             <span className="uppercase">{server.transport}</span>
           </div>
         </div>
@@ -923,18 +933,18 @@ function PresetCard({
         />
       </div>
 
-      <p className="mt-1.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground/70">
+      <p className="mt-1.5 line-clamp-2 text-xs leading-snug text-muted-foreground">
         {server.description}
       </p>
 
       {expanded && needsFields && (
         <div className="mt-2 space-y-2 rounded-md border border-border/40 bg-muted/20 p-2">
-          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
             {t("mcp.presetFields")}
           </p>
           {fields.map((field: McpPresetField) => (
             <div key={field.name} className="space-y-1">
-              <label className="text-[10.5px] font-medium text-muted-foreground/80">
+              <label className="text-[11px] font-medium text-muted-foreground/80">
                 {field.label}
                 {field.required && <span className="ml-0.5 text-destructive">*</span>}
               </label>
@@ -943,7 +953,7 @@ function PresetCard({
                 placeholder={field.placeholder ?? ""}
                 value={formValues[field.name] ?? ""}
                 onChange={(e) => onFieldChange(field.name, e.target.value)}
-                className="h-6 text-[11.5px]"
+                className="h-6 text-[11px]"
               />
             </div>
           ))}
@@ -954,20 +964,20 @@ function PresetCard({
             </p>
           )}
           {error && (
-            <p className="text-[10.5px] text-destructive">{error}</p>
+            <p className="text-[11px] text-destructive">{error}</p>
           )}
           <div className="flex items-center justify-end gap-2 pt-1">
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 px-2.5 text-[10.5px]"
+              className="h-6 px-2.5 text-[11px]"
               onClick={onCancel}
             >
               {t("mcp.form.cancel")}
             </Button>
             <Button
               size="sm"
-              className="h-6 gap-1 px-2.5 text-[10.5px]"
+              className="h-6 gap-1 px-2.5 text-[11px]"
               disabled={enabling}
               onClick={onEnable}
             >
@@ -983,6 +993,7 @@ function PresetCard({
 
 function ServerCard({
   server,
+  viewMode,
   acting,
   testing,
   testResult,
@@ -999,6 +1010,7 @@ function ServerCard({
   t,
 }: {
   server: McpPresetInfo;
+  viewMode: "list" | "grid";
   acting: string | null;
   testing: boolean;
   testResult?: { ok: boolean; message: string; toolCount?: number };
@@ -1024,9 +1036,14 @@ function ServerCard({
   return (
     <div
       className={cn(
-        "group flex flex-col rounded-lg border px-2.5 py-2 transition-colors",
+        "group flex flex-col transition-colors",
+        viewMode === "grid"
+          ? "rounded-lg border px-2.5 py-2"
+          : "rounded-xl border bg-card px-3.5 py-3 shadow-sm",
         isConfigured
-          ? "border-border bg-background hover:border-violet-500/60"
+          ? viewMode === "grid"
+            ? "border-border bg-background hover:border-violet-500/60"
+            : "border-border hover:bg-accent/20"
           : "border-amber-500/40 bg-amber-500/[0.03]",
       )}
     >
@@ -1040,12 +1057,12 @@ function ServerCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1">
-            <span className="truncate text-[11px] font-medium leading-tight">
+            <span className="truncate text-sm font-medium leading-tight">
               {server.display_name}
             </span>
             {statusIcon(server.status)}
           </div>
-          <div className="mt-0.5 flex items-center gap-1 text-[9px] text-muted-foreground/50">
+          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground/60">
             <span className="uppercase">{server.transport}</span>
             {server.tool_count != null && server.tool_count > 0 && (
               <>
@@ -1064,7 +1081,7 @@ function ServerCard({
       </div>
 
       {/* Body: description */}
-      <p className="mt-1.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground/70">
+      <p className="mt-1.5 line-clamp-2 text-xs leading-snug text-muted-foreground">
         {server.connection_summary || server.description}
       </p>
 
@@ -1086,7 +1103,7 @@ function ServerCard({
       {showTools && (
         <div className="mt-2 rounded-md border border-border/40 bg-muted/20 p-2">
           <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-[9.5px] font-medium uppercase tracking-wider text-muted-foreground/70">
+            <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
               {t("mcp.toolList")}
             </span>
             {hasTools && (
@@ -1094,7 +1111,7 @@ function ServerCard({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-5 px-1.5 text-[9.5px] text-muted-foreground/70"
+                  className="h-5 px-1.5 text-[10px] text-muted-foreground/70"
                   onClick={onSelectAll}
                 >
                   {t("mcp.selectAll")}
@@ -1103,7 +1120,7 @@ function ServerCard({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-5 px-1.5 text-[9.5px] text-muted-foreground/70"
+                  className="h-5 px-1.5 text-[10px] text-muted-foreground/70"
                   onClick={onClear}
                 >
                   {t("mcp.clearAll")}
@@ -1112,7 +1129,7 @@ function ServerCard({
             )}
           </div>
           {!hasTools ? (
-            <p className="py-1.5 text-center text-[10.5px] text-muted-foreground/60">
+            <p className="py-1.5 text-center text-[10px] text-muted-foreground/60">
               {t("mcp.noTools")}
             </p>
           ) : (
@@ -1123,7 +1140,7 @@ function ServerCard({
                     key={tool}
                     className="flex cursor-pointer items-center justify-between gap-1.5 rounded px-1 py-0.5 hover:bg-accent/30"
                   >
-                    <span className="truncate text-[10px] font-mono">{tool}</span>
+                    <span className="truncate text-[10px]">{tool}</span>
                     <ToggleSwitch
                       checked={selected.includes(tool)}
                       onClick={() => onToggleTool(tool)}
@@ -1135,7 +1152,7 @@ function ServerCard({
               <div className="mt-2 flex items-center justify-end border-t border-border/40 pt-1.5">
                 <Button
                   size="sm"
-                  className="h-6 gap-1 px-2.5 text-[10.5px]"
+                  className="h-6 gap-1 px-2.5 text-[11px]"
                   disabled={savingTools}
                   onClick={onSaveTools}
                 >

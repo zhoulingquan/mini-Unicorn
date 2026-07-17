@@ -227,7 +227,7 @@ export function CronView({ onBack, token }: CronViewProps) {
           <Button
             variant="outline"
             size="sm"
-            className="h-7 gap-1.5"
+            className="h-7 gap-1 px-2 text-[11px]"
             onClick={() => {
               setShowForm((v) => !v);
               setForm(EMPTY_FORM);
@@ -516,12 +516,12 @@ function JobCard({ job, onToggle, onDelete, acting }: JobCardProps) {
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-medium">{job.name}</span>
             {job.is_system ? (
-              <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 {t("cron.badge.system")}
               </span>
             ) : null}
             {!job.enabled ? (
-              <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 {t("cron.badge.disabled")}
               </span>
             ) : null}

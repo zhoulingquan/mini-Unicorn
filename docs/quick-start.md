@@ -57,8 +57,6 @@ miniUnicorn channels login whatsapp
 > Get API keys: [OpenRouter](https://openrouter.ai/keys) (Global)
 >
 > For other LLM providers, please see [`configuration.md`](./configuration.md).
->
-> For web search capability setup, please see the web-search section in [`configuration.md`](./configuration.md#web-search).
 
 **1. Initialize**
 

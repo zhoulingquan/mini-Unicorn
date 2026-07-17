@@ -285,18 +285,18 @@ describe("useMiniUnicornStream", () => {
       fake.emit("chat-tool-events", {
         event: "message",
         chat_id: "chat-tool-events",
-        text: 'search "hermes"',
+        text: 'read "hermes"',
         kind: "tool_hint",
         tool_events: [
           {
             phase: "start",
-            name: "web_search",
-            arguments: { query: "NousResearch hermes-agent", count: 8 },
+            name: "read_file",
+            arguments: { path: "NousResearch/hermes-agent/README.md" },
           },
           {
             phase: "start",
-            name: "web_search",
-            arguments: { query: "hermes-agent GitHub stars", count: 8 },
+            name: "read_file",
+            arguments: { path: "hermes-agent/stars.txt" },
           },
         ],
       });
@@ -304,11 +304,11 @@ describe("useMiniUnicornStream", () => {
 
     expect(result.current.messages).toHaveLength(1);
     expect(result.current.messages[0].traces).toEqual([
-      'web_search({"query":"NousResearch hermes-agent","count":8})',
-      'web_search({"query":"hermes-agent GitHub stars","count":8})',
+      'read_file({"path":"NousResearch/hermes-agent/README.md"})',
+      'read_file({"path":"hermes-agent/stars.txt"})',
     ]);
     expect(result.current.messages[0].content).toBe(
-      'web_search({"query":"hermes-agent GitHub stars","count":8})',
+      'read_file({"path":"hermes-agent/stars.txt"})',
     );
   });
 
@@ -1052,7 +1052,7 @@ describe("useMiniUnicornStream", () => {
       fake.emit("chat-r7", {
         event: "message",
         chat_id: "chat-r7",
-        text: "web_search({\"query\":\"OpenClaw\"})",
+        text: "read_file({\"path\":\"OpenClaw/README.md\"})",
         kind: "tool_hint",
       });
       fake.emit("chat-r7", {
@@ -1072,7 +1072,7 @@ describe("useMiniUnicornStream", () => {
     ]);
     expect(result.current.messages[0].reasoning).toBe("First reasoning.");
     expect(result.current.messages[1].traces).toEqual([
-      "web_search({\"query\":\"OpenClaw\"})",
+      "read_file({\"path\":\"OpenClaw/README.md\"})",
     ]);
     expect(result.current.messages[2].reasoning).toBe("Second reasoning.");
   });
@@ -1087,7 +1087,7 @@ describe("useMiniUnicornStream", () => {
       fake.emit("chat-tool-reasoning", {
         event: "reasoning_delta",
         chat_id: "chat-tool-reasoning",
-        text: "I should search first.",
+        text: "I should read first.",
       });
       fake.emit("chat-tool-reasoning", {
         event: "reasoning_end",
@@ -1096,7 +1096,7 @@ describe("useMiniUnicornStream", () => {
       fake.emit("chat-tool-reasoning", {
         event: "message",
         chat_id: "chat-tool-reasoning",
-        text: "web_search({\"query\":\"hermes\"})",
+        text: "read_file({\"path\":\"hermes.md\"})",
         kind: "tool_hint",
       });
       fake.emit("chat-tool-reasoning", {
@@ -1109,14 +1109,14 @@ describe("useMiniUnicornStream", () => {
     expect(result.current.messages[0]).toMatchObject({
       role: "assistant",
       content: "",
-      reasoning: "I should search first.",
+      reasoning: "I should read first.",
       reasoningStreaming: false,
       isStreaming: false,
     });
     expect(result.current.messages[1]).toMatchObject({
       role: "tool",
       kind: "trace",
-      traces: ["web_search({\"query\":\"hermes\"})"],
+      traces: ["read_file({\"path\":\"hermes.md\"})"],
     });
   });
 
@@ -1130,7 +1130,7 @@ describe("useMiniUnicornStream", () => {
       fake.emit("chat-final-reasoning", {
         event: "message",
         chat_id: "chat-final-reasoning",
-        text: "web_search({\"query\":\"hermes\"})",
+        text: "read_file({\"path\":\"hermes.md\"})",
         kind: "tool_hint",
       });
       fake.emit("chat-final-reasoning", {
