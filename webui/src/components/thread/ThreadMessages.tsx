@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { MessageBubble } from "@/components/MessageBubble";
@@ -221,6 +222,26 @@ export function ThreadMessages({
     () => isStreaming ? currentActivityClusterIndex(units) : -1,
     [isStreaming, units],
   );
+  // 当正在流式输出但消息列表中尚无正在流式的 assistant 消息(即等待首字节阶段),
+  // 在消息列表末尾显示"等待回复…"spinner 指示器。
+  const showAwaitingReplyIndicator = useMemo(() => {
+    if (!isStreaming || units.length === 0) return false;
+    // 检查最后一条消息是否是正在流式的 assistant 消息
+    for (let i = units.length - 1; i >= 0; i -= 1) {
+      const u = units[i];
+      if (u.type === "single") {
+        if (u.message.role === "assistant" && u.message.isStreaming) return false;
+        // 最后一条非 assistant 流式消息(如用户消息)→ 处于等待回复阶段
+        return true;
+      }
+      // cluster:检查是否包含正在流式的 assistant 消息
+      const hasStreamingAssistant = u.messages.some(
+        (m) => m.role === "assistant" && m.isStreaming,
+      );
+      return !hasStreamingAssistant;
+    }
+    return true;
+  }, [isStreaming, units]);
 
   return (
     <div className="flex w-full flex-col">
@@ -274,6 +295,14 @@ export function ThreadMessages({
           </div>
         );
       })}
+      {showAwaitingReplyIndicator && (
+        <div className="mt-2 w-full text-[15px]" style={{ lineHeight: "var(--cjk-line-height)" }}>
+          <div className="inline-flex items-center gap-1.5 py-1 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <span>{t("thread.awaitingReply", { defaultValue: "等待回复…" })}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

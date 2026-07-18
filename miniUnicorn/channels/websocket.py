@@ -64,6 +64,8 @@ from miniUnicorn.webui.settings_api import (
     WebUISettingsError,
     create_model_configuration,
     decorate_settings_payload,
+    delete_model_configuration,
+    delete_provider_settings,
     list_provider_models,
     login_oauth_provider,
     logout_oauth_provider,
@@ -1687,8 +1689,14 @@ class WebSocketChannel(BaseChannel):
         if got == "/api/settings/model-configurations/update":
             return self._handle_settings_model_configuration_update(request)
 
+        if got == "/api/settings/model-configurations/delete":
+            return self._handle_settings_model_configuration_delete(request)
+
         if got == "/api/settings/provider/update":
             return self._handle_settings_provider_update(request)
+
+        if got == "/api/settings/provider/delete":
+            return self._handle_settings_provider_delete(request)
 
         if got == "/api/settings/provider/models":
             return await self._handle_settings_provider_models(request)
@@ -2003,6 +2011,17 @@ class WebSocketChannel(BaseChannel):
         self._maybe_refresh_agent_model()
         return _http_json_response(self._with_settings_restart_state(payload))
 
+    def _handle_settings_model_configuration_delete(self, request: WsRequest) -> Response:
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        try:
+            payload = delete_model_configuration(query)
+        except WebUISettingsError as e:
+            return _http_error(e.status, e.message)
+        self._maybe_refresh_agent_model()
+        return _http_json_response(self._with_settings_restart_state(payload))
+
     def _handle_settings_provider_update(self, request: WsRequest) -> Response:
         if not self._check_api_token(request):
             return _http_error(401, "Unauthorized")
@@ -2012,6 +2031,16 @@ class WebSocketChannel(BaseChannel):
         except WebUISettingsError as e:
             return _http_error(e.status, e.message)
         return _http_json_response(payload)
+
+    def _handle_settings_provider_delete(self, request: WsRequest) -> Response:
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        try:
+            payload = delete_provider_settings(query)
+        except WebUISettingsError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(self._with_settings_restart_state(payload))
 
     async def _handle_settings_provider_models(self, request: WsRequest) -> Response:
         if not self._check_api_token(request):

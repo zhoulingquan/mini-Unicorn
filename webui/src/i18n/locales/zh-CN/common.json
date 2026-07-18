@@ -107,7 +107,7 @@
       "contextWindowFailed": "查询失败,需手动设置",
       "contextWindowUnknown": "保存后自动查询",
       "contextWindowValue": "{{count}} tokens",
-      "contextWindowPlaceholder": "如 128000"
+      "contextWindowPlaceholder": "如 128000 / 128k / 1m"
     },
     "rows": {
       "theme": "主题",
@@ -242,6 +242,7 @@
       "save": "保存",
       "saving": "保存中",
       "queryingContext": "正在查询上下文大小...",
+      "queryTimeout": "查询超时,请手动输入",
       "edit": "编辑",
       "cancel": "取消",
       "open": "打开",
@@ -274,6 +275,19 @@
       "noConfiguredProviders": "没有已配置的服务商",
       "configureFirst": "请先在 BYOK 里配置服务商。",
       "openByok": "打开 BYOK",
+      "delete": "删除",
+      "deleting": "删除中...",
+      "deleteConfirmTitle": "删除服务商配置",
+      "deleteConfirmDescription": "将清除该服务商的 API key、API base 以及关联的模型配置,此操作不可撤销。",
+      "deleteConfirmAction": "删除",
+      "deleteErrorDefault": "删除失败,请重试。",
+      "addCustom": "添加配置",
+      "customLabel": "配置名称",
+      "customLabelPlaceholder": "如 agnes、my-service",
+      "customLabelRequired": "请填写配置名称",
+      "apiBaseRequired": "请填写 API base",
+      "modelIdRequired": "请填写模型 ID",
+      "customRequiredHint": "需填写配置名称、API base 和模型 ID",
       "tabs": {
         "ariaLabel": "BYOK 凭证类型",
         "llm": "LLM"
@@ -567,7 +581,8 @@
       }
     },
     "scrollToBottom": "滚动到底部",
-    "loadEarlier": "加载更早消息"
+    "loadEarlier": "加载更早消息",
+    "awaitingReply": "等待回复…"
   },
   "message": {
     "streaming": "流式输出中",

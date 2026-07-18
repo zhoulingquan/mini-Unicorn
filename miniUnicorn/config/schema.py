@@ -104,6 +104,16 @@ class ModelPresetConfig(Base):
     temperature: float = 0.1
     reasoning_effort: str | None = None
 
+    # Per-preset credentials (optional). When non-empty, these override the
+    # corresponding fields on ``config.providers.<name>`` at runtime. This
+    # enables multiple independent "custom" OpenAI-compatible endpoints —
+    # each preset carries its own api_key/api_base instead of sharing the
+    # single ``config.providers.custom`` slot.
+    api_key: str | None = None
+    api_base: str | None = None
+    extra_headers: dict[str, str] | None = None
+    extra_body: dict[str, Any] | None = None
+
     def to_generation_settings(self) -> Any:
         from miniUnicorn.providers.base import GenerationSettings
         return GenerationSettings(
@@ -416,12 +426,42 @@ class Config(BaseSettings):
         from miniUnicorn.providers.registry import PROVIDERS, find_by_name
 
         resolved = preset or self.resolve_preset()
+
+        def _with_preset_creds(p: "ProviderConfig | None") -> "ProviderConfig | None":
+            """若 preset 自带凭证,合成一个 ProviderConfig 覆盖 p 的对应字段。
+
+            用于支持多个独立 custom endpoint:每个 model_preset 携带自己的
+            api_key/api_base,运行时覆盖 config.providers.<name> 的单例值。
+            """
+            if p is None:
+                # preset 自带凭证时,即使 providers.<name> 不存在也能构造
+                if resolved.api_key or resolved.api_base or resolved.extra_headers or resolved.extra_body:
+                    return ProviderConfig(
+                        api_key=resolved.api_key,
+                        api_base=resolved.api_base,
+                        extra_headers=resolved.extra_headers,
+                        extra_body=resolved.extra_body,
+                    )
+                return None
+            if not (resolved.api_key or resolved.api_base or resolved.extra_headers or resolved.extra_body):
+                return p
+            return ProviderConfig(
+                api_key=resolved.api_key if resolved.api_key is not None else p.api_key,
+                api_base=resolved.api_base if resolved.api_base is not None else p.api_base,
+                api_type=p.api_type,
+                extra_headers=resolved.extra_headers if resolved.extra_headers is not None else p.extra_headers,
+                extra_body=resolved.extra_body if resolved.extra_body is not None else p.extra_body,
+            )
+
         forced = resolved.provider
         if forced != "auto":
             spec = find_by_name(forced)
             if spec:
                 p = getattr(self.providers, spec.name, None)
-                return (p, spec.name) if p else (None, None)
+                # preset 自带凭证时,即使 providers.<name> 未配置也允许返回
+                if p is None and (resolved.api_key or resolved.api_base):
+                    return _with_preset_creds(None), spec.name
+                return (_with_preset_creds(p), spec.name) if p else (None, None)
             return None, None
 
         model_lower = (model or resolved.model).lower()
@@ -437,25 +477,25 @@ class Config(BaseSettings):
             p = getattr(self.providers, spec.name, None)
             if p and any(_kw_matches(kw) for kw in spec.keywords):
                 if spec.is_local or spec.is_direct or p.api_key:
-                    return p, spec.name
+                    return _with_preset_creds(p), spec.name
 
         # Second pass: keyword match even without API key (deferred config)
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)
             if p and any(_kw_matches(kw) for kw in spec.keywords):
-                return p, spec.name
+                return _with_preset_creds(p), spec.name
 
         # Fallback: gateways first, then others (follows registry order)
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)
             if p and p.api_key:
-                return p, spec.name
+                return _with_preset_creds(p), spec.name
 
         # Final fallback: return first configured provider even without key
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)
             if p:
-                return p, spec.name
+                return _with_preset_creds(p), spec.name
 
         return None, None
 

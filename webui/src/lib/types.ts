@@ -259,6 +259,9 @@ export interface SettingsPayload {
     resolved_context_window_error?: string | null;
     temperature: number;
     reasoning_effort: string | null;
+    // Per-preset 凭证(custom preset 自带独立 endpoint)
+    api_base?: string | null;
+    api_key_hint?: string | null;
   }>;
   providers: Array<{
     name: string;
@@ -273,6 +276,15 @@ export interface SettingsPayload {
     oauth_account?: string | null;
     oauth_expires_at?: number | null;
     oauth_login_supported?: boolean;
+    // preset 虚拟 provider 条目标记(已配置区域的 preset 卡片):
+    // - custom preset: name=custom__<preset_name>, is_custom_preset=true
+    // - 非 custom preset: name=<provider>__<preset_name>, is_custom_preset=false
+    is_custom_preset?: boolean;
+    preset_name?: string;
+    // preset 卡片对应的真实 provider 名(如 "custom"、"opencode")与 model,
+    // 用于前端图标渲染和保存逻辑判断
+    provider?: string;
+    model?: string;
   }>;
   web: {
     enable: boolean;
@@ -542,6 +554,9 @@ export interface ModelConfigurationCreate {
   label: string;
   provider: string;
   model: string;
+  // 可选 per-preset 凭证(仅 custom provider,支持多个独立 endpoint)
+  apiKey?: string;
+  apiBase?: string;
 }
 
 export interface ModelConfigurationUpdate {
@@ -550,6 +565,9 @@ export interface ModelConfigurationUpdate {
   provider?: string;
   model?: string;
   contextWindowTokens?: number;
+  // Per-preset 凭证(用于 custom preset 虚拟卡片编辑)
+  apiKey?: string;
+  apiBase?: string;
 }
 
 export interface ProviderSettingsUpdate {

@@ -555,6 +555,8 @@ export async function createModelConfiguration(
   query.set("label", configuration.label);
   query.set("provider", configuration.provider);
   query.set("model", configuration.model);
+  if (configuration.apiKey !== undefined) query.set("api_key", configuration.apiKey);
+  if (configuration.apiBase !== undefined) query.set("api_base", configuration.apiBase);
   return request<SettingsPayload>(
     `${base}/api/settings/model-configurations/create?${query}`,
     token,
@@ -574,8 +576,23 @@ export async function updateModelConfiguration(
   if (configuration.contextWindowTokens !== undefined) {
     query.set("context_window_tokens", String(configuration.contextWindowTokens));
   }
+  if (configuration.apiKey !== undefined) query.set("api_key", configuration.apiKey);
+  if (configuration.apiBase !== undefined) query.set("api_base", configuration.apiBase);
   return request<SettingsPayload>(
     `${base}/api/settings/model-configurations/update?${query}`,
+    token,
+  );
+}
+
+export async function deleteModelConfiguration(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<SettingsPayload> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  return request<SettingsPayload>(
+    `${base}/api/settings/model-configurations/delete?${query}`,
     token,
   );
 }
@@ -592,6 +609,19 @@ export async function updateProviderSettings(
   if (update.apiType !== undefined) query.set("api_type", update.apiType);
   return request<SettingsPayload>(
     `${base}/api/settings/provider/update?${query}`,
+    token,
+  );
+}
+
+export async function deleteProviderSettings(
+  token: string,
+  provider: string,
+  base: string = "",
+): Promise<SettingsPayload> {
+  const query = new URLSearchParams();
+  query.set("provider", provider);
+  return request<SettingsPayload>(
+    `${base}/api/settings/provider/delete?${query}`,
     token,
   );
 }

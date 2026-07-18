@@ -1447,7 +1447,9 @@ function ContextChip({
         </span>
       ) : (
         <span className="shrink-0 tabular-nums text-foreground/55">
-          {(effectiveContextWindow / 1024).toFixed(0)}K
+          {effectiveContextWindow >= 1_000_000
+            ? `${(effectiveContextWindow / 1_000_000).toFixed(effectiveContextWindow % 1_000_000 === 0 ? 0 : 1)}M`
+            : `${Math.round(effectiveContextWindow / 1_000)}K`}
         </span>
       )}
     </span>

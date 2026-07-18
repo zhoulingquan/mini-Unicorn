@@ -55,6 +55,82 @@ MODELSCOPE_SEARCH_MAX_CANDIDATES = 5
 
 ENV_NO_AUTO_LOOKUP = "MINIUNICORN_NO_AUTO_LOOKUP"
 
+
+def _is_model_id_relevant(query_key: str, candidate_id: str) -> bool:
+    """判断 HF/ModelScope 搜索候选 model_id 是否与用户查询的模型相关。
+
+    防止误匹配:当 HF 搜索返回名字里只是包含相同前缀但实际是不同模型时
+    (如查询 ``agnes-2.0-flash`` 命中 ``Agnes-AI/Agnes-SeaLLM-8b``),
+    应视为无关结果,继续查找其他候选或最终失败。
+
+    判定规则(满足任一即视为相关):
+    - query_key 的规范化形式是 candidate_id 某段的子串(如 "mimo-v2.5" in "XiaomiMiMo/MiMo-V2.5")
+    - candidate_id 末段与 query_key 的字母数字字符序列相似度高(用集合交集/长度比衡量)
+
+    示例:
+        ("agnes-2.0-flash", "Agnes-AI/Agnes-SeaLLM-8b")  → False(误匹配)
+        ("mimo-v2.5-free", "XiaomiMiMo/MiMo-V2.5-DFlash") → True
+        ("deepseek-chat", "deepseek-ai/deepseek-chat")    → True
+    """
+    if not query_key or not candidate_id:
+        return False
+    # 取 candidate_id 的末段(去掉 org/ 前缀)
+    cand_last = candidate_id.split("/")[-1].lower()
+    q = query_key.lower()
+    # 规则1:query_key 是候选末段的子串(双向检查)
+    if q in cand_last or cand_last in q:
+        return True
+    # 规则2:提取字母数字 token,计算交集比例
+    import re as _re
+    q_tokens = set(_re.findall(r"[a-z0-9]+", q))
+    c_tokens = set(_re.findall(r"[a-z0-9]+", cand_last))
+    if not q_tokens or not c_tokens:
+        return False
+    # 忽略通用 token(如 ai, llm, flash, v2 等版本/类型词)
+    generic = {"ai", "llm", "v1", "v2", "v3", "flash", "pro", "mini", "base", "chat", "instruct"}
+    q_meaningful = q_tokens - generic
+    c_meaningful = c_tokens - generic
+    if not q_meaningful or not c_meaningful:
+        return False
+    intersection = q_meaningful & c_meaningful
+    # 交集占查询 token 的比例 ≥ 0.5 视为相关
+    return len(intersection) / len(q_meaningful) >= 0.5
+
+
+def _normalize_to_decimal_k(value: int) -> int:
+    """把 1024 进位的整数转换为 1000 进位的等价值,使自动查询结果与
+    商业 API 声明的十进制值(如 1M = 1_000_000)在 UI 上视觉一致。
+
+    转换规则(优先级从高到低):
+    1. 若 value 是 1_048_576 (1 MiB) 的整数倍 → ``value // 1_048_576 * 1_000_000``
+    2. 若 value 是 1024 (1 KiB) 的整数倍,且不是 1000 的整数倍
+       (避免误伤 128000 这种已经是十进制的值)→ ``value // 1024 * 1000``
+    3. 否则原样返回
+
+    示例:
+        32768  -> 32000       (32K, 二进制)
+        65536  -> 64000       (64K, 二进制)
+        131072 -> 128000      (128K, 二进制)
+        262144 -> 256000      (256K, 二进制)
+        524288 -> 512000      (512K, 二进制)
+        1048576 -> 1000000    (1M, 二进制)
+        2097152 -> 2000000    (2M, 二进制)
+        4194304 -> 4000000    (4M, 二进制)
+        128000 -> 128000      (已是十进制,不转换)
+        100000 -> 100000      (非 1024 倍数,保持不变)
+        1000000 -> 1000000    (已是十进制,不转换)
+    """
+    if not isinstance(value, int) or value <= 0:
+        return value
+    # 先判断 MiB 倍数,避免 1048576 被当成 KiB 处理产出 1024000
+    if value % 1_048_576 == 0:
+        return value // 1_048_576 * 1_000_000
+    # KiB 倍数但非 1000 倍数才转换,避免误伤 128000 这种巧合能被 1024 整除的十进制值
+    if value % 1024 == 0 and value % 1000 != 0:
+        return value // 1024 * 1000
+    return value
+
+
 # Patterns to strip from model names before lookup.
 _DATE_SUFFIX_RE = re.compile(r"-\d{4}-\d{2}-\d{2}$")
 _DATE_SUFFIX_RE2 = re.compile(r"-\d{6,}$")  # e.g. -20241022
@@ -177,6 +253,9 @@ def get_model_context_limit(
         )
         return DEFAULT_CONTEXT_LIMIT
 
+    # 把 HF/ModelScope 返回的 1024 进位值(如 1048576)转换为
+    # 1000 进位的等价值(如 1000000),与商业 API 声明的十进制值保持一致。
+    limit = _normalize_to_decimal_k(limit)
     _save_learned_limit(key, limit, source=source, hf_model_id=hf_model_id)
     logger.info(
         "模型 {} 上下文窗口: 查询到 {} tokens (source: {}, id: {})",
@@ -229,6 +308,20 @@ def learn_model_context_limit(
             "error": None,
         }
 
+    # 失败计数机制:若模型已连续查询失败达阈值次,视为该模型在 HF/ModelScope
+    # 上不存在(典型场景:闭源商业模型如 Agnes 2.0 Flash)。跳过后续查询,
+    # 避免每次保存都浪费网络请求。用户可在 UI 手动输入上下文大小。
+    if isinstance(existing, dict):
+        fail_count = existing.get("failure_count", 0)
+        if isinstance(fail_count, int) and fail_count >= LEARNED_FAILURE_SKIP_THRESHOLD:
+            return {
+                "status": "not_found",
+                "limit": None,
+                "source": None,
+                "hf_model_id": None,
+                "error": f"已在 HF/ModelScope 查询 {fail_count} 次均未找到该模型,已跳过自动查询。请手动输入上下文大小(如 1m、256k)。",
+            }
+
     if os.environ.get(ENV_NO_AUTO_LOOKUP):
         return {
             "status": "failed",
@@ -249,6 +342,9 @@ def learn_model_context_limit(
             "error": str(exc),
         }
 
+    # 把 HF/ModelScope 返回的 1024 进位值(如 1048576)转换为
+    # 1000 进位的等价值(如 1000000),与商业 API 声明的十进制值保持一致。
+    limit = _normalize_to_decimal_k(limit)
     _save_learned_limit(key, limit, source=source, hf_model_id=hf_model_id)
     return {
         "status": "ok",
@@ -334,6 +430,11 @@ def _save_learned_failure(model_key_raw: str, error: str) -> None:
 
     Unlike :func:`_save_learned_limit`, this stores no ``limit`` field —
     callers detect failure entries by the absence of a positive ``limit``.
+
+    失败计数机制:累加 ``failure_count`` 字段。当计数 ≥ 2 时,
+    :func:`learn_model_context_limit` 会跳过后续查询,避免对
+    HF/ModelScope 上不存在的闭源商业模型(如 Agnes 2.0 Flash)
+    反复发起无意义的查询。
     """
     key = _normalize_model_name(model_key_raw)
     if not key:
@@ -342,6 +443,8 @@ def _save_learned_failure(model_key_raw: str, error: str) -> None:
         path = _get_learning_table_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         data = _load_learning_table()
+        existing = data.get(key) if isinstance(data.get(key), dict) else {}
+        prev_count = existing.get("failure_count", 0) if isinstance(existing.get("failure_count"), int) else 0
         data[key] = {
             "limit": None,
             "source": None,
@@ -349,6 +452,7 @@ def _save_learned_failure(model_key_raw: str, error: str) -> None:
             "error": error,
             "ts": time.time(),
             "model_name_at_query": key,
+            "failure_count": prev_count + 1,
         }
         path.write_text(
             json.dumps(data, indent=2, ensure_ascii=False),
@@ -356,6 +460,12 @@ def _save_learned_failure(model_key_raw: str, error: str) -> None:
         )
     except Exception as exc:
         logger.debug("写入模型上下文学习表(失败记录)失败: {}", exc)
+
+
+# 失败次数达到此阈值后,跳过后续 HF/ModelScope 查询。
+# 设为 2:允许用户首次失败后重试一次(应对偶发网络问题),
+# 第二次仍失败则视为模型在 HF/ModelScope 上不存在。
+LEARNED_FAILURE_SKIP_THRESHOLD = 2
 
 
 # ---------------------------------------------------------------------------
@@ -488,7 +598,8 @@ def _extract_context_from_hf_model_card(data: dict[str, Any]) -> int | None:
     - ``config.max_position_embeddings`` (most transformers models)
     - ``config.context_length`` / ``config.n_positions`` / ``config.seq_length``
     - ``config.max_seq_len`` / ``config.max_sequence_length``
-    - ``tokenizer_config.model_max_length``
+    - ``config.text_config.*`` (多模态模型嵌套结构,如 MiniMax-M3)
+    - ``tokenizer_config.model_max_length`` (过滤 >10M 的异常值)
     - ``cardData.context_length`` (README YAML front matter)
     """
     config = data.get("config")
@@ -504,10 +615,26 @@ def _extract_context_from_hf_model_card(data: dict[str, Any]) -> int | None:
             val = config.get(field)
             if isinstance(val, int) and val > 0:
                 return val
+        # 多模态模型嵌套 text_config(如 MiniMax-M3)
+        text_config = config.get("text_config")
+        if isinstance(text_config, dict):
+            for field in (
+                "max_position_embeddings",
+                "context_length",
+                "n_positions",
+                "seq_length",
+                "max_seq_len",
+                "max_sequence_length",
+            ):
+                val = text_config.get(field)
+                if isinstance(val, int) and val > 0:
+                    return val
     tokenizer_config = data.get("tokenizer_config")
     if isinstance(tokenizer_config, dict):
         val = tokenizer_config.get("model_max_length")
-        if isinstance(val, int) and val > 0:
+        # 过滤异常值:超过 10M 视为非真实上下文大小
+        # (如 MiniMax-M3 的 40960000 是稀疏索引维度,非上下文上限)
+        if isinstance(val, int) and val > 0 and val <= 10_000_000:
             return val
     card_data = data.get("cardData")
     if isinstance(card_data, dict):
@@ -519,7 +646,11 @@ def _extract_context_from_hf_model_card(data: dict[str, Any]) -> int | None:
 
 
 def _extract_context_from_config_json(data: Any) -> int | None:
-    """Extract context window from a raw ``config.json`` payload."""
+    """Extract context window from a raw ``config.json`` payload.
+
+    支持嵌套结构:某些多模态模型(如 MiniMax-M3)把文本配置放在
+    ``text_config`` 子对象里,需要递归查找。
+    """
     if not isinstance(data, dict):
         return None
     for field in (
@@ -534,16 +665,38 @@ def _extract_context_from_config_json(data: Any) -> int | None:
         val = data.get(field)
         if isinstance(val, int) and val > 0:
             return val
+    # 嵌套 text_config(多模态模型常见结构)
+    text_config = data.get("text_config")
+    if isinstance(text_config, dict):
+        for field in (
+            "max_position_embeddings",
+            "context_length",
+            "n_positions",
+            "seq_length",
+            "max_seq_len",
+            "max_sequence_length",
+        ):
+            val = text_config.get(field)
+            if isinstance(val, int) and val > 0:
+                return val
     return None
 
 
 def _extract_context_from_tokenizer_config(data: Any) -> int | None:
-    """Extract context window from a raw ``tokenizer_config.json`` payload."""
+    """Extract context window from a raw ``tokenizer_config.json`` payload.
+
+    对 ``model_max_length`` 加 10M 上限过滤:某些模型(如 MiniMax-M3)
+    在该字段写入异常值(40960000,可能是稀疏索引维度或词表上限),
+    远超任何真实模型上下文大小(目前主流最大约 10M)。
+    """
     if not isinstance(data, dict):
         return None
     val = data.get("model_max_length")
     if isinstance(val, int) and val > 0 and val < (1 << 31):
         # transformers uses (1 << 31) - 1 as "unbounded"; skip that sentinel.
+        # 额外过滤:超过 10M 的值视为异常(如 MiniMax-M3 的 40960000)
+        if val > 10_000_000:
+            return None
         return val
     return None
 
@@ -645,6 +798,13 @@ def _query_hf_context_limit_with_search(
         if model_id in tried:
             continue
         tried.add(model_id)
+        # 相似度校验:防止误匹配无关同名模型(如 agnes-2.0-flash 命中 Agnes-SeaLLM-8b)
+        if not _is_model_id_relevant(key, model_id):
+            logger.debug(
+                "跳过无关 HF 候选: query={} candidate={}", key, model_id,
+            )
+            errors.append(f"{model_id}: 与查询不相关,跳过")
+            continue
         result = _query_hf_card_and_configs(model_id)
         if result is not None:
             limit, source = result
@@ -848,6 +1008,13 @@ def _query_modelscope_with_search(
         if model_id in tried:
             continue
         tried.add(model_id)
+        # 相似度校验:防止误匹配无关同名模型
+        if not _is_model_id_relevant(key, model_id):
+            logger.debug(
+                "跳过无关 ModelScope 候选: query={} candidate={}", key, model_id,
+            )
+            errors.append(f"{model_id}: 与查询不相关,跳过")
+            continue
         result = _query_modelscope_config(model_id)
         if result is not None:
             limit, source = result

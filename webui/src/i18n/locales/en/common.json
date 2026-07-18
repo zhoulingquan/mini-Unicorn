@@ -107,7 +107,7 @@
       "contextWindowFailed": "Lookup failed, set manually",
       "contextWindowUnknown": "Auto-query on save",
       "contextWindowValue": "{{count}} tokens",
-      "contextWindowPlaceholder": "e.g. 128000"
+      "contextWindowPlaceholder": "e.g. 128000 / 128k / 1m"
     },
     "rows": {
       "theme": "Theme",
@@ -242,6 +242,7 @@
       "save": "Save",
       "saving": "Saving",
       "queryingContext": "Querying context window...",
+      "queryTimeout": "Query timeout, please enter manually",
       "edit": "Edit",
       "cancel": "Cancel",
       "open": "Open",
@@ -269,6 +270,19 @@
       "noConfiguredProviders": "No configured providers",
       "configureFirst": "Configure a provider in BYOK first.",
       "openByok": "Open BYOK",
+      "delete": "Delete",
+      "deleting": "Deleting...",
+      "deleteConfirmTitle": "Delete provider configuration",
+      "deleteConfirmDescription": "This will clear the provider's API key, API base, and associated model configurations. This action cannot be undone.",
+      "deleteConfirmAction": "Delete",
+      "deleteErrorDefault": "Delete failed, please try again.",
+      "addCustom": "Add configuration",
+      "customLabel": "Label",
+      "customLabelPlaceholder": "e.g. agnes, my-service",
+      "customLabelRequired": "Label is required",
+      "apiBaseRequired": "API base is required",
+      "modelIdRequired": "Model ID is required",
+      "customRequiredHint": "Label, API base and model are required",
       "tabs": {
         "ariaLabel": "BYOK credential type",
         "llm": "LLM"
@@ -561,7 +575,8 @@
       }
     },
     "scrollToBottom": "Scroll to bottom",
-    "loadEarlier": "Load earlier messages"
+    "loadEarlier": "Load earlier messages",
+    "awaitingReply": "Awaiting reply…"
   },
   "message": {
     "streaming": "streaming",

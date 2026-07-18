@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
@@ -40,7 +41,9 @@ import {
   SlidersHorizontal,
   Sparkles,
   Triangle,
+  Trash2,
   Waves,
+  X,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -66,6 +69,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   createModelConfiguration,
+  deleteModelConfiguration,
+  deleteProviderSettings,
   fetchProviderModels,
   fetchSettings,
   loginProviderOAuth,
@@ -222,6 +227,14 @@ export function SettingsView({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [contextWindowLearning, setContextWindowLearning] = useState(false);
+  // 记录正在学习上下文窗口的 provider 名称(用于 provider 卡片显示"查询中")
+  const [learningProvider, setLearningProvider] = useState<string | null>(null);
+  // 记录学习超时的 provider 名称(用于 provider 卡片显示"查询超时")
+  const [timeoutProvider, setTimeoutProvider] = useState<string | null>(null);
+  // 轮询超时标志,提示用户手动输入上下文窗口大小
+  const [contextWindowLearnTimeout, setContextWindowLearnTimeout] = useState(false);
+  // 取消上一次上下文窗口学习轮询的标志
+  const learningPollCancelRef = useRef<boolean>(false);
   const [modelConfigurationOpen, setModelConfigurationOpen] = useState(false);
   const [modelConfigurationSaving, setModelConfigurationSaving] = useState(false);
   const [modelConfigurationForm, setModelConfigurationForm] = useState<ModelConfigurationDraft>({
@@ -233,6 +246,11 @@ export function SettingsView({
   const [providerSaved, setProviderSaved] = useState<Record<string, boolean>>({});
   const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
   const [providerModelsLoading, setProviderModelsLoading] = useState<string | null>(null);
+  // 删除 provider 配置的确认对话框 + 进行中状态
+  const [providerToDelete, setProviderToDelete] = useState<string | null>(null);
+  const [providerDeleting, setProviderDeleting] = useState(false);
+  // custom provider 新配置的 label(每个 custom 配置是一个独立 model_preset)
+  const [customPresetLabel, setCustomPresetLabel] = useState("");
   const [networkSafetySaving, setNetworkSafetySaving] = useState(false);
   const [runtimeSaving, setRuntimeSaving] = useState(false);
   const [runtimeForm, setRuntimeForm] = useState<RuntimeSettingsUpdate>({
@@ -344,6 +362,20 @@ export function SettingsView({
     setProviderForms((prev) => {
       const next = { ...prev };
       for (const provider of settingsProviders) {
+        if (provider.preset_name) {
+          // preset 卡片(已配置区域):用 preset 的 model/api_base 初始化。
+          // 适用于所有 preset(无论 is_custom_preset 与否),让卡片表单跟随 preset。
+          const preset = settingsModelPresets.find((p) => p.name === provider.preset_name);
+          const existing = next[provider.name];
+          next[provider.name] = {
+            apiKey: existing?.apiKey ?? "",
+            apiBase: existing?.apiBase || preset?.api_base || provider.api_base || "",
+            apiType: "auto",
+            // 当 existing.model 为空字符串(被清空过)时,回退到 preset 的 model
+            model: existing?.model || preset?.model || provider.model || "",
+          };
+          continue;
+        }
         // Find the model associated with this provider: check active preset first,
         // then any preset using this provider, then the agent default model.
         const activePreset = settingsModelPresets.find((p) => p.active);
@@ -358,9 +390,11 @@ export function SettingsView({
           "";
         next[provider.name] = {
           apiKey: next[provider.name]?.apiKey ?? "",
-          apiBase: next[provider.name]?.apiBase ?? provider.api_base ?? provider.default_api_base ?? "",
+          // custom 单例是添加入口,不预填旧值(每次都是新配置)
+          apiBase: next[provider.name]?.apiBase ??
+            (provider.name === "custom" ? "" : (provider.api_base ?? provider.default_api_base ?? "")),
           apiType: next[provider.name]?.apiType ?? provider.api_type ?? "auto",
-          model: inferredModel,
+          model: provider.name === "custom" ? (next[provider.name]?.model ?? "") : inferredModel,
         };
       }
       return next;
@@ -387,18 +421,8 @@ export function SettingsView({
 
   const modelDirty = useMemo(() => {
     if (!settings) return false;
-    const activePresetName = modelPresetValue(settings);
-    const selectedPreset = settings.model_presets.find((preset) => preset.name === form.modelPreset);
-    if (!selectedPreset) return form.modelPreset !== activePresetName;
-    const selectedProvider = selectedPreset.is_default
-      ? editableDefaultProvider(settings)
-      : selectedPreset.provider;
-    return (
-      form.modelPreset !== activePresetName ||
-      form.model !== selectedPreset.model ||
-      form.provider !== selectedProvider ||
-      (!selectedPreset.is_default && form.presetLabel.trim() !== selectedPreset.label)
-    );
+    // model/provider 都跟随 preset,只需比较 preset name
+    return form.modelPreset !== modelPresetValue(settings);
   }, [form, settings]);
 
   const networkSafetyDirty = useMemo(() => {
@@ -482,43 +506,99 @@ export function SettingsView({
     [applyPayload, settings, token],
   );
 
+  // 轮询 settings,直到目标模型的上下文窗口学习完成(status 变为 learned/configured)
+  // 或超过最大轮询次数(超时后强制刷新一次并清除"查询中"状态,设置超时提示)
+  // providerName 用于在 provider 卡片显示超时提示(模型保存路径传 null)
+  const pollContextWindowLearning = useCallback(
+    async (modelName: string, providerName: string | null = null) => {
+      learningPollCancelRef.current = false;
+      // 60 秒超时(40 次 * 1.5 秒),覆盖 HF/ModelScope 查询延迟
+      const maxAttempts = 40;
+      const intervalMs = 1500;
+      for (let i = 0; i < maxAttempts; i++) {
+        if (learningPollCancelRef.current) return;
+        await new Promise((r) => setTimeout(r, intervalMs));
+        if (learningPollCancelRef.current) return;
+        try {
+          const fresh = await fetchSettings(token);
+          if (learningPollCancelRef.current) return;
+          // 优先看 active model(agent),因为保存后新模型就是 active model;
+          // 否则回退到 model_presets 中同名 preset
+          let status: string = "unknown";
+          if (fresh.agent.model === modelName) {
+            status = fresh.agent.resolved_context_window_status ?? "unknown";
+          } else {
+            const preset = fresh.model_presets.find((p) => p.model === modelName);
+            status = preset?.resolved_context_window_status ?? "unknown";
+          }
+          // 学习成功或用户已手动配置 → 完成
+          if (status === "learned" || status === "configured") {
+            applyPayload(fresh);
+            setContextWindowLearning(false);
+            setLearningProvider(null);
+            setTimeoutProvider(null);
+            return;
+          }
+          // 期间持续刷新,让 UI 反映最新状态
+          applyPayload(fresh);
+        } catch {
+          // 轮询期间的错误忽略,继续重试
+        }
+      }
+      // 超时:最后刷新一次并清除"查询中"状态,设置超时标志提示用户手动输入
+      try {
+        const fresh = await fetchSettings(token);
+        if (!learningPollCancelRef.current) applyPayload(fresh);
+      } catch {
+        // 忽略
+      }
+      if (!learningPollCancelRef.current) {
+        setContextWindowLearning(false);
+        setLearningProvider(null);
+        setContextWindowLearnTimeout(true);
+        setTimeoutProvider(providerName);
+      }
+    },
+    [applyPayload, token],
+  );
+
   const saveModelSettings = async () => {
     if (!settings || !modelDirty || saving) return;
-    // 预测：切换到目标模型且该模型尚未学习过上下文窗口 → 后端会同步查 HF
-    // 新模型不在 model_presets 里时,视为 unknown(肯定没查过 HF)
+    // 后端在模型变更时会调用 _trigger_model_learning 触发上下文窗口学习
+    // 仅当目标模型尚未学习成功时,后端才实际查询 HF(已学习的从缓存返回)
     const modelChanged = form.model !== settings.agent.model;
     const matchingPreset = settings.model_presets.find((p) => p.model === form.model);
     const targetStatus = matchingPreset?.resolved_context_window_status ?? "unknown";
     const willQueryContext = modelChanged && targetStatus === "unknown";
+    // 取消上一次可能仍在进行的轮询
+    learningPollCancelRef.current = true;
     setSaving(true);
     setContextWindowLearning(willQueryContext);
+    if (willQueryContext) {
+      setContextWindowLearnTimeout(false);
+      setTimeoutProvider(null);
+      setLearningProvider(null);
+    }
     try {
-      const selectedPreset = settings.model_presets.find((preset) => preset.name === form.modelPreset);
-      let payload: SettingsPayload;
-      if (selectedPreset && !selectedPreset.is_default) {
-        payload = await updateModelConfiguration(token, {
-          name: selectedPreset.name,
-          label: form.presetLabel.trim(),
-          model: form.model,
-          provider: form.provider,
-        });
-      } else {
-        const defaultModel = defaultPreset(settings)?.model ?? settings.agent.model;
-        const defaultProvider = editableDefaultProvider(settings);
-        payload = await updateSettings(token, {
-          modelPreset: form.modelPreset,
-          ...(form.model !== defaultModel ? { model: form.model } : {}),
-          ...(form.provider !== defaultProvider ? { provider: form.provider } : {}),
-        });
-      }
+      // 切换 preset 即可激活对应配置(model/provider/凭证都绑定在 preset 上)
+      const payload: SettingsPayload = await updateSettings(token, {
+        modelPreset: form.modelPreset,
+      });
       applyPayload(payload);
       onModelNameChange(payload.agent.model || null);
       setError(null);
+      // 后端 _trigger_model_learning 是 fire-and-forget,HTTP 立即返回。
+      // 若触发了学习,启动轮询持续显示"查询中",直到后端学习完成。
+      if (willQueryContext) {
+        pollContextWindowLearning(form.model);
+      } else {
+        setContextWindowLearning(false);
+      }
     } catch (err) {
       setError((err as Error).message);
+      setContextWindowLearning(false);
     } finally {
       setSaving(false);
-      setContextWindowLearning(false);
     }
   };
 
@@ -633,21 +713,48 @@ export function SettingsView({
       return;
     }
     const modelId = providerForm.model.trim();
+    // 预测:更换模型且目标模型尚未学习成功 → 后端会触发 HF 上下文窗口学习
+    const modelChanged = !!modelId && modelId !== (settings?.agent.model ?? "");
+    const matchingPreset = settings?.model_presets.find((p) => p.model === modelId);
+    const targetStatus = matchingPreset?.resolved_context_window_status ?? "unknown";
+    const willQueryContext = modelChanged && targetStatus === "unknown";
+    if (willQueryContext) {
+      learningPollCancelRef.current = true;
+      setLearningProvider(providerName);
+      setTimeoutProvider(null);
+      setContextWindowLearning(true);
+      setContextWindowLearnTimeout(false);
+    }
     setProviderSaving(providerName);
     try {
-      let payload = await updateProviderSettings(token, {
-        provider: providerName,
-        apiKey: apiKey || undefined,
-        apiBase: providerForm.apiBase.trim(),
-        apiType: providerForm.apiType,
-      });
-      // If a model ID was entered, also set it as the active model+provider
-      // so the user doesn't have to jump to the Models section separately.
-      if (modelId) {
-        payload = await updateSettings(token, {
-          provider: providerName,
-          model: modelId,
+      let payload: SettingsPayload;
+      if (provider.preset_name) {
+        // preset 卡片(已配置区域):走 model-configuration update API
+        // 适用于所有 preset(无论 is_custom_preset 与否):
+        // - custom preset (custom__<name>): 凭证由 preset 自带
+        // - 非 custom preset (<provider>__<name>): 凭证可能由 preset 携带或回退到 provider 单例,
+        //   但更新时统一写到 preset 字段(让 preset 成为配置的源)
+        payload = await updateModelConfiguration(token, {
+          name: provider.preset_name,
+          model: modelId || undefined,
+          apiKey: apiKey || undefined,
+          apiBase: providerForm.apiBase.trim() || undefined,
         });
+      } else {
+        payload = await updateProviderSettings(token, {
+          provider: providerName,
+          apiKey: apiKey || undefined,
+          apiBase: providerForm.apiBase.trim(),
+          apiType: providerForm.apiType,
+        });
+        // If a model ID was entered, also set it as the active model+provider
+        // so the user doesn't have to jump to the Models section separately.
+        if (modelId) {
+          payload = await updateSettings(token, {
+            provider: providerName,
+            model: modelId,
+          });
+        }
       }
       applyPayload(payload);
       onModelNameChange(payload.agent.model || null);
@@ -673,9 +780,123 @@ export function SettingsView({
         delete next[providerName];
         return next;
       });
+      // 保存成功后收起卡片:配置已完成,已配置区域的卡片默认应是收起状态。
+      // 注意:轮询(ContextWindowBadge 也会显示"查询中")不受影响,仍会持续。
+      setExpandedProvider(null);
+      setError(null);
+      // 后端 _trigger_model_learning 是 fire-and-forget,启动轮询持续显示"查询中"
+      if (willQueryContext) {
+        pollContextWindowLearning(modelId, providerName);
+      } else {
+        setLearningProvider(null);
+        setTimeoutProvider(null);
+        setContextWindowLearning(false);
+      }
+    } catch (err) {
+      setError((err as Error).message);
+      setLearningProvider(null);
+      setTimeoutProvider(null);
+      setContextWindowLearning(false);
+    } finally {
+      setProviderSaving(null);
+    }
+  };
+
+  // 删除 provider 配置:清除凭证 + 关联 model_preset,移回未配置区域。
+  // 仅已配置(provider.configured)的卡片会显示删除入口。
+  const confirmDeleteProvider = async () => {
+    const providerName = providerToDelete;
+    if (!providerName || providerDeleting) return;
+    const provider = settings?.providers.find((item) => item.name === providerName);
+    setProviderDeleting(true);
+    try {
+      // preset 卡片(已配置区域):走 model-configuration delete API 删除 preset。
+      // 适用于所有 preset(无论 is_custom_preset 与否),让"已配置区域"成为配置的源:
+      // 删除卡片即删除对应的 preset 注册信息,下拉列表会同步移除。
+      const payload = provider?.preset_name
+        ? await deleteModelConfiguration(token, provider.preset_name)
+        : await deleteProviderSettings(token, providerName);
+      applyPayload(payload);
+      onModelNameChange(payload.agent.model || null);
+      // 重置该 provider 的本地表单状态,避免展开时残留旧值
+      resetProviderDraft(providerName);
+      setProviderSaved((prev) => ({ ...prev, [providerName]: false }));
+      setExpandedProvider(null);
+      setProviderToDelete(null);
       setError(null);
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setProviderDeleting(false);
+    }
+  };
+
+  // 保存 custom provider 新配置:创建一个独立 model_preset(自带 api_key/api_base),
+  // 不覆盖 config.providers.custom 单例,支持多个独立 custom endpoint。
+  const saveCustomConfiguration = async () => {
+    if (providerSaving) return;
+    const form = providerForms["custom"] ?? { apiKey: "", apiBase: "", apiType: "auto", model: "" };
+    const label = customPresetLabel.trim();
+    const apiKey = form.apiKey.trim();
+    const apiBase = form.apiBase.trim();
+    const model = form.model.trim();
+    if (!label) {
+      setError(t("settings.byok.customLabelRequired", { defaultValue: "Label is required" }));
+      return;
+    }
+    if (!apiBase) {
+      setError(t("settings.byok.apiBaseRequired", { defaultValue: "API base is required" }));
+      return;
+    }
+    if (!model) {
+      setError(t("settings.byok.modelIdRequired", { defaultValue: "Model ID is required" }));
+      return;
+    }
+    // 预测:目标模型尚未学习成功 → 后端会触发 HF 上下文窗口学习
+    const matchingPreset = settings?.model_presets.find((p) => p.model === model);
+    const targetStatus = matchingPreset?.resolved_context_window_status ?? "unknown";
+    const willQueryContext = targetStatus === "unknown";
+    if (willQueryContext) {
+      learningPollCancelRef.current = true;
+      setLearningProvider("custom");
+      setTimeoutProvider(null);
+      setContextWindowLearning(true);
+      setContextWindowLearnTimeout(false);
+    }
+    setProviderSaving("custom");
+    try {
+      const payload = await createModelConfiguration(token, {
+        label,
+        provider: "custom",
+        model,
+        apiKey: apiKey || undefined,
+        apiBase,
+      });
+      applyPayload(payload);
+      onModelNameChange(payload.agent.model || null);
+      // 清空 custom 表单,准备下一次添加
+      setProviderForms((prev) => ({
+        ...prev,
+        custom: { apiKey: "", apiBase: "", apiType: "auto", model: "" },
+      }));
+      setCustomPresetLabel("");
+      setVisibleProviderKeys((prev) => ({ ...prev, custom: false }));
+      // custom 是添加入口,保存后保持 saved=false 以便连续添加新配置
+      setProviderSaved((prev) => ({ ...prev, custom: false }));
+      setExpandedProvider(null);
+      setError(null);
+      if (willQueryContext) {
+        pollContextWindowLearning(model, "custom");
+      } else {
+        setLearningProvider(null);
+        setTimeoutProvider(null);
+        setContextWindowLearning(false);
+      }
+    } catch (err) {
+      setError((err as Error).message);
+      setLearningProvider(null);
+      setTimeoutProvider(null);
+      setContextWindowLearning(false);
     } finally {
       setProviderSaving(null);
     }
@@ -686,9 +907,13 @@ export function SettingsView({
     const provider = settings?.providers.find((item) => item.name === providerName);
     if (!provider) return;
     const providerForm = providerForms[providerName];
+    // preset 卡片(已配置区域):后端用真实 provider 名查询模型,
+    // 但用 preset 自带的 api_key/api_base(或回退到 provider 单例凭证)。
+    // 适用于所有 preset(无论 is_custom_preset 与否)。
+    const apiProviderName = provider.preset_name ? (provider.provider ?? providerName) : providerName;
     setProviderModelsLoading(providerName);
     try {
-      const models = await fetchProviderModels(token, providerName, {
+      const models = await fetchProviderModels(token, apiProviderName, {
         apiKey: providerForm?.apiKey.trim() || undefined,
         apiBase: providerForm?.apiBase.trim() || undefined,
       });
@@ -723,6 +948,29 @@ export function SettingsView({
   const resetProviderDraft = useCallback((providerName: string) => {
     const provider = settingsProviders?.find((item) => item.name === providerName);
     if (!provider) return;
+    // preset 卡片(已配置区域):用 preset 的 model/api_base 重置表单。
+    // 适用于所有 preset(无论 is_custom_preset 与否)。
+    if (provider.preset_name) {
+      const preset = settingsModelPresets?.find((p) => p.name === provider.preset_name);
+      setProviderForms((prev) => ({
+        ...prev,
+        [providerName]: {
+          apiKey: "",
+          apiBase: preset?.api_base || provider.api_base || "",
+          apiType: "auto",
+          model: preset?.model || provider.model || "",
+        },
+      }));
+      setVisibleProviderKeys((prev) => ({ ...prev, [providerName]: false }));
+      setEditingProviderKeys((prev) => ({ ...prev, [providerName]: false }));
+      setProviderModels((prev) => {
+        if (!(providerName in prev)) return prev;
+        const next = { ...prev };
+        delete next[providerName];
+        return next;
+      });
+      return;
+    }
     const activePreset = settingsModelPresets?.find((p) => p.active);
     const matchingPreset =
       activePreset && (activePreset.provider === providerName || (activePreset.is_default && settingsAgent?.provider === providerName))
@@ -824,9 +1072,8 @@ export function SettingsView({
               dirty={modelDirty}
               saving={saving}
               contextWindowLearning={contextWindowLearning}
+              contextWindowLearnTimeout={contextWindowLearnTimeout}
               showBrandLogos={localPrefs.brandLogos}
-              providerSaving={providerSaving}
-              onProviderOAuthLogin={(provider) => runProviderOAuth(provider, "login")}
               onSave={saveModelSettings}
               onSaveContextWindow={saveContextWindow}
               onCreateConfiguration={openModelConfigurationDialog}
@@ -841,6 +1088,8 @@ export function SettingsView({
               providerSaved={providerSaved}
               providerModels={providerModels}
               providerModelsLoading={providerModelsLoading}
+              learningProvider={learningProvider}
+              timeoutProvider={timeoutProvider}
               showBrandLogos={localPrefs.brandLogos}
               onToggleProvider={handleToggleProvider}
               onToggleProviderKey={toggleProviderKeyVisibility}
@@ -862,6 +1111,10 @@ export function SettingsView({
               onFetchProviderModels={fetchProviderModelList}
               onProviderOAuthLogin={(provider) => runProviderOAuth(provider, "login")}
               onProviderOAuthLogout={(provider) => runProviderOAuth(provider, "logout")}
+              onRequestDeleteProvider={(provider) => setProviderToDelete(provider)}
+              customPresetLabel={customPresetLabel}
+              onChangeCustomPresetLabel={setCustomPresetLabel}
+              onSaveCustomConfiguration={saveCustomConfiguration}
             />
           </div>
         );
@@ -908,6 +1161,50 @@ export function SettingsView({
         onChangeDraft={setModelConfigurationForm}
         onSave={handleCreateModelConfiguration}
       />
+
+      <Dialog
+        open={providerToDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !providerDeleting) setProviderToDelete(null);
+        }}
+      >
+        <DialogContent className="max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>
+              {t("settings.byok.deleteConfirmTitle", { defaultValue: "Delete provider configuration" })}
+            </DialogTitle>
+            <DialogDescription>
+              {t("settings.byok.deleteConfirmDescription", {
+                defaultValue:
+                  "This will clear the provider's API key, API base, and associated model configurations. This action cannot be undone.",
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setProviderToDelete(null)}
+              disabled={providerDeleting}
+              className="rounded-full"
+            >
+              {t("settings.bootstrap.cancel", { defaultValue: "Cancel" })}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDeleteProvider}
+              disabled={providerDeleting}
+              className="rounded-full"
+            >
+              {providerDeleting ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+              ) : null}
+              {providerDeleting
+                ? t("settings.byok.deleting", { defaultValue: "Deleting..." })
+                : t("settings.byok.deleteConfirmAction", { defaultValue: "Delete" })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <main className="min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         <div
@@ -1349,13 +1646,14 @@ function NewModelConfigurationDialog({
               <span className="mb-1.5 block text-[12px] font-medium text-muted-foreground">
                 {tx("settings.models.configurationName", "Name")}
               </span>
-              <Input
+              <ClearableInput
                 autoFocus
                 value={draft.label}
                 placeholder={tx("settings.models.configurationNamePlaceholder", "Fast writing")}
                 onChange={(event) =>
                   onChangeDraft((prev) => ({ ...prev, label: event.target.value }))
                 }
+                onClear={() => onChangeDraft((prev) => ({ ...prev, label: "" }))}
                 className="h-10 rounded-full px-4 text-[14px]"
               />
             </label>
@@ -1365,12 +1663,13 @@ function NewModelConfigurationDialog({
                 <span className="mb-1.5 block text-[12px] font-medium text-muted-foreground">
                   {tx("settings.rows.model", "Model")}
                 </span>
-                <Input
+                <ClearableInput
                   value={draft.model}
                   placeholder="openai/gpt-4.1"
                   onChange={(event) =>
                     onChangeDraft((prev) => ({ ...prev, model: event.target.value }))
                   }
+                  onClear={() => onChangeDraft((prev) => ({ ...prev, model: "" }))}
                   className="h-10 rounded-full px-4 text-[14px]"
                 />
               </label>
@@ -1426,9 +1725,8 @@ function ModelsSettings({
   dirty,
   saving,
   contextWindowLearning,
+  contextWindowLearnTimeout,
   showBrandLogos,
-  providerSaving,
-  onProviderOAuthLogin,
   onSave,
   onSaveContextWindow,
   onCreateConfiguration,
@@ -1439,35 +1737,21 @@ function ModelsSettings({
   dirty: boolean;
   saving: boolean;
   contextWindowLearning: boolean;
+  contextWindowLearnTimeout: boolean;
   showBrandLogos: boolean;
-  providerSaving: string | null;
-  onProviderOAuthLogin: (provider: string) => void;
   onSave: () => void;
   onSaveContextWindow: (value: number) => Promise<void>;
   onCreateConfiguration: () => void;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
-  const configuredProviders = settings.providers.filter((provider) => provider.configured);
-  const oauthProviders = settings.providers.filter((provider) => provider.auth_type === "oauth");
-  const showAutoProvider = defaultPreset(settings)?.provider === "auto" || form.provider === "auto";
-  const selectableProviders = uniqueProviders([...configuredProviders, ...oauthProviders]);
-  const providerOptions = showAutoProvider
-    ? [{ name: "auto", label: tx("settings.values.auto", "Auto") }, ...selectableProviders]
-    : selectableProviders;
-  const providerValue = providerOptions.some((provider) => provider.name === form.provider)
-    ? form.provider
-    : "";
-  const selectedPreset =
-    settings.model_presets.find((preset) => preset.name === form.modelPreset) ?? null;
-  const selectedProvider = settings.providers.find((provider) => provider.name === form.provider);
-  const selectedProviderNeedsSignIn =
-    selectedProvider?.auth_type === "oauth" && !selectedProvider.configured;
-  const selectedProviderSigningIn = providerSaving === selectedProvider?.name;
-  const modelFieldsMissing =
-    !form.model.trim() ||
-    !form.provider.trim() ||
-    Boolean(selectedPreset && !selectedPreset.is_default && !form.presetLabel.trim());
+  // 上下文窗口跟随当前选中的 preset(未保存时也立即反映),
+  // 而不是 settings.agent(只有保存后才会更新)
+  const selectedPreset = settings.model_presets.find((p) => p.name === form.modelPreset);
+  const ctxResolved = selectedPreset?.resolved_context_window_tokens ?? settings.agent.resolved_context_window_tokens;
+  const ctxConfigured = selectedPreset?.context_window_tokens ?? settings.agent.context_window_tokens;
+  const ctxStatus = selectedPreset?.resolved_context_window_status ?? settings.agent.resolved_context_window_status;
+  const ctxError = selectedPreset?.resolved_context_window_error ?? settings.agent.resolved_context_window_error;
   return (
     <div className="space-y-7">
       <section>
@@ -1498,79 +1782,26 @@ function ModelsSettings({
               onCreateConfiguration={onCreateConfiguration}
             />
           </SettingsRow>
-          {selectedPreset && !selectedPreset.is_default ? (
-            <SettingsRow
-              title={tx("settings.models.configurationName", "Name")}
-              description={tx("settings.models.configurationNameHelp", "Rename this saved model configuration.")}
-            >
-              <Input
-                value={form.presetLabel}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, presetLabel: event.target.value }))
-                }
-                className="h-8 w-[min(280px,70vw)] rounded-full text-[13px]"
-              />
-            </SettingsRow>
-          ) : null}
-          <SettingsRow
-            title={t("settings.rows.provider")}
-            description={t("settings.help.provider")}
-          >
-            <ProviderPicker
-              providers={providerOptions}
-              value={providerValue}
-              emptyLabel={t("settings.byok.noConfiguredProviders")}
-              showProviderLogos={showBrandLogos}
-              onChange={(provider) => setForm((prev) => ({ ...prev, provider }))}
-            />
-          </SettingsRow>
           <SettingsRow
             title={t("settings.rows.contextWindow")}
             description={t("settings.help.contextWindow")}
           >
             <ContextWindowBadge
-              resolved={settings.agent.resolved_context_window_tokens}
-              configured={settings.agent.context_window_tokens}
-              status={settings.agent.resolved_context_window_status}
-              error={settings.agent.resolved_context_window_error}
+              key={`${form.modelPreset}-${ctxResolved}-${ctxStatus}`}
+              resolved={ctxResolved}
+              configured={ctxConfigured}
+              status={ctxStatus}
+              error={ctxError}
+              timeout={contextWindowLearnTimeout}
               onSave={onSaveContextWindow}
             />
           </SettingsRow>
-          {selectedProviderNeedsSignIn ? (
-            <SettingsRow
-              title={tx("settings.oauth.signInRequired", "Sign in required")}
-              description={tx(
-                "settings.oauth.signInBeforeSaving",
-                "Sign in before saving this OAuth provider as the active model provider.",
-              )}
-            >
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => selectedProvider && onProviderOAuthLogin(selectedProvider.name)}
-                disabled={!selectedProvider?.oauth_login_supported || selectedProviderSigningIn}
-                className="rounded-full"
-              >
-                {selectedProviderSigningIn ? (
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
-                ) : null}
-                {selectedProviderSigningIn
-                  ? tx("settings.oauth.signingIn", "Signing in...")
-                  : tx("settings.oauth.signIn", "Sign in")}
-              </Button>
-            </SettingsRow>
-          ) : null}
           <SettingsFooter
             dirty={dirty}
-            saving={saving}
+            saving={saving || contextWindowLearning}
             saved={false}
-            disabled={selectedProviderNeedsSignIn || modelFieldsMissing}
+            disabled={false}
             savingLabel={contextWindowLearning ? t("settings.actions.queryingContext") : undefined}
-            message={
-              selectedProviderNeedsSignIn
-                ? tx("settings.oauth.signInBeforeSaving", "Sign in before saving this OAuth provider as the active model provider.")
-                : undefined
-            }
             onSave={onSave}
           />
         </SettingsGroup>
@@ -1589,6 +1820,8 @@ function ProvidersSettings({
   providerSaved,
   providerModels,
   providerModelsLoading,
+  learningProvider,
+  timeoutProvider,
   showBrandLogos,
   onToggleProvider,
   onToggleProviderKey,
@@ -1598,6 +1831,10 @@ function ProvidersSettings({
   onFetchProviderModels,
   onProviderOAuthLogin,
   onProviderOAuthLogout,
+  onRequestDeleteProvider,
+  customPresetLabel,
+  onChangeCustomPresetLabel,
+  onSaveCustomConfiguration,
 }: {
   settings: SettingsPayload;
   expandedProvider: string | null;
@@ -1608,6 +1845,8 @@ function ProvidersSettings({
   providerSaved: Record<string, boolean>;
   providerModels: Record<string, string[]>;
   providerModelsLoading: string | null;
+  learningProvider: string | null;
+  timeoutProvider: string | null;
   showBrandLogos: boolean;
   onToggleProvider: (provider: string) => void;
   onToggleProviderKey: (provider: string) => void;
@@ -1617,10 +1856,19 @@ function ProvidersSettings({
   onFetchProviderModels: (provider: string) => void;
   onProviderOAuthLogin: (provider: string) => void;
   onProviderOAuthLogout: (provider: string) => void;
+  onRequestDeleteProvider: (provider: string) => void;
+  customPresetLabel: string;
+  onChangeCustomPresetLabel: (value: string) => void;
+  onSaveCustomConfiguration: () => void;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
-  const configuredProviders = settings.providers.filter((provider) => provider.configured);
+  // custom preset 虚拟条目(name=custom__xxx)configured=true,会自动进入已配置区域。
+  // 真正的 "custom" 单例 configured=false,作为未配置区域的添加入口。
+  const configuredProviders = useMemo(
+    () => settings.providers.filter((provider) => provider.configured),
+    [settings.providers],
+  );
   const unconfiguredProviders = useMemo(
     () => orderUnconfiguredProviders(settings.providers.filter((provider) => !provider.configured)),
     [settings.providers],
@@ -1657,6 +1905,7 @@ function ProvidersSettings({
             <ProviderIcon
               provider={provider.name}
               showBrandLogos={showBrandLogos}
+              label={provider.label}
             />
             <span className="min-w-0">
               <span className="block truncate text-[15px] font-semibold leading-5 text-foreground">
@@ -1725,45 +1974,61 @@ function ProvidersSettings({
               </div>
             ) : (
               <>
+            {/* custom provider:配置名称(每个 custom 配置是独立 model_preset,label 用于区分) */}
+            {provider.name === "custom" ? (
+              <label className="block space-y-1.5">
+                <span className="text-[12px] font-medium text-muted-foreground">
+                  {tx("settings.byok.customLabel", "Label")}
+                </span>
+                <ClearableInput
+                  value={customPresetLabel}
+                  onChange={(event) => onChangeCustomPresetLabel(event.target.value)}
+                  onClear={() => onChangeCustomPresetLabel("")}
+                  placeholder={tx("settings.byok.customLabelPlaceholder", "e.g. agnes, my-service")}
+                  className="h-9 rounded-full text-[13px]"
+                />
+              </label>
+            ) : null}
             <label className="block space-y-1.5">
               <span className="text-[12px] font-medium text-muted-foreground">
                 {t("settings.byok.apiKey")}
               </span>
               <div className="relative">
                 {editingKey ? (
-                  <>
-                    <Input
-                      type={keyVisible ? "text" : "password"}
-                      value={form.apiKey}
-                      onChange={(event) =>
-                        onChangeProviderForm(provider.name, { apiKey: event.target.value })
-                      }
-                      placeholder={
-                        provider.configured
-                          ? t("settings.byok.apiKeyConfiguredPlaceholder")
-                          : t("settings.byok.apiKeyPlaceholder")
-                      }
-                      className="h-9 rounded-full pr-11 text-[13px]"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => onToggleProviderKey(provider.name)}
-                      aria-label={
-                        keyVisible
-                          ? t("settings.byok.hideApiKey")
-                          : t("settings.byok.showApiKey")
-                      }
-                      className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
-                    >
-                      {keyVisible ? (
-                        <EyeOff className="h-3.5 w-3.5" aria-hidden />
-                      ) : (
-                        <Eye className="h-3.5 w-3.5" aria-hidden />
-                      )}
-                    </Button>
-                  </>
+                  <ClearableInput
+                    type={keyVisible ? "text" : "password"}
+                    value={form.apiKey}
+                    onChange={(event) =>
+                      onChangeProviderForm(provider.name, { apiKey: event.target.value })
+                    }
+                    onClear={() => onChangeProviderForm(provider.name, { apiKey: "" })}
+                    placeholder={
+                      provider.configured
+                        ? t("settings.byok.apiKeyConfiguredPlaceholder")
+                        : t("settings.byok.apiKeyPlaceholder")
+                    }
+                    className="h-9 rounded-full text-[13px]"
+                    trailingSlot={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onToggleProviderKey(provider.name)}
+                        aria-label={
+                          keyVisible
+                            ? t("settings.byok.hideApiKey")
+                            : t("settings.byok.showApiKey")
+                        }
+                        className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+                      >
+                        {keyVisible ? (
+                          <EyeOff className="h-3.5 w-3.5" aria-hidden />
+                        ) : (
+                          <Eye className="h-3.5 w-3.5" aria-hidden />
+                        )}
+                      </Button>
+                    }
+                  />
                 ) : (
                   <>
                     <div className="flex h-9 items-center rounded-full border border-input bg-background px-3 pr-11 text-[13px] text-muted-foreground">
@@ -1787,11 +2052,12 @@ function ProvidersSettings({
               <span className="text-[12px] font-medium text-muted-foreground">
                 {t("settings.byok.apiBase")}
               </span>
-              <Input
+              <ClearableInput
                 value={form.apiBase}
                 onChange={(event) =>
                   onChangeProviderForm(provider.name, { apiBase: event.target.value })
                 }
+                onClear={() => onChangeProviderForm(provider.name, { apiBase: "" })}
                 placeholder={provider.default_api_base ?? t("settings.byok.apiBasePlaceholder")}
                 className="h-9 rounded-full text-[13px]"
               />
@@ -1801,11 +2067,12 @@ function ProvidersSettings({
                 {tx("settings.byok.modelId", "Model ID")}
               </span>
               <div className="flex gap-2">
-                <Input
+                <ClearableInput
                   value={form.model}
                   onChange={(event) =>
                     onChangeProviderForm(provider.name, { model: event.target.value })
                   }
+                  onClear={() => onChangeProviderForm(provider.name, { model: "" })}
                   placeholder={tx("settings.byok.modelIdPlaceholder", "e.g. gpt-4o, deepseek-chat")}
                   className="h-9 flex-1 rounded-full text-[13px]"
                 />
@@ -1883,23 +2150,61 @@ function ProvidersSettings({
                 </DropdownMenu>
               </label>
             ) : null}
+            {provider.name === "custom" &&
+              (!customPresetLabel.trim() ||
+                !form.apiBase.trim() ||
+                !form.model.trim()) ? (
+              <p className="text-right text-[11px] text-muted-foreground">
+                {tx("settings.byok.customRequiredHint", "Label, API base and model are required")}
+              </p>
+            ) : null}
             <div className="flex items-center justify-end gap-2">
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => onSaveProvider(provider.name)}
-                disabled={saving || saved || missingRequiredApiKey || missingOptionalCredential}
+                onClick={() =>
+                  provider.name === "custom"
+                    ? onSaveCustomConfiguration()
+                    : onSaveProvider(provider.name)
+                }
+                disabled={
+                  saving ||
+                  saved ||
+                  (provider.name !== "custom" && (missingRequiredApiKey || missingOptionalCredential))
+                }
                 className={cn(
                   "rounded-full",
                   saved && "opacity-50 cursor-not-allowed",
                 )}
+                title={timeoutProvider === provider.name ? t("settings.actions.queryTimeout") : undefined}
               >
                 {saving
-                  ? t("settings.actions.saving")
-                  : saved
-                    ? tx("settings.providers.saved", "Saved")
-                    : tx("settings.providers.saveProvider", "Save provider")}
+                  ? (learningProvider === provider.name
+                      ? t("settings.actions.queryingContext")
+                      : t("settings.actions.saving"))
+                  : (learningProvider === provider.name
+                      ? t("settings.actions.queryingContext")
+                      : timeoutProvider === provider.name
+                        ? t("settings.actions.queryTimeout")
+                        : saved
+                          ? tx("settings.providers.saved", "Saved")
+                          : tx("settings.providers.saveProvider", "Save provider"))}
               </Button>
+              {/* 已配置卡片:显示删除按钮(清除凭证 + 关联 model_preset,移回未配置)。
+                  custom 是添加入口,不显示删除(已创建的 preset 在 Models 区域管理) */}
+              {provider.configured && provider.name !== "custom" ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onRequestDeleteProvider(provider.name)}
+                  disabled={saving}
+                  className="rounded-full"
+                  title={tx("settings.byok.delete", "Delete")}
+                >
+                  <Trash2 className="mr-1 h-3.5 w-3.5" aria-hidden />
+                  {tx("settings.byok.delete", "Delete")}
+                </Button>
+              ) : null}
             </div>
               </>
             )}
@@ -2213,17 +2518,6 @@ function orderUnconfiguredProviders(
     .map(({ provider }) => provider);
 }
 
-function uniqueProviders(
-  providers: SettingsPayload["providers"],
-): SettingsPayload["providers"] {
-  const seen = new Set<string>();
-  return providers.filter((provider) => {
-    if (seen.has(provider.name)) return false;
-    seen.add(provider.name);
-    return true;
-  });
-}
-
 function providerVisibilityRank(provider: SettingsPayload["providers"][number]): number {
   const localRank = LOCAL_UNCONFIGURED_PROVIDER_ORDER.get(provider.name);
   if (localRank !== undefined) return localRank;
@@ -2288,13 +2582,31 @@ const PROVIDER_ICONS: Record<string, LucideIcon> = {
 function ProviderIcon({
   provider,
   showBrandLogos,
+  label,
 }: {
   provider: string;
   showBrandLogos: boolean;
+  label?: string | null;
 }) {
   const [logoIndex, setLogoIndex] = useState(0);
-  const brand = providerBrand(provider);
-  const Icon = PROVIDER_ICONS[provider] ?? Hexagon;
+  // preset 虚拟卡片(<provider>__<preset_name>):用真实 provider 的 brand 显示图标。
+  // - custom preset (custom__<name>): 只用 custom brand 的颜色 + label 首字母,
+  //   清空 logoUrls 避免尝试加载 localhost/duckduckgo/google favicon(国内连不通)
+  // - 非 custom preset (如 opencode__<name>): 用真实 provider 的 brand,正常显示 logo
+  const isPresetCard = provider.includes("__");
+  const isCustomPreset = provider.startsWith("custom__");
+  const lookupKey = isPresetCard ? provider.split("__", 2)[0] : provider;
+  const baseBrand = providerBrand(lookupKey);
+  const brand =
+    isCustomPreset && baseBrand
+      ? {
+          logoUrl: "",
+          logoUrls: [],
+          color: baseBrand.color,
+          initials: (label?.trim().charAt(0).toUpperCase() || baseBrand.initials),
+        }
+      : baseBrand;
+  const Icon = PROVIDER_ICONS[lookupKey] ?? Hexagon;
   const logoUrl = brand?.logoUrls[logoIndex];
 
   useEffect(() => setLogoIndex(0), [provider]);
@@ -2319,11 +2631,16 @@ function ProviderIcon({
     return (
       <span
         data-testid={`provider-logo-fallback-${provider}`}
-        className="grid h-10 w-10 shrink-0 place-items-center rounded-[14px] text-[11px] font-semibold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)]"
-        style={{ backgroundColor: brand.color }}
+        className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-[14px] border border-border/45 bg-background shadow-[inset_0_0_0_1px_rgba(0,0,0,0.025)]"
+        style={{ boxShadow: `inset 0 0 0 1px ${brand.color}22` }}
         aria-hidden
       >
-        {brand.initials}
+        <span
+          className="text-[13px] font-semibold"
+          style={{ color: brand.color }}
+        >
+          {brand.initials}
+        </span>
       </span>
     );
   }
@@ -2331,6 +2648,57 @@ function ProviderIcon({
     <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-muted text-foreground/82 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.025)] dark:bg-muted/70">
       <Icon className="h-5 w-5" strokeWidth={2} aria-hidden />
     </span>
+  );
+}
+
+/** 带一键清空的 Input 包装:有值时在右侧显示 X 按钮。
+ *
+ * `trailingSlot` 用于已有右侧图标(如 API Key 的眼睛按钮)的场景,
+ * X 会排在 trailingSlot 之前;`clearAlign` 控制对齐方式。
+ */
+function ClearableInput({
+  value,
+  onChange,
+  onClear,
+  className,
+  clearClassName,
+  trailingSlot,
+  ...rest
+}: {
+  value: string;
+  onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onClear: () => void;
+  className?: string;
+  clearClassName?: string;
+  trailingSlot?: React.ReactNode;
+} & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">) {
+  const hasValue = typeof value === "string" && value.length > 0;
+  const basePadding = trailingSlot ? "pr-[68px]" : "pr-9";
+  return (
+    <div className="relative">
+      <Input
+        value={value}
+        onChange={onChange}
+        className={cn(basePadding, className)}
+        {...rest}
+      />
+      {hasValue ? (
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={onClear}
+          aria-label="clear"
+          className={cn(
+            "absolute top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+            trailingSlot ? "right-9" : "right-1.5",
+            clearClassName,
+          )}
+        >
+          <X className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      ) : null}
+      {trailingSlot}
+    </div>
   );
 }
 
@@ -2567,12 +2935,14 @@ function ContextWindowBadge({
   configured,
   status,
   error,
+  timeout,
   onSave,
 }: {
   resolved?: number;
   configured?: number;
   status?: "configured" | "learned" | "unknown" | "failed" | "default";
   error?: string | null;
+  timeout?: boolean;
   onSave: (value: number) => Promise<void>;
 }) {
   const { t } = useTranslation();
@@ -2589,22 +2959,59 @@ function ContextWindowBadge({
     setInputValue(value ? String(value) : "");
   }, [value]);
 
-  const numValue = parseInt(inputValue, 10);
-  const isEmpty = inputValue.trim() === "";
-  const isValid = !isEmpty && Number.isFinite(numValue) && numValue > 0;
+  // 解析输入:支持纯数字(如 32000)和带 k/m 后缀(如 32k、1m、1.5m)。
+  // 返回 { num: 转换后的整数 | null, hasSuffix: 是否使用了后缀语法 }
+  const parsedInput = (() => {
+    const raw = inputValue.trim();
+    if (!raw) return { num: null, hasSuffix: false };
+    let multiplier = 1;
+    let body = raw;
+    const last = raw[raw.length - 1];
+    if (last === "k" || last === "K") {
+      multiplier = 1_000;
+      body = raw.slice(0, -1);
+    } else if (last === "m" || last === "M") {
+      multiplier = 1_000_000;
+      body = raw.slice(0, -1);
+    }
+    const hasSuffix = multiplier !== 1;
+    const parsed = Number(body);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return { num: null, hasSuffix };
+    }
+    return { num: Math.round(parsed * multiplier), hasSuffix };
+  })();
+  const numValue = parsedInput.num;
+  const isValid = numValue !== null && numValue > 0;
   // 输入与当前值不一致即视为已修改(清空也算,即用户想取消已学习值)
   const initialInputValue = value ? String(value) : "";
   const inputChanged = inputValue !== initialInputValue;
+  // 当用户使用 k/m 后缀时,显示转换后的数值提示
+  const suffixPreview = parsedInput.hasSuffix && numValue !== null
+    ? `= ${numValue.toLocaleString()}`
+    : "";
+  // 已配置状态:用户手动保存了 context_window_tokens,且输入框未修改
+  const isConfiguredSaved = isConfigured && !inputChanged && !timeout && !saving;
 
-  // 按钮文本:已学习且未修改 → "已学习";否则 → "保存"
+  // 按钮文本:超时 → "查询超时,请手动输入";已学习且未修改 → "已学习";
+  // 已配置且未修改 → "已配置";否则 → "保存"
   const buttonLabel = saving
     ? t("settings.actions.saving")
-    : isLearned && !inputChanged
-      ? t("settings.models.contextWindowLearned")
-      : t("settings.actions.save");
+    : timeout && !isConfigured && !inputChanged
+      ? t("settings.actions.queryTimeout")
+      : isLearned && !inputChanged
+        ? t("settings.models.contextWindowLearned")
+        : isConfiguredSaved
+          ? t("settings.byok.configured")
+          : t("settings.actions.save");
 
-  // 按钮禁用:保存中,或输入无效,或(已学习且未修改)
-  const buttonDisabled = saving || !isValid || (isLearned && !inputChanged);
+  // 按钮禁用:保存中,或输入无效,或(已学习/已配置且未修改)
+  const buttonDisabled = saving || !isValid || ((isLearned || isConfigured) && !inputChanged);
+
+  // 已学习/已配置且未修改(且非超时/保存中)时,直接复用 StatusPill 渲染,
+  // 与 opencode 卡片"已配置"徽章使用完全相同的 DOM 结构和样式,避免 Button
+  // 基础类(h-9 / justify-center / ring-offset / disabled:opacity 等)造成视觉差异。
+  const showAsLearnedPill = (isLearned || isConfiguredSaved) && !inputChanged && !timeout && !saving;
 
   const handleSave = async () => {
     if (!isValid) return;
@@ -2617,25 +3024,51 @@ function ContextWindowBadge({
   };
 
   return (
-    <div className="inline-flex items-center gap-2" title={error ?? undefined}>
-      <Input
-        type="number"
-        value={inputValue}
-        onChange={(e) => setInputValue(e.target.value)}
-        placeholder={t("settings.models.contextWindowPlaceholder")}
-        className="h-7 w-28 text-center text-[12px] tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-        disabled={saving}
-      />
-      <Button
-        size="sm"
-        variant={isLearned && !inputChanged ? "outline" : "default"}
-        onClick={handleSave}
-        disabled={buttonDisabled}
-        className="h-7 gap-1 px-2 text-[11px]"
-      >
-        {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-        {buttonLabel}
-      </Button>
+    <div
+      className="inline-flex items-center gap-2"
+      title={timeout ? t("settings.actions.queryTimeout") : (error ?? undefined)}
+    >
+      <div className="relative flex items-center">
+        <Input
+          type="text"
+          inputMode="decimal"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          placeholder={t("settings.models.contextWindowPlaceholder")}
+          className={cn(
+            "h-7 w-28 text-center text-[12px] tabular-nums",
+            timeout && !isConfigured && "border-amber-500/60 focus-visible:border-amber-500",
+            suffixPreview && "pr-2",
+          )}
+          disabled={saving}
+        />
+        {suffixPreview ? (
+          <span
+            className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground tabular-nums"
+            aria-hidden
+          >
+            {suffixPreview}
+          </span>
+        ) : null}
+      </div>
+      {showAsLearnedPill ? (
+        <StatusPill tone="success">{buttonLabel}</StatusPill>
+      ) : (
+        <Button
+          size="sm"
+          variant={timeout && !isConfigured && !inputChanged ? "outline" : "default"}
+          onClick={handleSave}
+          disabled={buttonDisabled}
+          className={cn(
+            "h-7 gap-1 px-2.5 py-1 text-[12px] font-medium rounded-full",
+            timeout && !isConfigured && !inputChanged &&
+              "border-amber-500/60 text-amber-700 hover:bg-amber-500/10 hover:text-amber-700 dark:text-amber-300 dark:hover:text-amber-300",
+          )}
+        >
+          {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+          {buttonLabel}
+        </Button>
+      )}
     </div>
   );
 }
@@ -2662,15 +3095,20 @@ function ModelPresetPicker({
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
-  const selectedPreset = presets.find((preset) => preset.name === value) ?? presets[0] ?? null;
+  // 重构后 settings.model_presets 不再包含 virtual "default"。
+  // 当 value === "default"(初始状态或删除 preset 后的回退)时,下拉列表中
+  // 没有匹配项,此时显示占位符"默认配置(Default)"让用户知道当前是 fallback 状态。
+  const selectedPreset = presets.find((preset) => preset.name === value) ?? null;
+  const isDefaultFallback = value === "default" || !value;
+  const defaultLabel = tx("settings.models.defaultPreset", "Default configuration");
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild disabled={!presets.length}>
+      <DropdownMenuTrigger asChild disabled={!presets.length && isDefaultFallback}>
         <Button
           type="button"
           variant="outline"
-          disabled={!presets.length}
+          disabled={!presets.length && isDefaultFallback}
           className={cn(
             "h-10 w-[min(340px,72vw)] justify-between rounded-full border-input bg-background px-3 text-[13px] font-normal shadow-none",
             "hover:bg-accent/55 focus-visible:ring-2 focus-visible:ring-ring",
@@ -2685,6 +3123,18 @@ function ModelPresetPicker({
               showProviderLogos={showProviderLogos}
               compact
             />
+          ) : isDefaultFallback ? (
+            <span className="flex min-w-0 items-center gap-2.5">
+              <ProviderPickerIcon provider="auto" showBrandLogos={showProviderLogos} />
+              <span className="min-w-0 text-left leading-tight">
+                <span className="block truncate font-medium text-foreground">
+                  {draftModel || defaultLabel}
+                </span>
+                <span className="mt-0.5 block truncate text-[11.5px] text-muted-foreground">
+                  {defaultLabel}
+                </span>
+              </span>
+            </span>
           ) : (
             <span className="truncate text-muted-foreground">
               {tx("settings.models.selectModel", "Select model")}
