@@ -197,7 +197,7 @@ function FileReferenceIcon({ kind }: { kind: FileReferenceKind }) {
   return (
     <svg
       aria-hidden
-      className="h-[0.96em] w-[0.96em] shrink-0 translate-y-[0.12em] text-sky-500 dark:text-sky-300"
+      className="h-[0.92em] w-[0.92em] shrink-0 translate-y-[0.11em] text-sky-500 dark:text-sky-300"
       viewBox="0 0 24 24"
       fill="none"
     >

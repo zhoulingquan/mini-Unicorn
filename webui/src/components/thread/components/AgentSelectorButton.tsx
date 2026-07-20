@@ -57,7 +57,7 @@ export function AgentSelectorButton({
               : "text-muted-foreground hover:text-foreground",
           )}
         >
-          <Users className={cn(isHero ? "h-[18px] w-[18px]" : "h-4 w-4")} />
+          <Users className={cn(isHero ? "h-4.5 w-4.5" : "h-4 w-4")} />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-[20rem] max-w-[calc(100vw-1rem)]">

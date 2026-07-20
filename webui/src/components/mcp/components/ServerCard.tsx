@@ -210,7 +210,7 @@ export function ServerCard({
           <Button
             variant="ghost"
             size="icon"
-            className="h-6 w-6 text-muted-foreground/60 hover:text-violet-600 hover:bg-violet-500/10"
+            className="h-6 w-6 text-muted-foreground hover:text-violet-600 hover:bg-violet-500/10"
             disabled={testing}
             onClick={onTest}
             title={t("mcp.test")}
@@ -224,7 +224,7 @@ export function ServerCard({
           <Button
             variant="ghost"
             size="icon"
-            className="h-6 w-6 text-muted-foreground/60 hover:text-sky-600 hover:bg-sky-500/10"
+            className="h-6 w-6 text-muted-foreground hover:text-sky-600 hover:bg-sky-500/10"
             onClick={onToggleTools}
             title={t("mcp.toolsManage")}
           >
@@ -249,7 +249,7 @@ export function ServerCard({
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 text-muted-foreground/60 hover:text-red-600 hover:bg-red-500/10"
+          className="h-6 w-6 text-muted-foreground hover:text-red-600 hover:bg-red-500/10"
           disabled={isActing}
           onClick={() => onRemove(server.name)}
           title={t("mcp.delete")}

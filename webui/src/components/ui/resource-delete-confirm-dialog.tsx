@@ -51,7 +51,7 @@ export function ResourceDeleteConfirmDialog({
       >
         <AlertDialogHeader className="items-center space-y-0 text-center">
           <div className="mb-4 grid h-12 w-12 place-items-center rounded-full bg-muted">
-            <Icon className="h-[18px] w-[18px] text-muted-foreground" strokeWidth={2} aria-hidden />
+            <Icon className="h-4.5 w-4.5 text-muted-foreground" strokeWidth={2} aria-hidden />
           </div>
           <AlertDialogTitle className="text-center text-[14px] font-medium leading-5 text-foreground">
             {t(titleKey, { name: resourceName })}

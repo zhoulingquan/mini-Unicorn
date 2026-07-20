@@ -182,7 +182,7 @@ function HostChrome({
             size="icon"
             aria-label={t("thread.header.toggleSidebar")}
             onClick={onToggleSidebar}
-            className="host-no-drag pointer-events-auto ml-[88px] h-8 w-8 rounded-xl text-muted-foreground/85 hover:bg-accent/40 hover:text-foreground"
+            className="host-no-drag pointer-events-auto ml-[88px] h-8 w-8 rounded-xl text-muted-foreground hover:bg-accent/40 hover:text-foreground"
           >
             <Menu className="h-4 w-4" />
           </Button>
@@ -215,7 +215,7 @@ function HostChrome({
             size="icon"
             aria-label={t("thread.header.toggleTheme")}
             onClick={onToggleTheme}
-            className="host-no-drag pointer-events-auto h-8 w-8 rounded-full text-muted-foreground/85 hover:bg-accent/40 hover:text-foreground"
+            className="host-no-drag pointer-events-auto h-8 w-8 rounded-full text-muted-foreground hover:bg-accent/40 hover:text-foreground"
           >
             {mode === "light" ? (
               <Sun className="h-4 w-4" />

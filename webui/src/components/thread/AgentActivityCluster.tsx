@@ -682,7 +682,7 @@ function ReasoningMarker({ streaming }: { streaming: boolean }) {
       <CircleDashed
         data-testid="activity-reasoning-marker"
         data-state="thinking"
-        className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground/55"
+        className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground"
         strokeWidth={1.8}
         aria-hidden
       />

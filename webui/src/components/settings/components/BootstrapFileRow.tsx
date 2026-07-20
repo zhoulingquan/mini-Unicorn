@@ -84,7 +84,7 @@ export function BootstrapFileRow({ fileName }: { fileName: string }) {
           </span>
         </span>
         <span className="ml-auto flex min-w-0 items-center gap-2">
-          <Pencil className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" aria-hidden />
+          <Pencil className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" aria-hidden />
         </span>
       </button>
 

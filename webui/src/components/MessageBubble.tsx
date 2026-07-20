@@ -124,7 +124,7 @@ export const MessageBubble = memo(function MessageBubble({
                   aria-label={t("message.rewind")}
                   className={cn(
                     "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                    "text-muted-foreground/70 transition-colors hover:bg-muted/55 hover:text-foreground",
+                    "text-muted-foreground transition-colors hover:bg-muted/55 hover:text-foreground",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     "disabled:cursor-not-allowed disabled:opacity-50",
                   )}

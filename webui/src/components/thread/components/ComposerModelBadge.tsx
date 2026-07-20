@@ -41,7 +41,7 @@ export function ComposerModelBadge({
         data-testid={inferredProvider ? `composer-model-logo-${inferredProvider}` : "composer-model-logo"}
         className={cn(
           "grid shrink-0 place-items-center overflow-hidden rounded-full border bg-background",
-          isHero ? "h-[18px] w-[18px]" : "h-5 w-5",
+          isHero ? "h-4.5 w-4.5" : "h-5 w-5",
         )}
         style={{
           borderColor: brand ? `${brand.color}28` : undefined,

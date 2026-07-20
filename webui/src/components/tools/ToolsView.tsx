@@ -330,7 +330,7 @@ function ToolCard({ tool, acting, onDelete }: ToolCardProps) {
           <Button
             variant="ghost"
             size="icon"
-            className="h-6 w-6 text-muted-foreground/60 hover:text-red-600 hover:bg-red-500/10"
+            className="h-6 w-6 text-muted-foreground hover:text-red-600 hover:bg-red-500/10"
             onClick={onDelete}
             disabled={acting}
             title={t("tools.delete")}

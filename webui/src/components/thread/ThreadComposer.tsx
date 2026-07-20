@@ -737,7 +737,7 @@ export function ThreadComposer({
                   aria-label={expanded ? t("thread.composer.collapseInput") : t("thread.composer.expandInput")}
                   className={cn(
                     "absolute right-2 top-2 z-20 grid h-7 w-7 place-items-center rounded-full",
-                    "text-muted-foreground/70 transition-colors hover:bg-muted/60 hover:text-foreground",
+                    "text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   )}
                 >
@@ -806,7 +806,7 @@ export function ThreadComposer({
                         : "h-9 w-9 border border-border/55 bg-card shadow-[0_2px_8px_rgba(15,23,42,0.05)] hover:bg-card",
                     )}
                   >
-                    <Plus className={cn(isHero ? "h-[18px] w-[18px]" : "h-4 w-4")} />
+                    <Plus className={cn(isHero ? "h-4.5 w-4.5" : "h-4 w-4")} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent
