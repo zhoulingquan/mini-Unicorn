@@ -816,8 +816,11 @@ class WebSocketChannel(BaseChannel):
             # Cache invalidation is best-effort; mtime check covers it anyway.
             pass
 
-    # Dream 生成的记忆文件白名单。这些文件由 Dream(记忆整合)流程写入,
-    # 通过此端点向 WebUI 暴露只读视图。所有路径相对于工作区根目录。
+    # Dream 维护的记忆/人格文件白名单。这些文件由 Dream(记忆整合)流程
+    # 读取或写入,通过此端点向 WebUI 暴露只读视图。所有路径相对于工作区根目录。
+    # SOUL.md 既是 bootstrap 人格文件,也是 Dream 演化的产物(Phase 1 读、
+    # Phase 2 可通过 EditFileTool 修改),故在此暴露只读视图;编辑入口仍在
+    # Persona section。AGENTS.md 完全由用户手动维护,Dream 不动,故不列入。
     _DREAM_FILE_ALLOWLIST: tuple[str, ...] = (
         "SOUL.md",
         "USER.md",
@@ -1789,6 +1792,11 @@ class WebSocketChannel(BaseChannel):
             payload = await list_provider_models(query)
         except WebUISettingsError as e:
             return _http_error(e.status, e.message)
+        except Exception as exc:
+            # Log the unexpected error so it isn't lost when the WS server
+            # swallows it; surface a generic 500 to the client.
+            self.logger.warning("provider models fetch failed: {}", exc)
+            return _http_error(500, f"Failed to fetch models: {exc}")
         return _http_json_response(payload)
 
     async def _handle_settings_provider_oauth(self, request: WsRequest, action: str) -> Response:
@@ -2299,6 +2307,12 @@ class WebSocketChannel(BaseChannel):
                     max_size=self.config.max_message_bytes,
                     ping_interval=self.config.ping_interval_s,
                     ping_timeout=self.config.ping_timeout_s,
+                    # process_request also serves plain HTTP API routes (e.g.
+                    # /api/settings/provider/models) that may take >10s when
+                    # upstream providers are slow. The default open_timeout=10
+                    # would abort the request mid-handler. Disable it so the
+                    # HTTP routes can run as long as they need.
+                    open_timeout=None,
                 )
                 with suppress(OSError):
                     path_obj.chmod(0o600)
@@ -2312,6 +2326,8 @@ class WebSocketChannel(BaseChannel):
                     ping_interval=self.config.ping_interval_s,
                     ping_timeout=self.config.ping_timeout_s,
                     ssl=ssl_context,
+                    # See comment above: HTTP API routes need no handshake timeout.
+                    open_timeout=None,
                 )
             try:
                 assert self._stop_event is not None

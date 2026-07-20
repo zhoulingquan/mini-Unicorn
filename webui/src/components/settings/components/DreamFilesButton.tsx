@@ -37,6 +37,10 @@ export function DreamFilesButton() {
 
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
 
+  /** 取文件作用说明,优先 i18n,缺失时返回空串(不显示)。 */
+  const fileDesc = (name: string): string =>
+    t(`settings.dream.files.desc.${name}`, { defaultValue: "" });
+
   const loadList = async () => {
     setLoadingList(true);
     setError(null);
@@ -139,6 +143,7 @@ export function DreamFilesButton() {
                 <div className="flex flex-col gap-0.5 overflow-y-auto">
                   {files.map((f) => {
                     const active = selected === f.name;
+                    const desc = fileDesc(f.name);
                     return (
                       <button
                         key={f.name}
@@ -175,6 +180,11 @@ export function DreamFilesButton() {
                             {f.modified_at_human ? ` · ${f.modified_at_human}` : ""}
                           </span>
                         ) : null}
+                        {desc ? (
+                          <span className="pl-5 text-[10.5px] leading-4 text-muted-foreground/70 line-clamp-2">
+                            {desc}
+                          </span>
+                        ) : null}
                       </button>
                     );
                   })}
@@ -196,6 +206,11 @@ export function DreamFilesButton() {
                       </span>
                     ) : null}
                   </div>
+                  {fileDesc(selected) ? (
+                    <p className="rounded-md bg-muted/40 px-2.5 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                      {fileDesc(selected)}
+                    </p>
+                  ) : null}
                   {loadingContent ? (
                     <div className="flex flex-1 items-center justify-center text-[12px] text-muted-foreground">
                       <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
