@@ -148,7 +148,7 @@ async def test_cli_apps_routes_require_token_and_return_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "miniUnicorn.channels.websocket.cli_apps_payload",
+        "miniUnicorn.channels.websocket.channel.cli_apps_payload",
         lambda: {
             "apps": [
                 {
@@ -173,7 +173,7 @@ async def test_cli_apps_routes_require_token_and_return_payload(
         },
     )
     monkeypatch.setattr(
-        "miniUnicorn.channels.websocket.cli_apps_action",
+        "miniUnicorn.channels.websocket.channel.cli_apps_action",
         lambda action, query: {
             "apps": [],
             "installed_count": 1,
@@ -280,7 +280,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
         return {"ok": True, "message": "MCP config reloaded.", "requires_restart": False}
 
     monkeypatch.setattr(
-        "miniUnicorn.channels.websocket.request_mcp_reload",
+        "miniUnicorn.channels.websocket.channel.request_mcp_reload",
         _hot_reload,
     )
     channel = _ch(bus, session_manager=_seed_session(tmp_path), port=29913)
@@ -754,7 +754,7 @@ def test_localhost_without_auth_is_valid(bus: MagicMock) -> None:
 
 def test_bootstrap_prefers_runtime_model_name(bus: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "miniUnicorn.channels.websocket._default_model_name_from_config",
+        "miniUnicorn.channels.websocket.channel._default_model_name_from_config",
         lambda: "from-disk",
     )
     channel = _ch(bus, host="127.0.0.1", runtime_model_name=lambda: "  live/model  ")
@@ -766,7 +766,7 @@ def test_bootstrap_prefers_runtime_model_name(bus: MagicMock, monkeypatch: pytes
 
 def test_bootstrap_falls_back_when_runtime_returns_empty(bus: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "miniUnicorn.channels.websocket._default_model_name_from_config",
+        "miniUnicorn.channels.websocket.channel._default_model_name_from_config",
         lambda: "from-disk",
     )
     channel = _ch(bus, host="127.0.0.1", runtime_model_name=lambda: "   ")
@@ -778,7 +778,7 @@ def test_bootstrap_falls_back_when_runtime_returns_empty(bus: MagicMock, monkeyp
 
 def test_bootstrap_falls_back_when_runtime_raises(bus: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "miniUnicorn.channels.websocket._default_model_name_from_config",
+        "miniUnicorn.channels.websocket.channel._default_model_name_from_config",
         lambda: "from-disk",
     )
 

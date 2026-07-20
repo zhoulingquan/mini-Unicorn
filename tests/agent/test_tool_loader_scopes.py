@@ -3,6 +3,8 @@ import pytest
 from miniUnicorn.agent.tools.base import Tool
 from miniUnicorn.agent.tools.context import ToolContext
 from miniUnicorn.agent.tools.loader import ToolLoader
+from miniUnicorn.agent.tools.registry import ToolRegistry
+from miniUnicorn.config.schema import Config
 
 
 class _CoreOnlyTool(Tool):
@@ -64,8 +66,6 @@ class _UniversalTool(Tool):
 
 @pytest.mark.asyncio
 async def test_loader_filters_by_scope():
-    from miniUnicorn.agent.tools.registry import ToolRegistry
-
     loader = ToolLoader(test_classes=[_CoreOnlyTool, _SubagentOnlyTool, _UniversalTool])
 
     registry = ToolRegistry()
@@ -75,3 +75,18 @@ async def test_loader_filters_by_scope():
     assert registry.has("core_only")
     assert not registry.has("sub_only")
     assert registry.has("universal")
+
+
+def test_tool_loader_scope_memory_only_returns_memory_tools():
+    loader = ToolLoader()
+    registry = ToolRegistry()
+    ctx = ToolContext(config=Config().tools, workspace="/tmp")
+    loader.load(ctx, registry, scope="memory")
+
+    names = set(registry.tool_names)
+    assert "read_file" in names
+    assert "edit_file" in names
+    assert "write_file" in names
+    assert "list_dir" not in names
+    assert "exec" not in names
+    assert "message" not in names

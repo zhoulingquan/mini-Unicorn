@@ -7,6 +7,7 @@ settings payload shape and the allowlisted config mutations exposed to WebUI.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from typing import Any, Literal
 
@@ -306,6 +307,11 @@ def _persist_learning_failure(model: str, error: str) -> None:
         )
 
 
+# 模块级后台任务引用集合,防止 asyncio.create_task 创建的任务被 GC 回收。
+# 任务完成后通过 done_callback 自动从集合中移除。
+_background_tasks: set[asyncio.Task] = set()
+
+
 def _trigger_model_learning(model: str) -> None:
     """Schedule Hugging Face context-window learning as a background task.
 
@@ -321,7 +327,10 @@ def _trigger_model_learning(model: str) -> None:
     if not model:
         return
     try:
-        asyncio.create_task(_run_model_learning_async(model))
+        # 持有任务引用避免被 GC,任务完成后自动从集合中移除。
+        task = asyncio.create_task(_run_model_learning_async(model))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
     except RuntimeError:
         # No running event loop — run synchronously as a fallback.
         _run_model_learning_sync(model)
@@ -664,6 +673,32 @@ def _build_providers_section(config: Any) -> list[dict[str, Any]]:
     return providers
 
 
+def _build_web_search_section(config: Any) -> dict[str, Any]:
+    """构造 web_search 工具配置的 payload(脱敏 api_key)。"""
+    ws = config.tools.web_search
+    backends_payload: dict[str, dict[str, Any]] = {}
+    for name, bcfg in (ws.backends or {}).items():
+        backends_payload[name] = {
+            "api_key_hint": _mask_secret_hint(bcfg.api_key or None),
+            "api_key_set": bool(bcfg.api_key),
+            "base_url": bcfg.base_url or "",
+            "timeout": bcfg.timeout,
+        }
+    return {
+        "enable": ws.enable,
+        "provider": ws.provider,
+        "region": ws.region,
+        "max_results": ws.max_results,
+        "timeout": ws.timeout,
+        "fallback_chain": list(ws.fallback_chain or []),
+        "enable_cache": ws.enable_cache,
+        "cache_ttl": ws.cache_ttl,
+        "proxy": ws.proxy,
+        "user_agent": ws.user_agent,
+        "backends": backends_payload,
+    }
+
+
 def _build_model_presets_section(
     config: Any,
     active_preset_name: str,
@@ -761,6 +796,7 @@ def settings_payload(
                 "use_jina_reader": config.tools.web.fetch.use_jina_reader,
             },
         },
+        "web_search": _build_web_search_section(config),
         "runtime": {
             "config_path": str(get_config_path().expanduser()),
             "workspace_path": str(config.workspace_path),
@@ -776,6 +812,7 @@ def settings_payload(
                 "enabled": config.gateway.heartbeat.enabled,
                 "interval_s": config.gateway.heartbeat.interval_s,
                 "keep_recent_messages": config.gateway.heartbeat.keep_recent_messages,
+                "model_preset": config.gateway.heartbeat.model_preset,
             },
             "dream": {
                 "schedule": defaults.dream.describe_schedule(),
@@ -1267,15 +1304,22 @@ def update_network_safety_settings(query: QueryParams) -> dict[str, Any]:
 
 
 def update_runtime_settings(query: QueryParams) -> dict[str, Any]:
-    """Update heartbeat interval and/or dream interval from WebUI query params."""
+    """Update heartbeat interval and/or dream cron schedule from WebUI query params."""
     raw_heartbeat_interval = _query_first_alias(
         query, "heartbeat_interval_s", "heartbeatIntervalS"
     )
-    raw_dream_interval = _query_first_alias(
-        query, "dream_interval_h", "dreamIntervalH"
+    raw_dream_cron = _query_first_alias(
+        query, "dream_cron", "dreamCron"
     )
-    if raw_heartbeat_interval is None and raw_dream_interval is None:
-        raise WebUISettingsError("heartbeat_interval_s or dream_interval_h is required")
+    raw_heartbeat_preset = _query_first_alias(
+        query, "heartbeat_model_preset", "heartbeatModelPreset"
+    )
+    if (
+        raw_heartbeat_interval is None
+        and raw_dream_cron is None
+        and raw_heartbeat_preset is None
+    ):
+        raise WebUISettingsError("heartbeat_interval_s or dream_cron is required")
 
     config = load_config()
     changed = False
@@ -1291,21 +1335,35 @@ def update_runtime_settings(query: QueryParams) -> dict[str, Any]:
             config.gateway.heartbeat.interval_s = heartbeat_interval
             changed = True
 
-    if raw_dream_interval is not None:
+    # heartbeat 专用 LLM:接收 preset 名称,空串表示清除(回到主 provider)。
+    # 指定的 preset 必须存在于 config.model_presets 中。
+    if raw_heartbeat_preset is not None:
+        new_preset = raw_heartbeat_preset.strip() or None
+        if new_preset is not None and new_preset not in config.model_presets:
+            raise WebUISettingsError(f"model_preset '{new_preset}' not found")
+        if config.gateway.heartbeat.model_preset != new_preset:
+            config.gateway.heartbeat.model_preset = new_preset
+            changed = True
+
+    # dream cron 表达式:接收标准 5 字段 Unix cron,空串回退到默认 "0 3 * * *"。
+    if raw_dream_cron is not None:
+        new_cron = raw_dream_cron.strip()
+        if not new_cron:
+            new_cron = "0 3 * * *"
         try:
-            dream_interval = int(raw_dream_interval)
-        except ValueError:
-            raise WebUISettingsError("dream_interval_h must be an integer") from None
-        if dream_interval < 1 or dream_interval > 48:
-            raise WebUISettingsError("dream_interval_h must be between 1 and 48")
-        if config.agents.defaults.dream.interval_h != dream_interval:
-            config.agents.defaults.dream.interval_h = dream_interval
+            from croniter import croniter
+            from datetime import datetime
+            croniter(new_cron, datetime.now())  # 解析失败会抛 ValueError
+        except Exception as exc:
+            raise WebUISettingsError(f"invalid dream_cron expression: {exc}") from None
+        if config.agents.defaults.dream.cron != new_cron:
+            config.agents.defaults.dream.cron = new_cron
             changed = True
 
     if changed:
         save_config(config)
-    # Heartbeat/dream intervals are re-registered on the running cron service
-    # by the WebSocket channel handler, so no gateway restart is required.
+    # Heartbeat interval and dream cron are re-registered on the running cron
+    # service by the WebSocket channel handler, so no gateway restart is required.
     return settings_payload(requires_restart=False)
 
 
@@ -1330,3 +1388,123 @@ def update_web_fetch_settings(query: QueryParams) -> dict[str, Any]:
         web_config.fetch.use_jina_reader = new_value
         save_config(config)
     return settings_payload(requires_restart=True)
+
+
+def update_web_search_settings(query: QueryParams) -> dict[str, Any]:
+    """Update web_search tool settings.
+
+    所有字段通过 query string 传递;backends 嵌套结构通过 ``backends_json``
+    参数传 JSON 字符串(参考 sidebar state 的传 JSON 模式)。
+
+    支持的字段:
+    - enable: bool
+    - provider: str (auto / bocha / bing_cn / sogou / baidu / tencent / duckduckgo)
+    - region: str (cn / global)
+    - max_results: int (1-10)
+    - timeout: int (秒)
+    - enable_cache: bool
+    - cache_ttl: int (秒)
+    - proxy: str (可空)
+    - user_agent: str (可空)
+    - fallback_chain: str (逗号分隔,可空)
+    - backends_json: JSON 字符串,形如
+      {"bocha": {"api_key": "...", "base_url": "...", "timeout": 30}}
+    """
+    config = load_config()
+    ws = config.tools.web_search
+    changed = False
+
+    # 标量字段
+    bool_fields = {"enable", "enable_cache"}
+    int_fields = {"max_results", "timeout", "cache_ttl"}
+    str_fields = {"provider", "region", "proxy", "user_agent"}
+
+    for field in bool_fields:
+        raw = _query_first_alias(query, field, _to_camel(field))
+        if raw is None:
+            continue
+        normalized = raw.strip().lower()
+        if normalized not in {"1", "0", "true", "false", "yes", "no"}:
+            raise WebUISettingsError(f"{field} must be boolean")
+        new_val = normalized in {"1", "true", "yes"}
+        if getattr(ws, field) != new_val:
+            setattr(ws, field, new_val)
+            changed = True
+
+    for field in int_fields:
+        raw = _query_first_alias(query, field, _to_camel(field))
+        if raw is None:
+            continue
+        try:
+            new_val = int(raw)
+        except ValueError:
+            raise WebUISettingsError(f"{field} must be integer")
+        if field == "max_results" and not (1 <= new_val <= 10):
+            raise WebUISettingsError("max_results must be between 1 and 10")
+        if field == "timeout" and new_val <= 0:
+            raise WebUISettingsError("timeout must be positive")
+        if field == "cache_ttl" and new_val <= 0:
+            raise WebUISettingsError("cache_ttl must be positive")
+        if getattr(ws, field) != new_val:
+            setattr(ws, field, new_val)
+            changed = True
+
+    for field in str_fields:
+        raw = _query_first_alias(query, field, _to_camel(field))
+        if raw is None:
+            continue
+        new_val = raw.strip() if field != "proxy" else (raw.strip() or None)
+        if field == "user_agent" and not new_val:
+            new_val = None
+        if getattr(ws, field) != new_val:
+            setattr(ws, field, new_val)
+            changed = True
+
+    # fallback_chain: 逗号分隔字符串
+    fc_raw = _query_first_alias(query, "fallback_chain", "fallbackChain")
+    if fc_raw is not None:
+        new_chain = [s.strip() for s in fc_raw.split(",") if s.strip()]
+        if list(getattr(ws, "fallback_chain", []) or []) != new_chain:
+            ws.fallback_chain = new_chain
+            changed = True
+
+    # backends 嵌套: JSON 字符串
+    bj_raw = _query_first_alias(query, "backends_json", "backendsJson")
+    if bj_raw is not None:
+        try:
+            parsed = json.loads(bj_raw)
+        except json.JSONDecodeError:
+            raise WebUISettingsError("backends_json must be valid JSON")
+        if not isinstance(parsed, dict):
+            raise WebUISettingsError("backends_json must be a JSON object")
+        # 空 dict 表示清空所有 backends
+        if not parsed:
+            if ws.backends:
+                ws.backends = {}
+                changed = True
+        else:
+            # 合并:只更新出现的字段,保留未提及的后端
+            from miniUnicorn.agent.tools.web_search.config import WebSearchBackendConfig
+
+            new_backends = dict(ws.backends or {})
+            for name, vals in parsed.items():
+                if not isinstance(vals, dict):
+                    raise WebUISettingsError(f"backends_json.{name} must be object")
+                existing = new_backends.get(name) or WebSearchBackendConfig()
+                new_backends[name] = WebSearchBackendConfig(
+                    api_key=vals.get("api_key") or existing.api_key,
+                    base_url=vals.get("base_url", existing.base_url),
+                    timeout=int(vals.get("timeout", existing.timeout)),
+                )
+            ws.backends = new_backends
+            changed = True
+
+    if changed:
+        save_config(config)
+    return settings_payload(requires_restart=True)
+
+
+def _to_camel(snake: str) -> str:
+    """snake_case → camelCase"""
+    parts = snake.split("_")
+    return parts[0] + "".join(p.title() for p in parts[1:])

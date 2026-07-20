@@ -239,9 +239,10 @@ def test_inline_fallback_reasoning_effort_does_not_inherit_primary() -> None:
     })
 
     signature = provider_signature(config)
-    fallback_signatures = signature[-1]
+    fallback_signatures = signature.fallbacks
 
-    assert fallback_signatures[0][12] is None
+    # fallback 不应继承 primary 的 reasoning_effort;通过具名字段访问断言。
+    assert fallback_signatures[0].reasoning_effort is None
 
 
 # -- FallbackProvider tests --

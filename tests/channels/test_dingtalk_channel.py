@@ -139,8 +139,8 @@ async def test_handler_uses_voice_recognition_text_when_text_is_empty(monkeypatc
         def from_dict(_data):
             return _FakeChatbotMessage()
 
-    monkeypatch.setattr(dingtalk_module, "ChatbotMessage", _FakeChatbotMessage)
-    monkeypatch.setattr(dingtalk_module, "AckMessage", SimpleNamespace(STATUS_OK="OK"))
+    monkeypatch.setattr(dingtalk_module.channel, "ChatbotMessage", _FakeChatbotMessage)
+    monkeypatch.setattr(dingtalk_module.channel, "AckMessage", SimpleNamespace(STATUS_OK="OK"))
 
     status, body = await handler.process(
         SimpleNamespace(
@@ -188,8 +188,8 @@ async def test_handler_processes_file_message(monkeypatch) -> None:
     async def fake_download(download_code, filename, sender_id):
         return f"/tmp/miniUnicorn_dingtalk/{sender_id}/{filename}"
 
-    monkeypatch.setattr(dingtalk_module, "ChatbotMessage", _FakeFileChatbotMessage)
-    monkeypatch.setattr(dingtalk_module, "AckMessage", SimpleNamespace(STATUS_OK="OK"))
+    monkeypatch.setattr(dingtalk_module.channel, "ChatbotMessage", _FakeFileChatbotMessage)
+    monkeypatch.setattr(dingtalk_module.channel, "AckMessage", SimpleNamespace(STATUS_OK="OK"))
     monkeypatch.setattr(channel, "_download_dingtalk_file", fake_download)
 
     status, body = await handler.process(
@@ -302,7 +302,7 @@ async def test_read_media_bytes_rejects_private_redirect_result() -> None:
 @pytest.mark.asyncio
 async def test_read_media_bytes_rejects_oversized_remote_response(monkeypatch) -> None:
     """DingTalk media downloads should enforce a byte cap before upload."""
-    monkeypatch.setattr(dingtalk_module, "DINGTALK_MAX_REMOTE_MEDIA_BYTES", 8, raising=False)
+    monkeypatch.setattr(dingtalk_module.channel, "DINGTALK_MAX_REMOTE_MEDIA_BYTES", 8, raising=False)
     channel = DingTalkChannel(
         DingTalkConfig(client_id="app", client_secret="secret", allow_from=["*"]),
         MessageBus(),

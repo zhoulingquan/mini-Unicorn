@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  ChevronRight,
   Loader2,
   Pencil,
   Plus,
-  RefreshCw,
   Sparkles,
   Trash2,
   Users,
@@ -12,24 +10,21 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ErrorBanner, NoticeBanner } from "@/components/ui/banner";
+import { FormField } from "@/components/ui/form-field";
+import { IconButton } from "@/components/ui/icon-button";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { RefreshIconButton } from "@/components/ui/refresh-icon-button";
+import { ResourceDeleteConfirmDialog } from "@/components/ui/resource-delete-confirm-dialog";
+import { ViewShell } from "@/components/ui/view-shell";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -40,7 +35,6 @@ import {
   saveAgent,
 } from "@/lib/api";
 import type { AgentInfo } from "@/lib/types";
-import { cn } from "@/lib/utils";
 
 // Default system prompt is sourced from i18n (agents.defaultSystemPrompt).
 
@@ -266,16 +260,12 @@ export function AgentsView({ onBack, token, onUseAgent }: AgentsViewProps) {
   };
 
   return (
-    <div className="flex h-full flex-col bg-background">
-      <header className="flex items-center gap-2 border-b px-4 py-3">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onBack}>
-          <ChevronRight className="h-4 w-4 rotate-180" />
-        </Button>
-        <div className="flex items-center gap-2">
-          <Users className="h-4.5 w-4.5 text-foreground/80" />
-          <h1 className="text-sm font-semibold">{t("agents.title")}</h1>
-        </div>
-        <div className="ml-auto flex items-center gap-1.5">
+    <ViewShell
+      onBack={onBack}
+      icon={<Users className="h-4.5 w-4.5 text-foreground/80" />}
+      title={t("agents.title")}
+      actions={
+        <>
           <Button
             variant="ghost"
             size="sm"
@@ -294,49 +284,39 @@ export function AgentsView({ onBack, token, onUseAgent }: AgentsViewProps) {
             <Plus className="h-3 w-3" />
             {t("agents.create")}
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={load}
-            disabled={loading}
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-          </Button>
+          <RefreshIconButton onClick={load} loading={loading} />
+        </>
+      }
+    >
+      {notice && (
+        <NoticeBanner className="mb-3">{notice}</NoticeBanner>
+      )}
+      {error && (
+        <ErrorBanner className="mb-3">{error}</ErrorBanner>
+      )}
+
+      {loading && agents.length === 0 ? (
+        <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+          <LoadingSpinner />
+          {t("agents.loading")}
         </div>
-      </header>
-
-      <div className="flex-1 overflow-y-auto px-4 py-3">
-        {notice && (
-          <NoticeBanner className="mb-3">{notice}</NoticeBanner>
-        )}
-        {error && (
-          <ErrorBanner className="mb-3">{error}</ErrorBanner>
-        )}
-
-        {loading && agents.length === 0 ? (
-          <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            {t("agents.loading")}
-          </div>
-        ) : agents.length === 0 ? (
-          <div className="py-12 text-center text-sm text-muted-foreground">
-            {t("agents.empty")}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
-            {agents.map((agent) => (
-              <AgentCard
-                key={agent.name}
-                agent={agent}
-                onEdit={() => openEditor(agent)}
-                onDelete={() => setDeleteTarget(agent)}
-                onUseAgent={onUseAgent}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      ) : agents.length === 0 ? (
+        <div className="py-12 text-center text-sm text-muted-foreground">
+          {t("agents.empty")}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
+          {agents.map((agent) => (
+            <AgentCard
+              key={agent.name}
+              agent={agent}
+              onEdit={() => openEditor(agent)}
+              onDelete={() => setDeleteTarget(agent)}
+              onUseAgent={onUseAgent}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Create dialog (form-based) */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -490,13 +470,18 @@ export function AgentsView({ onBack, token, onUseAgent }: AgentsViewProps) {
         </DialogContent>
       </Dialog>
 
-      <AgentDeleteConfirm
+      <ResourceDeleteConfirmDialog
         open={deleteTarget !== null}
-        agentName={deleteTarget?.name ?? ""}
+        resourceName={deleteTarget?.name ?? ""}
+        icon={Users}
+        titleKey="agents.deleteDialogTitle"
+        descriptionKey="agents.deleteDescription"
+        cancelKey="agents.deleteCancel"
+        confirmKey="agents.deleteConfirm"
         onCancel={() => setDeleteTarget(null)}
         onConfirm={handleDeleteConfirm}
       />
-    </div>
+    </ViewShell>
   );
 }
 
@@ -582,119 +567,5 @@ function AgentCard({
         </div>
       </div>
     </div>
-  );
-}
-
-function Badge({ className, children }: { className?: string; children: React.ReactNode }) {
-  return (
-    <span
-      className={cn(
-        "rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-        className,
-      )}
-    >
-      {children}
-    </span>
-  );
-}
-
-function IconButton({
-  title,
-  onClick,
-  className,
-  children,
-}: {
-  title: string;
-  onClick: () => void;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      className={cn(
-        "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-        className,
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-function FormField({
-  label,
-  required,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1">
-      <label className="text-[11px] font-medium text-muted-foreground/80">
-        {label}
-        {required && <span className="ml-0.5 text-destructive">*</span>}
-      </label>
-      {children}
-    </div>
-  );
-}
-
-/* ─── Agent Delete Confirm Dialog ────────────────────────── */
-
-function AgentDeleteConfirm({
-  open,
-  agentName,
-  onCancel,
-  onConfirm,
-}: {
-  open: boolean;
-  agentName: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <AlertDialog open={open} onOpenChange={(o) => (!o ? onCancel() : undefined)}>
-      <AlertDialogContent
-        className={cn(
-          "w-[min(calc(100vw-2rem),22.75rem)] gap-0 rounded-[22px] p-5 text-center",
-          "border border-border bg-background shadow-[0_22px_70px_rgba(0,0,0,0.22)]",
-          "dark:border-white/14 dark:bg-[#2b2b2b] dark:shadow-[0_26px_90px_rgba(0,0,0,0.44)]",
-          "sm:rounded-[22px] data-[state=open]:zoom-in-95",
-        )}
-      >
-        <AlertDialogHeader className="items-center space-y-0 text-center">
-          <div className="mb-4 grid h-12 w-12 place-items-center rounded-full bg-muted">
-            <Users className="h-[18px] w-[18px] text-muted-foreground" strokeWidth={2} aria-hidden />
-          </div>
-          <AlertDialogTitle className="text-center text-[14px] font-medium leading-5 text-foreground">
-            {t("agents.deleteDialogTitle", { name: agentName })}
-          </AlertDialogTitle>
-          <AlertDialogDescription className="mt-2 max-w-[17rem] text-center text-[12px] leading-4 text-muted-foreground">
-            {t("agents.deleteDescription")}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter className="mt-5 grid grid-cols-2 gap-2.5 space-x-0">
-          <AlertDialogCancel
-            onClick={onCancel}
-            className="mt-0 h-10 rounded-[11px] border-0 bg-muted px-4 text-[14px] font-medium text-foreground shadow-none hover:bg-muted/80"
-          >
-            {t("agents.deleteCancel")}
-          </AlertDialogCancel>
-          <AlertDialogAction
-            onClick={onConfirm}
-            className="h-10 rounded-[11px] bg-foreground px-4 text-[14px] font-medium text-background shadow-none hover:bg-foreground/90 dark:bg-white dark:text-black dark:hover:bg-white/90"
-          >
-            {t("agents.deleteConfirm")}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
   );
 }

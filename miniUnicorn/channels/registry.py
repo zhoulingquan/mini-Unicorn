@@ -1,4 +1,9 @@
-"""Auto-discovery for built-in channel modules and external plugins."""
+"""Auto-discovery for built-in channel packages and external plugins.
+
+QwenPaw-style: each built-in channel lives in its own subpackage
+``miniUnicorn/channels/<name>/`` containing ``channel.py`` plus optional
+helpers. The package ``__init__.py`` re-exports the public channel class.
+"""
 from __future__ import annotations
 
 import importlib
@@ -14,26 +19,50 @@ _INTERNAL = frozenset({"base", "manager", "registry"})
 
 
 def discover_channel_names() -> list[str]:
-    """Return all built-in channel module names by scanning the package (zero imports)."""
+    """Return all built-in channel package names by scanning the parent package.
+
+    Only subpackages (directories with ``__init__.py``) are returned — flat
+    ``.py`` modules are ignored. This matches the QwenPaw-style layout where
+    each channel has its own folder.
+    """
     import miniUnicorn.channels as pkg
 
     return [
         name
         for _, name, ispkg in pkgutil.iter_modules(pkg.__path__)
-        if name not in _INTERNAL and not ispkg
+        if name not in _INTERNAL and ispkg
     ]
 
 
 def load_channel_class(module_name: str) -> type[BaseChannel]:
-    """Import *module_name* and return the first BaseChannel subclass found."""
+    """Import the ``<module_name>`` channel package and return its BaseChannel subclass.
+
+    Looks first in ``miniUnicorn.channels.<module_name>.channel`` (the
+    QwenPaw-style submodule), then falls back to scanning the package itself
+    for a ``BaseChannel`` subclass (covers packages that re-export the class
+    via ``__init__.py``).
+    """
     from miniUnicorn.channels.base import BaseChannel as _Base
 
-    mod = importlib.import_module(f"miniUnicorn.channels.{module_name}")
-    for attr in dir(mod):
-        obj = getattr(mod, attr)
-        if isinstance(obj, type) and issubclass(obj, _Base) and obj is not _Base:
-            return obj
-    raise ImportError(f"No BaseChannel subclass in miniUnicorn.channels.{module_name}")
+    candidates = (
+        f"miniUnicorn.channels.{module_name}.channel",
+        f"miniUnicorn.channels.{module_name}",
+    )
+    last_err: Exception | None = None
+    for qualname in candidates:
+        try:
+            mod = importlib.import_module(qualname)
+        except ImportError as e:
+            last_err = e
+            continue
+        for attr in dir(mod):
+            obj = getattr(mod, attr)
+            if isinstance(obj, type) and issubclass(obj, _Base) and obj is not _Base:
+                return obj
+    raise ImportError(
+        f"No BaseChannel subclass in miniUnicorn.channels.{module_name} "
+        f"(tried: {', '.join(candidates)})"
+    ) from last_err
 
 
 def discover_plugins(enabled_names: set[str] | None = None) -> dict[str, type[BaseChannel]]:

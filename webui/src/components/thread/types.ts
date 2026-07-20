@@ -1,0 +1,70 @@
+import type {
+  AgentInfo,
+  ContextUsagePayload,
+  GoalStateWsPayload,
+  SlashCommand,
+  WorkspaceScopePayload,
+  WorkspacesPayload,
+} from "@/lib/types";
+import type { SendImage, SendOptions } from "@/hooks/useMiniUnicornStream";
+
+/** 主组件 ThreadComposer 的 props 类型。 */
+export interface ThreadComposerProps {
+  onSend: (content: string, images?: SendImage[], options?: SendOptions) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  isStreaming?: boolean;
+  modelLabel?: string | null;
+  modelProvider?: string | null;
+  modelProviderLabel?: string | null;
+  variant?: "thread" | "hero";
+  slashCommands?: SlashCommand[];
+  onStop?: () => void;
+  /** Unix seconds from server; turn elapsed timer above input while set. */
+  runStartedAt?: number | null;
+  /** Sustained objective for this chat (WebSocket ``goal_state``). */
+  goalState?: GoalStateWsPayload;
+  workspaceScope?: WorkspaceScopePayload | null;
+  workspaceDefaultScope?: WorkspaceScopePayload | null;
+  workspaceControls?: WorkspacesPayload["controls"] | null;
+  workspaceScopeDisabled?: boolean;
+  workspaceError?: string | null;
+  onWorkspaceScopeChange?: (scope: WorkspaceScopePayload) => void;
+  /** Subagents available for ``@agent`` selection (from ``GET /api/agents``). */
+  agents?: AgentInfo[];
+  /** Currently selected subagent id (``agent.name``); routes outbound turns. */
+  selectedAgentId?: string | null;
+  /** Called when the user picks a subagent from the selector. */
+  onSelectAgent?: (agentId: string) => void;
+  /** Called when the user clears the active subagent selection. */
+  onClearAgent?: () => void;
+  /** 当前会话消息条数(含 user/assistant,不含 trace 行)。 */
+  messageCount?: number;
+  /** 当前模型预设的上下文窗口大小(tokens),用于显示上下文预算。 */
+  contextWindowTokens?: number | null;
+  /** 最近一轮对话最后一次 LLM 调用的 token usage(从 turn_end 推送)。 */
+  contextUsage?: ContextUsagePayload | null;
+  /** Session key used to reset per-conversation refs (e.g. chipRefs) on switch. */
+  conversationKey?: string | null;
+  /** 当传入非空字符串时,将该文本填入输入框并聚焦(用于回退后编辑重发)。
+   * 每次填入后应通过 ``onPrefillConsumed`` 通知父组件清空,避免重复填入。 */
+  prefillText?: string | null;
+  /** ``prefillText`` 被填入输入框后调用,父组件据此清空 prefill 状态。 */
+  onPrefillConsumed?: () => void;
+}
+
+/** 斜杠命令面板的弹出位置(输入框上方或下方)。 */
+export type SlashPalettePlacement = "above" | "below";
+
+/** 斜杠命令面板的布局信息(位置 + 最大高度)。 */
+export interface SlashPaletteLayout {
+  placement: SlashPalettePlacement;
+  maxHeight: number;
+}
+
+/** 斜杠命令面板中单条命令的展示模型,扩展自原始 SlashCommand。 */
+export interface SlashPaletteCommand extends SlashCommand {
+  detail: string;
+  badge?: string;
+  recent: boolean;
+}

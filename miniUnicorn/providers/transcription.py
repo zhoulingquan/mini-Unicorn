@@ -136,8 +136,19 @@ async def _post_transcription_with_retry(
             return payload.get("text", "")
 
 
-class OpenAITranscriptionProvider:
-    """Voice transcription provider using OpenAI's Whisper API."""
+class _WhisperTranscriptionProvider:
+    """Base class for Whisper-compatible transcription providers.
+
+    Subclasses set the provider-specific defaults (env var names, default URL,
+    model, label) via class attributes; the shared __init__/transcribe logic
+    lives here.
+    """
+
+    _api_key_env: str = ""
+    _api_base_env: str = ""
+    _default_url: str = ""
+    _model: str = ""
+    _label: str = ""
 
     def __init__(
         self,
@@ -145,17 +156,17 @@ class OpenAITranscriptionProvider:
         api_base: str | None = None,
         language: str | None = None,
     ):
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        self.api_key = api_key or os.environ.get(self._api_key_env)
         self.api_url = _resolve_transcription_url(
-            api_base or os.environ.get("OPENAI_TRANSCRIPTION_BASE_URL"),
-            "https://api.openai.com/v1/audio/transcriptions",
+            api_base or os.environ.get(self._api_base_env),
+            self._default_url,
         )
         self.language = language or None
-        logger.debug("OpenAI transcription endpoint: {}", self.api_url)
+        logger.debug("{} transcription endpoint: {}", self._label, self.api_url)
 
     async def transcribe(self, file_path: str | Path) -> str:
         if not self.api_key:
-            logger.warning("OpenAI API key not configured for transcription")
+            logger.warning("{} API key not configured for transcription", self._label)
             return ""
         path = Path(file_path)
         if not path.exists():
@@ -165,57 +176,31 @@ class OpenAITranscriptionProvider:
             self.api_url,
             api_key=self.api_key,
             path=path,
-            model="whisper-1",
-            provider_label="OpenAI",
+            model=self._model,
+            provider_label=self._label,
             language=self.language,
         )
 
 
-class GroqTranscriptionProvider:
+class OpenAITranscriptionProvider(_WhisperTranscriptionProvider):
+    """Voice transcription provider using OpenAI's Whisper API."""
+
+    _api_key_env = "OPENAI_API_KEY"
+    _api_base_env = "OPENAI_TRANSCRIPTION_BASE_URL"
+    _default_url = "https://api.openai.com/v1/audio/transcriptions"
+    _model = "whisper-1"
+    _label = "OpenAI"
+
+
+class GroqTranscriptionProvider(_WhisperTranscriptionProvider):
     """
     Voice transcription provider using Groq's Whisper API.
 
     Groq offers extremely fast transcription with a generous free tier.
     """
 
-    def __init__(
-        self,
-        api_key: str | None = None,
-        api_base: str | None = None,
-        language: str | None = None,
-    ):
-        self.api_key = api_key or os.environ.get("GROQ_API_KEY")
-        self.api_url = _resolve_transcription_url(
-            api_base or os.environ.get("GROQ_BASE_URL"),
-            "https://api.groq.com/openai/v1/audio/transcriptions",
-        )
-        self.language = language or None
-        logger.debug("Groq transcription endpoint: {}", self.api_url)
-
-    async def transcribe(self, file_path: str | Path) -> str:
-        """
-        Transcribe an audio file using Groq.
-
-        Args:
-            file_path: Path to the audio file.
-
-        Returns:
-            Transcribed text.
-        """
-        if not self.api_key:
-            logger.warning("Groq API key not configured for transcription")
-            return ""
-
-        path = Path(file_path)
-        if not path.exists():
-            logger.error("Audio file not found: {}", file_path)
-            return ""
-
-        return await _post_transcription_with_retry(
-            self.api_url,
-            api_key=self.api_key,
-            path=path,
-            model="whisper-large-v3",
-            provider_label="Groq",
-            language=self.language,
-        )
+    _api_key_env = "GROQ_API_KEY"
+    _api_base_env = "GROQ_BASE_URL"
+    _default_url = "https://api.groq.com/openai/v1/audio/transcriptions"
+    _model = "whisper-large-v3"
+    _label = "Groq"

@@ -24,6 +24,10 @@ interface ThreadViewportProps {
   scrollToBottomSignal?: number;
   conversationKey?: string | null;
   showScrollToBottomButton?: boolean;
+  /** Called when the user clicks the rewind button under the N-th user message. */
+  onRewind?: (userMessageIndex: number) => void;
+  /** Called when the user clicks the retry button under an assistant reply. */
+  onRetry?: (userMessageIndex: number) => void;
 }
 
 const NEAR_BOTTOM_PX = 48;
@@ -53,6 +57,8 @@ export function ThreadViewport({
   scrollToBottomSignal = 0,
   conversationKey = null,
   showScrollToBottomButton = true,
+  onRewind,
+  onRetry,
 }: ThreadViewportProps) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -79,6 +85,16 @@ export function ThreadViewport({
     [messages, visibleMessageCount],
   );
   const hiddenMessageCount = messages.length - visibleMessages.length;
+  // Number of user messages hidden above the visible window. The backend's
+  // user message index is based on the full conversation, so we add this
+  // offset to the visible-window index when invoking rewind/retry.
+  const hiddenUserMessageCount = useMemo(() => {
+    if (hiddenMessageCount <= 0) return 0;
+    const hiddenSlice = messages.slice(0, hiddenMessageCount);
+    return hiddenSlice.filter(
+      (m) => m.role === "user" && m.kind !== "trace",
+    ).length;
+  }, [messages, hiddenMessageCount]);
   const scrollButtonBottom = composerDockHeight > 0
     ? composerDockHeight + SCROLL_BUTTON_COMPOSER_GAP_PX
     : DEFAULT_SCROLL_BUTTON_BOTTOM_PX;
@@ -275,6 +291,9 @@ export function ThreadViewport({
                   isStreaming={isStreaming}
                   hiddenMessageCount={hiddenMessageCount}
                   onLoadEarlier={loadEarlierMessages}
+                  onRewind={onRewind}
+                  onRetry={onRetry}
+                  userMessageIndexOffset={hiddenUserMessageCount}
                 />
               </div>
             </div>

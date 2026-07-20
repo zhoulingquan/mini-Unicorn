@@ -72,7 +72,7 @@
       "appearance": "Appearance",
       "models": "Models",
       "providers": "Providers",
-      "browser": "Web",
+      "browser": "Search",
       "cliApps": "CLI Apps",
       "mcp": "MCP",
       "advanced": "Security",
@@ -90,6 +90,9 @@
       "mcp": "MCP services",
       "identity": "Identity",
       "webuiSafety": "Web safety",
+      "webSearchBasic": "Web Search",
+      "webSearchCache": "Cache & Network",
+      "webSearchBackends": "Backend Credentials",
       "apps": "Apps",
       "nativeHost": "Native host",
       "hostSafety": "App safety"
@@ -132,6 +135,17 @@
       "workspacePath": "Default workspace",
       "localServiceAccess": "Local services",
       "webuiDefaultAccess": "Default access",
+      "webSearchEnable": "Enable web_search",
+      "webSearchProvider": "Backend",
+      "webSearchRegion": "Region",
+      "webSearchMaxResults": "Max results",
+      "webSearchTimeout": "Timeout",
+      "webSearchCache": "Result cache",
+      "webSearchCacheTtl": "Cache TTL",
+      "webSearchProxy": "Proxy",
+      "webSearchUserAgent": "User-Agent",
+      "webSearchApiKey": "API Key",
+      "webSearchBaseUrl": "Base URL (optional)",
       "cliAppsCatalog": "Catalog",
       "cliAppsFilter": "Filter",
       "engine": "Engine",
@@ -161,13 +175,25 @@
       "localServiceAccess": "Allow Full Access shell commands to reach localhost services.",
       "webuiDefaultAccess": "Used by web chats without a project-specific permission.",
       "securityManagedControls": "Web fetches always protect local, private, and metadata services. Core channel safety stays in config.json.",
+      "webSearchEnable": "Toggle the web_search tool on/off for the agent.",
+      "webSearchProvider": "auto = use fallback chain by region. Explicit name = use only that backend.",
+      "webSearchRegion": "cn = domestic fallback chain (default). global = overseas chain (proxy required for some backends).",
+      "webSearchMaxResults": "Maximum number of results returned per query (1-10).",
+      "webSearchTimeout": "Per-request timeout in seconds.",
+      "webSearchCache": "Cache search results to avoid duplicate requests within TTL.",
+      "webSearchCacheTtl": "Time-to-live for cached results in seconds.",
+      "webSearchProxy": "HTTP proxy for overseas backends (e.g. duckduckgo). Leave empty to use system env.",
+      "webSearchUserAgent": "Custom User-Agent for scraping backends. Leave empty to use default.",
+      "webSearchBackend_bocha": "Bocha AI Search API (CN, requires key, free tier available)",
+      "webSearchBackend_tencent": "Tencent Cloud Search (CN, requires secret_id:secret_key)",
+      "webSearchBackend_duckduckgo": "DuckDuckGo (overseas, no key, requires proxy in CN)",
       "logs": "Open the native engine log folder.",
       "diagnostics": "Export a small runtime report for support.",
       "localServiceAccessNative": "Allow Full Access shell commands to reach services on this Mac.",
       "webuiDefaultAccessNative": "Used by native chats without a project-specific permission.",
       "contextWindow": "Choose the default context budget for this model configuration.",
       "heartbeat": "Idle check interval in seconds (60-86400).",
-      "dream": "Memory consolidation interval in hours (1-48)."
+      "dream": "Memory consolidation cron expression (e.g. '0 3 * * *' for daily at 3am). Timezone follows the main timezone setting."
     },
     "cliApps": {
       "allCategories": "All categories",
@@ -220,7 +246,10 @@
       "configured": "Configured",
       "notConfigured": "Not configured",
       "pending": "Pending",
-      "restartingEngine": "Restarting"
+      "restartingEngine": "Restarting",
+      "cnRegion": "CN",
+      "globalRegion": "Global",
+      "seconds": "s"
     },
     "status": {
       "loading": "Loading settings...",
@@ -309,6 +338,30 @@
       "saving": "Saving…",
       "cancel": "Cancel",
       "emptyError": "Content must not be empty"
+    },
+    "dream": {
+      "files": {
+        "button": "View Files",
+        "title": "Dream Generated Files",
+        "description": "Memory files written and maintained by the Dream consolidation process. Read-only.",
+        "listHeader": "Files",
+        "loading": "Loading…",
+        "empty": "No files available.",
+        "notExists": "N/A",
+        "notExistsHint": "This file has not been created yet.",
+        "placeholder": "File content…",
+        "emptyContent": "File is empty.",
+        "selectHint": "Select a file from the list to view its content.",
+        "lines": "lines",
+        "close": "Close",
+        "refresh": "Refresh"
+      }
+    },
+    "heartbeat": {
+      "llmTitle": "Heartbeat LLM",
+      "configuredHint": "Using: {{model}}",
+      "defaultHint": "Using main agent model.",
+      "useMain": "Main model"
     },
     "providers": {
       "saveProvider": "Save provider"
@@ -607,9 +660,13 @@
     "cliRunRan": "Used",
     "cliRunFailed": "Failed",
     "imageAttachment": "Image attachment",
+    "videoAttachment": "Video attachment",
+    "openImage": "Open image",
     "copyReply": "Copy reply",
     "copiedReply": "Copied reply",
-    "turnLatencyTitle": "Response time (end-to-end)"
+    "turnLatencyTitle": "Response time (end-to-end)",
+    "rewind": "Rewind",
+    "retry": "Retry"
   },
   "lightbox": {
     "title": "Image preview",
@@ -625,7 +682,12 @@
     "copied": "Copied"
   },
   "common": {
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "close": "Close",
+    "errorBoundary": {
+      "title": "Something went wrong",
+      "retry": "Try again"
+    }
   },
   "errors": {
     "messageTooBig": {
@@ -661,8 +723,7 @@
     "presetServices": "Preset services",
     "allServices": "All services",
     "noPresets": "No preset services",
-    "listView": "List view",
-    "gridView": "Grid view",
+    "delete": "Delete",
     "form": {
       "name": "Server name",
       "namePlaceholder": "my-mcp-server",
@@ -684,7 +745,8 @@
       "urlRequired": "URL is required for HTTP transport",
       "invalidJsonArgs": "Arguments must be a valid JSON array",
       "invalidJsonEnv": "Environment variables must be a valid JSON object",
-      "invalidJsonHeaders": "Headers must be a valid JSON object"
+      "invalidJsonHeaders": "Headers must be a valid JSON object",
+      "importEmpty": "Import content cannot be empty"
     },
     "status": {
       "connected": "Connected",
@@ -738,8 +800,6 @@
     "toggleError": "Toggle failed",
     "saveError": "Save failed",
     "builtinOnlyDeleteDisabled": "Built-in skills cannot be deleted",
-    "listView": "List view",
-    "gridView": "Grid view",
     "template": {
       "description": "Describe what this skill does in one sentence.",
       "body": "Write the skill content here."
@@ -866,9 +926,6 @@
     "noDescription": "No description",
     "userTools": "User Tools",
     "builtinTools": "Built-in Tools",
-    "mcpTools": "MCP Tools",
-    "listView": "List view",
-    "gridView": "Grid view",
     "field": {
       "filename": "Filename",
       "chooseFile": "Choose file",
@@ -878,7 +935,6 @@
     },
     "badge": {
       "builtin": "builtin",
-      "mcp": "mcp",
       "user": "user",
       "notLoaded": "not loaded",
       "readOnly": "read-only"
@@ -910,6 +966,8 @@
       "run_cli_app": "Run a CLI App installed in Settings",
       "spawn": "Spawn a subagent to handle a task in the background",
       "web_fetch": "Fetch a URL and extract readable content",
+      "web_search": "Search the web by keyword across 6 CN/global engines (Bing, Baidu, Sogou, Bocha, Tencent, DuckDuckGo) with auto-fallback and caching; returns titles, URLs, and snippets",
+      "deep_research": "Multi-step research workflow (plan, search, reflect, write) that orchestrates 6 CN/global search engines concurrently with auto-reflection; returns a cited Markdown report",
       "write_file": "Create a new file or intentionally replace an entire file",
       "write_stdin": "Write to stdin or control a running exec session"
     }
@@ -922,11 +980,21 @@
     "refresh": "Refresh",
     "save": "Save",
     "delete": "Delete",
+    "cancel": "Cancel",
+    "configure": "Configure",
+    "enable": "Enable",
     "configLabel": "Channel configuration",
     "configPlaceholder": "{\n  \"app_id\": \"...\",\n  \"app_secret\": \"...\"\n}",
     "listPlaceholder": "One item per line",
     "useDefault": "Use default template",
     "defaultHint": "Not configured: below are default values. Edit and save to apply.",
+    "enabledSection": "Enabled channels",
+    "availableSection": "Available channels",
+    "noEnabled": "No enabled channels",
+    "noAvailable": "No available channels",
+    "goEnable": "Browse available channels",
+    "builtin": "Built-in",
+    "custom": "Plugin",
     "badge": {
       "configured": "Configured",
       "unconfigured": "Not configured"
@@ -938,6 +1006,28 @@
       "toggled": "Toggled {{name}}",
       "saved": "Saved {{name}} configuration",
       "deleted": "Deleted {{name}} configuration"
+    },
+    "qr": {
+      "title": "Scan to log in",
+      "description": "Use the mobile app to scan the QR code to automatically create a bot and complete login.",
+      "begin": "Start QR login",
+      "beginAgain": "Scan again",
+      "loading": "Generating QR code…",
+      "scanPrompt": "Scan with the {{channel}} mobile app",
+      "scanHint": "Scanning will automatically create a bot application and write credentials to config.json.",
+      "waiting": "Waiting for scan confirmation…",
+      "preparing": "Preparing QR code…",
+      "refresh": "Refresh QR code",
+      "retry": "Retry",
+      "expiresIn": "QR code valid for {{seconds}}s",
+      "success": "Login successful",
+      "successHint": "Credentials saved automatically; channel enabled.",
+      "successToast": "{{name}} QR login succeeded",
+      "errors": {
+        "title": "QR login failed",
+        "failed": "Authorization failed or was cancelled",
+        "beginFailed": "Unable to start QR login flow"
+      }
     },
     "channelNames": {
       "dingtalk": "DingTalk",
@@ -1020,13 +1110,7 @@
         "msg_format": "Message Format",
         "msg_format_desc": "Format for outbound messages: plain=text, markdown=Markdown",
         "ack_message": "Ack Message",
-        "ack_message_desc": "Placeholder reply sent immediately on receive",
-        "media_dir": "Media Dir",
-        "media_dir_desc": "Directory for inbound attachments (empty = default path)",
-        "download_chunk_size": "Download Chunk Size",
-        "download_chunk_size_desc": "Chunk size in bytes when downloading attachments",
-        "download_max_bytes": "Download Max Bytes",
-        "download_max_bytes_desc": "Maximum bytes per single attachment download"
+        "ack_message_desc": "Placeholder reply sent immediately on receive"
       },
       "wecom": {
         "bot_id": "Bot ID",

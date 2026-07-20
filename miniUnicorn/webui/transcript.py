@@ -149,6 +149,49 @@ def delete_webui_transcript(session_key: str) -> bool:
         return False
 
 
+def rewind_webui_transcript_to_user(
+    session_key: str,
+    user_message_index: int,
+) -> int:
+    """Truncate the WebUI transcript to remove the N-th user event and everything after.
+
+    Args:
+        session_key: The session key (e.g., ``websocket:<chat_id>``).
+        user_message_index: 0-based index of the user message to rewind from.
+            Pass ``0`` to clear the entire conversation.
+
+    Returns:
+        The number of transcript lines removed. Returns ``0`` when the target
+        user message cannot be located (index out of range or file missing).
+    """
+    if user_message_index < 0:
+        return 0
+    lines = read_transcript_lines(session_key)
+    if not lines:
+        return 0
+    user_count = 0
+    cutoff = len(lines)
+    for i, line in enumerate(lines):
+        if line.get("event") == "user":
+            if user_count == user_message_index:
+                cutoff = i
+                break
+            user_count += 1
+    if cutoff >= len(lines):
+        return 0
+    removed = len(lines) - cutoff
+    path = webui_transcript_path(session_key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".jsonl.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        for line in lines[:cutoff]:
+            f.write(json.dumps(line, ensure_ascii=False) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    return removed
+
+
 def _format_tool_call_trace(call: Any) -> str | None:
     if not call or not isinstance(call, dict):
         return None

@@ -155,6 +155,7 @@ class CronService:
                         created_at_ms=j.get("createdAtMs", 0),
                         updated_at_ms=j.get("updatedAtMs", 0),
                         delete_after_run=j.get("deleteAfterRun", False),
+                        catch_up_on_start=j.get("catchUpOnStart", False),
                     ))
             except Exception:
                 # Preserve the corrupt file for forensic recovery instead of
@@ -285,6 +286,7 @@ class CronService:
                     "createdAtMs": j.created_at_ms,
                     "updatedAtMs": j.updated_at_ms,
                     "deleteAfterRun": j.delete_after_run,
+                    "catchUpOnStart": j.catch_up_on_start,
                 }
                 for j in self._store.jobs
             ]
@@ -341,9 +343,68 @@ class CronService:
                 "Inspect the .corrupt-<ts> backup and restore manually."
             )
         self._recompute_next_runs()
+        self._apply_catch_up()
         self._save_store()
         self._arm_timer()
         logger.info("Cron service started with {} jobs", len(self._store.jobs if self._store else []))
+
+    def _apply_catch_up(self) -> None:
+        """对标记了 ``catch_up_on_start`` 的 system job 做补跑检测。
+
+        若距上次执行错过了一个或多个触发点,则把 ``next_run_at_ms`` 设为当前
+        时间,让随后的 ``_arm_timer`` 立刻触发执行;否则保持按当前时间重排的
+        下一次触发点。
+
+        补跑判断:
+        - cron schedule: 用 croniter 算"上一次本该触发的时间",若
+          ``last_run_at_ms < prev_due_ms``(或从未执行过),则视为错过。
+        - every schedule: 若 ``last_run_at_ms + every_ms <= now``,则视为错过。
+        - 其他 schedule(at): 不补跑。
+        """
+        if not self._store:
+            return
+        now = _now_ms()
+        for job in self._store.jobs:
+            if not job.enabled or not job.catch_up_on_start:
+                continue
+            sched = job.schedule
+            prev_due_ms: int | None = None
+            if sched.kind == "cron" and sched.expr:
+                try:
+                    from zoneinfo import ZoneInfo
+                    from croniter import croniter
+                    tz = ZoneInfo(sched.tz) if sched.tz and sched.tz != "system" else datetime.now().astimezone().tzinfo
+                    base_dt = datetime.fromtimestamp(now / 1000, tz=tz)
+                    prev_dt = croniter(sched.expr, base_dt).get_prev(datetime)
+                    prev_due_ms = int(prev_dt.timestamp() * 1000)
+                except Exception:
+                    logger.exception("Cron: catch_up parse failed for job '{}'", job.name)
+                    continue
+            elif sched.kind == "every" and sched.every_ms and sched.every_ms > 0:
+                if job.state.last_run_at_ms:
+                    prev_due_ms = job.state.last_run_at_ms + sched.every_ms
+                else:
+                    # 从未执行过 —— 没有基线可对比,不补跑,让正常调度接管。
+                    continue
+            else:
+                continue
+
+            if prev_due_ms is None or prev_due_ms > now:
+                # prev_due_ms 在未来(理论上不该发生),不做处理。
+                continue
+
+            last_run = job.state.last_run_at_ms
+            if last_run is not None and last_run >= prev_due_ms:
+                # 上次执行已经覆盖了 prev_due 这个触发点,无需补跑。
+                continue
+
+            logger.info(
+                "Cron: job '{}' missed run(s) since {} (last_run={}), scheduling catch-up",
+                job.name,
+                datetime.fromtimestamp(prev_due_ms / 1000).isoformat(),
+                datetime.fromtimestamp(last_run / 1000).isoformat() if last_run else "never",
+            )
+            job.state.next_run_at_ms = now  # _arm_timer 会立刻触发
 
     def stop(self) -> None:
         """Stop the cron service."""
@@ -520,10 +581,18 @@ class CronService:
         return job
 
     def register_system_job(self, job: CronJob) -> CronJob:
-        """Register an internal system job (idempotent on restart)."""
+        """Register an internal system job (idempotent on restart).
+
+        保留磁盘上已存在同 id job 的 ``last_run_at_ms`` 和 ``run_history``,
+        否则 gateway 重启后补跑检测就拿不到"上次执行时间"了。
+        """
         store = self._load_store()
         now = _now_ms()
-        job.state = CronJobState(next_run_at_ms=_compute_next_run(job.schedule, now))
+        existing = next((j for j in store.jobs if j.id == job.id), None)
+        if existing is not None:
+            job.state.last_run_at_ms = existing.state.last_run_at_ms
+            job.state.run_history = list(existing.state.run_history)
+        job.state.next_run_at_ms = _compute_next_run(job.schedule, now)
         job.created_at_ms = now
         job.updated_at_ms = now
         store.jobs = [j for j in store.jobs if j.id != job.id]

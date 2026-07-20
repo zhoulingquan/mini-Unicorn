@@ -8,7 +8,7 @@ import { ThreadViewport } from "@/components/thread/ThreadViewport";
 import { useMiniUnicornStream, type SendImage, type SendOptions } from "@/hooks/useMiniUnicornStream";
 import type { ThemeMode } from "@/hooks/useTheme";
 import { useSessionHistory } from "@/hooks/useSessions";
-import { fetchAgents, fetchSettings, listSlashCommands } from "@/lib/api";
+import { fetchAgents, fetchSettings, listSlashCommands, rewindSession } from "@/lib/api";
 import { inferProviderFromModelName, providerDisplayLabel } from "@/lib/provider-brand";
 import type {
   AgentInfo,
@@ -39,6 +39,33 @@ function isStaleThreadSnapshot(current: UIMessage[], snapshot: UIMessage[]): boo
   if (current.length === 0 || snapshot.length >= current.length) return false;
   if (snapshot.length === 0) return true;
   return snapshot.every((message, index) => sameMessageShape(current[index], message));
+}
+
+/** Find the N-th (0-based) non-trace user message in the message list. */
+function findUserMessageByIndex(messages: UIMessage[], index: number): UIMessage | null {
+  if (index < 0) return null;
+  let count = 0;
+  for (const m of messages) {
+    if (m.role === "user" && m.kind !== "trace") {
+      if (count === index) return m;
+      count += 1;
+    }
+  }
+  return null;
+}
+
+/** Truncate the message list at (and including) the N-th non-trace user message. */
+function truncateAtUserMessage(messages: UIMessage[], userMessageIndex: number): UIMessage[] {
+  if (userMessageIndex < 0) return messages;
+  let count = 0;
+  for (let i = 0; i < messages.length; i += 1) {
+    const m = messages[i];
+    if (m.role === "user" && m.kind !== "trace") {
+      if (count === userMessageIndex) return messages.slice(0, i);
+      count += 1;
+    }
+  }
+  return messages;
 }
 
 interface ThreadShellProps {
@@ -171,6 +198,9 @@ export function ThreadShell({
   const [settings, setSettings] = useState<SettingsPayload | null>(settingsSnapshot);
   const [heroGreetingKey, setHeroGreetingKey] = useState(randomHeroGreetingKey);
   const [scrollToBottomSignal, setScrollToBottomSignal] = useState(0);
+  // 回退后,被回退的用户消息内容会写入此处,由 ThreadComposer 消费后清空。
+  const [prefillText, setPrefillText] = useState<string | null>(null);
+  const clearPrefillText = useCallback(() => setPrefillText(null), []);
   const pendingFirstRef = useRef<PendingFirstMessage | null>(null);
 
   // ---------------------------------------------------------------------------
@@ -459,6 +489,67 @@ export function ThreadShell({
     [send, withWorkspaceScope],
   );
 
+  // Rewind: truncate both the WebUI transcript and the agent session file to
+  // before the N-th user message, then refresh the thread view. The backend
+  // broadcasts ``session_updated`` after the truncation, which triggers
+  // ``refreshHistory`` via ``client.onSessionUpdate``. We also optimistically
+  // truncate the local ``messages`` state for immediate UI feedback and clear
+  // the in-memory cache so the canonical refresh wins.
+  const handleRewind = useCallback(
+    async (userMessageIndex: number) => {
+      if (!token || !historyKey || !chatId) return;
+      if (isStreaming) return;
+      // 先捕获被回退的用户消息内容,以便填入输入框供用户编辑重发。
+      const targetUserMessage = findUserMessageByIndex(messages, userMessageIndex);
+      const rewindContent = targetUserMessage?.content ?? "";
+      try {
+        await rewindSession(token, historyKey, userMessageIndex);
+        pendingCanonicalHydrateRef.current.add(chatId);
+        messageCacheRef.current.delete(chatId);
+        setMessages((prev) => truncateAtUserMessage(prev, userMessageIndex));
+        setScrollToBottomSignal((value) => value + 1);
+        // 把被回退的用户消息内容回填到输入框,方便用户编辑后重新发送。
+        if (rewindContent.trim().length > 0) {
+          setPrefillText(rewindContent);
+        }
+      } catch (err) {
+        console.error("[ThreadShell] rewind failed", err);
+      }
+    },
+    [token, historyKey, chatId, isStreaming, messages, setMessages],
+  );
+
+  // Retry: rewind to before the user turn that produced this assistant reply,
+  // then re-send the original user content. Images and per-turn options are
+  // not preserved (typical retry use case is re-generating a text answer).
+  // Optimistic ``send`` bubble survives the canonical hydrate because the
+  // stale-snapshot check treats the server's shorter truncated history as a
+  // prefix of the optimistic state.
+  const handleRetry = useCallback(
+    async (userMessageIndex: number) => {
+      if (!token || !historyKey || !chatId) return;
+      if (isStreaming) return;
+      const targetUserMessage = findUserMessageByIndex(messages, userMessageIndex);
+      if (!targetUserMessage) return;
+      const retryContent = targetUserMessage.content;
+      if (!retryContent.trim()) return;
+      try {
+        await rewindSession(token, historyKey, userMessageIndex);
+        // Do NOT mark as pending canonical hydrate here — the optimistic
+        // ``send`` bubble we are about to create should win over the rewind's
+        // truncated canonical state. The subsequent turn's own
+        // ``session_updated`` broadcast will reconcile.
+        messageCacheRef.current.delete(chatId);
+        setMessages((prev) => truncateAtUserMessage(prev, userMessageIndex));
+        setScrollToBottomSignal((value) => value + 1);
+        send(retryContent);
+      } catch (err) {
+        console.error("[ThreadShell] retry failed", err);
+      }
+    },
+    [token, historyKey, chatId, isStreaming, messages, send, setMessages],
+  );
+
   const composer = (
     <>
       {streamError ? (
@@ -499,6 +590,8 @@ export function ThreadShell({
           contextWindowTokens={contextWindowTokens}
           contextUsage={contextUsage}
           conversationKey={historyKey}
+          prefillText={prefillText}
+          onPrefillConsumed={clearPrefillText}
         />
       ) : (
         <ThreadComposer
@@ -571,6 +664,8 @@ export function ThreadShell({
         scrollToBottomSignal={scrollToBottomSignal}
         conversationKey={historyKey}
         showScrollToBottomButton={!!session}
+        onRewind={session ? handleRewind : undefined}
+        onRetry={session ? handleRetry : undefined}
       />
     </section>
   );

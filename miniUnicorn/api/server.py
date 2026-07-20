@@ -224,15 +224,47 @@ def _bearer_token_from_request(request: web.Request) -> str | None:
     return None
 
 
+# Loopback 主机名集合,用于判定是否允许在无 api_token 的情况下提供 API 服务。
+# 仅监听 loopback 时,无 token 便利访问是可接受的;其他地址必须配置 token。
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+
+def _is_loopback_host(host: str) -> bool:
+    """判断绑定地址是否为 loopback。"""
+    return host in _LOOPBACK_HOSTS
+
+
+def _is_loopback_remote(request: web.Request) -> bool:
+    """判断请求来源 IP 是否为 loopback。
+
+    用于防御反向代理场景:即使绑定了 127.0.0.1,如果代理转发了非本机请求,
+    也应当要求 token 认证。
+    """
+    remote = request.remote or ""
+    # IPv6 aiohttp 可能带上端口或包在 [ ] 中,简单取首段做判断。
+    if remote.startswith("["):
+        remote = remote.strip("[]").split("%")[0]
+    return remote in _LOOPBACK_HOSTS
+
+
 def _authenticate_request(request: web.Request) -> web.Response | None:
     """Validate the Bearer token. Returns an error response on failure, None on success.
 
     When no ``api_token`` is configured (e.g. local-only dev bind), authentication
-    is skipped so existing local workflows keep working.
+    is skipped so existing local workflows keep working.  But if the request remote
+    is not loopback (e.g. service is reached via a reverse proxy), authentication
+    is enforced to defend against accidental public exposure.
     """
     api_token: str = request.app.get("api_token", "")
     if not api_token:
-        return None
+        # 无 token 时,仅允许 loopback 来源;否则按未授权处理。
+        if _is_loopback_remote(request):
+            return None
+        return _error_json(
+            401,
+            "Unauthorized: API token not configured and request is not from loopback",
+            err_type="authentication_error",
+        )
     supplied = _bearer_token_from_request(request)
     if supplied and hmac.compare_digest(supplied, api_token):
         return None
@@ -332,9 +364,10 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     session_key = f"api:{safe_session_id}" if safe_session_id else API_SESSION_KEY
     session_lock = await _acquire_session_lock(request, session_key)
 
+    # 不记录用户消息原文,仅记录长度,避免敏感内容泄露到日志。
     logger.info(
-        "API request session_key={} media={} text={} stream={}",
-        session_key, len(media_paths), text[:80], stream,
+        "API request session_key={} media={} text_len={} stream={}",
+        session_key, len(media_paths), len(text), stream,
     )
     # -- streaming path --
     if stream:
@@ -536,11 +569,13 @@ def create_app(
             empty, authentication is skipped (only safe for local binds).
     """
     effective_token = _resolve_api_token(api_token)
-    if host in {"0.0.0.0", "::"} and not effective_token:
+    # 若 api_token 为空,仅允许 loopback 绑定;监听其他地址必须配置 token,
+    # 否则在启动阶段就明确拒绝,避免无认证 API 暴露到非本机网络。
+    if not effective_token and not _is_loopback_host(host):
         raise ValueError(
-            "host is 0.0.0.0 (all interfaces) but no API token is set — "
-            "set api_token or the MINIUNICORN_API_TOKEN environment variable "
-            "to prevent unauthenticated access"
+            f"host '{host}' is not a loopback address but no API token is set — "
+            "set api_token or the MINIUNICORN_API_TOKEN environment variable, "
+            "or bind to 127.0.0.1/::1/localhost to prevent unauthenticated access"
         )
 
     app = web.Application(client_max_size=20 * 1024 * 1024, middlewares=[_auth_middleware])  # 20MB for base64 images

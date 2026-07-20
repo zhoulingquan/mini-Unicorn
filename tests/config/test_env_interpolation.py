@@ -82,10 +82,10 @@ class TestResolveConfig:
         assert saved["channels"]["telegram"]["token"] == "${MY_TOKEN}"
 
     def test_preserves_excluded_fields_when_no_env_refs(self, tmp_path):
-        """Regression: fields with ``exclude=True`` (e.g. DreamConfig.cron)
-        must survive ``resolve_config_env_vars`` when the config has no
-        ``${VAR}`` references. Previously the unconditional dump→revalidate
-        roundtrip silently dropped them."""
+        """Regression: the DreamConfig.cron schedule must survive
+        ``resolve_config_env_vars`` when the config has no ``${VAR}``
+        references. Previously the unconditional dump→revalidate roundtrip
+        silently dropped excluded fields."""
         config_path = tmp_path / "config.json"
         config_path.write_text(
             json.dumps(
@@ -100,13 +100,13 @@ class TestResolveConfig:
         resolved = resolve_config_env_vars(raw)
         assert resolved.agents.defaults.dream.cron == "5 11 * * *"
         assert resolved.agents.defaults.dream.describe_schedule() == (
-            "cron 5 11 * * * (legacy)"
+            "cron 5 11 * * *"
         )
 
     def test_preserves_excluded_fields_with_env_refs(self, tmp_path, monkeypatch):
-        """Excluded fields must also survive when the config contains
-        ``${VAR}`` refs elsewhere. An in-place walk preserves the legacy
-        ``cron`` override even as unrelated string fields are substituted."""
+        """The Dream cron schedule must also survive when the config contains
+        ``${VAR}`` refs elsewhere. An in-place walk preserves the schedule
+        even as unrelated string fields are substituted."""
         monkeypatch.setenv("TEST_API_KEY", "resolved-key")
         config_path = tmp_path / "config.json"
         config_path.write_text(
@@ -125,5 +125,5 @@ class TestResolveConfig:
         assert resolved.providers.groq.api_key == "resolved-key"
         assert resolved.agents.defaults.dream.cron == "5 11 * * *"
         assert resolved.agents.defaults.dream.describe_schedule() == (
-            "cron 5 11 * * * (legacy)"
+            "cron 5 11 * * *"
         )

@@ -14,6 +14,16 @@ interface ThreadMessagesProps {
   isStreaming?: boolean;
   hiddenMessageCount?: number;
   onLoadEarlier?: () => void;
+  /** Called when the user clicks the rewind button under the N-th user message. */
+  onRewind?: (userMessageIndex: number) => void;
+  /** Called when the user clicks the retry button under an assistant reply.
+   * The ``userMessageIndex`` is the index of the user turn that produced the
+   * reply being retried. */
+  onRetry?: (userMessageIndex: number) => void;
+  /** Number of user messages hidden above the visible window. The backend's
+   * user message index is based on the full conversation, so this offset is
+   * added to the visible-window index when invoking rewind/retry. */
+  userMessageIndexOffset?: number;
 }
 
 export type DisplayUnit =
@@ -214,6 +224,9 @@ export function ThreadMessages({
   isStreaming = false,
   hiddenMessageCount = 0,
   onLoadEarlier,
+  onRewind,
+  onRetry,
+  userMessageIndexOffset = 0,
 }: ThreadMessagesProps) {
   const { t } = useTranslation();
   const units = useMemo(() => buildDisplayUnits(messages), [messages]);
@@ -222,6 +235,25 @@ export function ThreadMessages({
     () => isStreaming ? currentActivityClusterIndex(units) : -1,
     [isStreaming, units],
   );
+
+  // Pre-compute the 0-based user message index for each single unit so the
+  // rewind/retry callbacks can identify the target user turn without scanning
+  // the message list on every click. Cluster units (tool traces, reasoning)
+  // inherit the user index of the assistant turn they belong to (i.e. the
+  // most recent user message at that point).
+  const userIndexByUnit = useMemo(() => {
+    const out: number[] = new Array(units.length).fill(-1);
+    let userCount = -1;
+    for (let i = 0; i < units.length; i += 1) {
+      const u = units[i];
+      if (u.type === "single" && u.message.role === "user" && u.message.kind !== "trace") {
+        userCount += 1;
+      }
+      out[i] = userCount;
+    }
+    return out;
+  }, [units]);
+
   // 当正在流式输出但消息列表中尚无正在流式的 assistant 消息(即等待首字节阶段),
   // 在消息列表末尾显示"等待回复…"spinner 指示器。
   const showAwaitingReplyIndicator = useMemo(() => {
@@ -242,6 +274,8 @@ export function ThreadMessages({
     }
     return true;
   }, [isStreaming, units]);
+
+  const disableActions = isStreaming;
 
   return (
     <div className="flex w-full flex-col">
@@ -273,6 +307,29 @@ export function ThreadMessages({
         const turnLatencyMs =
           unit.type === "cluster" ? activityClusterTurnLatencyMs(unit.messages, next) : undefined;
 
+        // Rewind: show on user messages only (not trace). Disabled while streaming.
+        const handleRewind =
+          unit.type === "single"
+          && unit.message.role === "user"
+          && unit.message.kind !== "trace"
+          && onRewind
+          && userIndexByUnit[index] >= 0
+            ? () => onRewind!(userIndexByUnit[index] + userMessageIndexOffset)
+            : undefined;
+
+        // Retry: show on assistant answer slices only (not trace, not streaming).
+        // The retry target is the user turn that produced this reply, which is
+        // the most recent user message at this unit's position.
+        const handleRetry =
+          unit.type === "single"
+          && unit.message.role === "assistant"
+          && unit.message.kind !== "trace"
+          && !unit.message.isStreaming
+          && onRetry
+          && userIndexByUnit[index] >= 0
+            ? () => onRetry!(userIndexByUnit[index] + userMessageIndexOffset)
+            : undefined;
+
         return (
           <div key={unitKey(unit, index)} className={marginTop}>
             {unit.type === "cluster" ? (
@@ -290,6 +347,9 @@ export function ThreadMessages({
                     ? copyFlags[index]
                     : true
                 }
+                onRewind={handleRewind}
+                onRetry={handleRetry}
+                disableActions={disableActions}
               />
             )}
           </div>

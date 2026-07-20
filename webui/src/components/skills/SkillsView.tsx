@@ -1,14 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ChevronRight,
   Eye,
   FileCode,
-  LayoutGrid,
-  List,
   Loader2,
   Pencil,
   Plus,
-  RefreshCw,
   Sparkles,
   Trash2,
   Upload,
@@ -16,27 +12,23 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ErrorBanner, NoticeBanner } from "@/components/ui/banner";
+import { IconButton } from "@/components/ui/icon-button";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { RefreshIconButton } from "@/components/ui/refresh-icon-button";
+import { ResourceDeleteConfirmDialog } from "@/components/ui/resource-delete-confirm-dialog";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { ViewShell } from "@/components/ui/view-shell";
 import {
   deleteSkill,
   fetchSkills,
@@ -46,6 +38,7 @@ import {
   toggleSkill,
   uploadSkillZip,
 } from "@/lib/api";
+import { pickColorByName as pickSkillColor } from "@/lib/pick-color";
 import type { SkillDetail, SkillInfo } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -88,7 +81,6 @@ export function SkillsView({ onBack, token }: SkillsViewProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SkillInfo | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"list" | "grid">("grid");
 
   // Detail modal
   const [detail, setDetail] = useState<SkillDetail | null>(null);
@@ -256,16 +248,12 @@ export function SkillsView({ onBack, token }: SkillsViewProps) {
   };
 
   return (
-    <div className="flex h-full flex-col bg-background">
-      <header className="flex items-center gap-2 border-b px-4 py-3">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onBack}>
-          <ChevronRight className="h-4 w-4 rotate-180" />
-        </Button>
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-4.5 w-4.5 text-foreground/80" />
-          <h1 className="text-sm font-semibold">{t("skills.title")}</h1>
-        </div>
-        <div className="ml-auto flex items-center gap-1.5">
+    <ViewShell
+      onBack={onBack}
+      icon={<Sparkles className="h-4.5 w-4.5 text-foreground/80" />}
+      title={t("skills.title")}
+      actions={
+        <>
           <input
             ref={fileInputRef}
             type="file"
@@ -273,40 +261,6 @@ export function SkillsView({ onBack, token }: SkillsViewProps) {
             className="hidden"
             onChange={handleUploadFile}
           />
-          <div className="flex items-center rounded-md border bg-muted/40 p-0.5">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "h-6 w-6 rounded-sm",
-                viewMode === "list"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setViewMode("list")}
-              title={t("skills.listView")}
-              aria-label={t("skills.listView")}
-              aria-pressed={viewMode === "list"}
-            >
-              <List className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "h-6 w-6 rounded-sm",
-                viewMode === "grid"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setViewMode("grid")}
-              title={t("skills.gridView")}
-              aria-label={t("skills.gridView")}
-              aria-pressed={viewMode === "grid"}
-            >
-              <LayoutGrid className="h-3.5 w-3.5" />
-            </Button>
-          </div>
           <Button
             variant="ghost"
             size="sm"
@@ -330,52 +284,41 @@ export function SkillsView({ onBack, token }: SkillsViewProps) {
             <Plus className="h-3 w-3" />
             {t("skills.create")}
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={load}
-            disabled={loading}
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-          </Button>
+          <RefreshIconButton onClick={load} loading={loading} />
+        </>
+      }
+    >
+      {notice && (
+        <NoticeBanner className="mb-3">{notice}</NoticeBanner>
+      )}
+      {error && (
+        <ErrorBanner className="mb-3">{error}</ErrorBanner>
+      )}
+
+      {loading && skills.length === 0 ? (
+        <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+          <LoadingSpinner />
+          {t("skills.loading")}
         </div>
-      </header>
-
-      <div className="flex-1 overflow-y-auto px-4 py-3">
-        {notice && (
-          <NoticeBanner className="mb-3">{notice}</NoticeBanner>
-        )}
-        {error && (
-          <ErrorBanner className="mb-3">{error}</ErrorBanner>
-        )}
-
-        {loading && skills.length === 0 ? (
-          <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            {t("skills.loading")}
-          </div>
-        ) : skills.length === 0 ? (
-          <div className="py-12 text-center text-sm text-muted-foreground">
-            {t("skills.empty")}
-          </div>
-        ) : (
-          <div className={cn(viewMode === "grid" ? "grid grid-cols-4 gap-1.5" : "mx-auto flex w-full max-w-2xl flex-col gap-2.5")}>
-            {skills.map((skill) => (
-              <SkillCard
-                key={skill.name}
-                skill={skill}
-                viewMode={viewMode}
-                toggling={toggling === skill.name}
-                onToggle={() => handleToggle(skill)}
-                onView={() => openDetail(skill)}
-                onEdit={() => openEditor(skill)}
-                onDelete={() => setDeleteTarget(skill)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      ) : skills.length === 0 ? (
+        <div className="py-12 text-center text-sm text-muted-foreground">
+          {t("skills.empty")}
+        </div>
+      ) : (
+        <div className="grid grid-cols-4 gap-1.5">
+          {skills.map((skill) => (
+            <SkillCard
+              key={skill.name}
+              skill={skill}
+              toggling={toggling === skill.name}
+              onToggle={() => handleToggle(skill)}
+              onView={() => openDetail(skill)}
+              onEdit={() => openEditor(skill)}
+              onDelete={() => setDeleteTarget(skill)}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Detail modal */}
       <Dialog open={detail !== null || detailLoading !== null} onOpenChange={(o) => (!o ? closeDetail() : undefined)}>
@@ -388,7 +331,7 @@ export function SkillsView({ onBack, token }: SkillsViewProps) {
           </DialogHeader>
           {detailLoading ? (
             <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <LoadingSpinner />
               {t("skills.loading")}
             </div>
           ) : detail ? (
@@ -452,13 +395,18 @@ export function SkillsView({ onBack, token }: SkillsViewProps) {
         </DialogContent>
       </Dialog>
 
-      <SkillDeleteConfirm
+      <ResourceDeleteConfirmDialog
         open={deleteTarget !== null}
-        skillName={deleteTarget?.name ?? ""}
+        resourceName={deleteTarget?.name ?? ""}
+        icon={Sparkles}
+        titleKey="skills.deleteDialogTitle"
+        descriptionKey="skills.deleteDescription"
+        cancelKey="skills.deleteCancel"
+        confirmKey="skills.deleteConfirm"
         onCancel={() => setDeleteTarget(null)}
         onConfirm={handleDeleteConfirm}
       />
-    </div>
+    </ViewShell>
   );
 }
 
@@ -466,7 +414,6 @@ export function SkillsView({ onBack, token }: SkillsViewProps) {
 
 function SkillCard({
   skill,
-  viewMode,
   toggling,
   onToggle,
   onView,
@@ -474,7 +421,6 @@ function SkillCard({
   onDelete,
 }: {
   skill: SkillInfo;
-  viewMode: "list" | "grid";
   toggling: boolean;
   onToggle: () => void;
   onView: () => void;
@@ -488,15 +434,11 @@ function SkillCard({
     <div
       className={cn(
         "group flex flex-col transition-colors",
-        viewMode === "grid"
-          ? "rounded-lg border px-2.5 py-2"
-          : "rounded-xl border bg-card px-3.5 py-3 shadow-sm",
+        "rounded-lg border px-2.5 py-2",
         skill.disabled
           ? "border-muted/60 bg-muted/20 opacity-70"
           : skill.available
-            ? viewMode === "grid"
-              ? "border-border/60 bg-background hover:border-violet-500/40"
-              : "border-border/60 hover:bg-accent/20"
+            ? "border-border/60 bg-background hover:border-violet-500/40"
             : "border-amber-500/30 bg-amber-500/[0.03]",
       )}
     >
@@ -569,65 +511,6 @@ function SkillCard({
         )}
       </div>
     </div>
-  );
-}
-
-const SKILL_PALETTE = [
-  "#3B82F6", // blue
-  "#8B5CF6", // violet
-  "#10B981", // emerald
-  "#F59E0B", // amber
-  "#EF4444", // red
-  "#0EA5E9", // sky
-  "#EC4899", // pink
-  "#14B8A6", // teal
-];
-
-function pickSkillColor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = (hash * 31 + name.charCodeAt(i)) | 0;
-  }
-  return SKILL_PALETTE[Math.abs(hash) % SKILL_PALETTE.length];
-}
-
-function Badge({ className, children }: { className?: string; children: React.ReactNode }) {
-  return (
-    <span
-      className={cn(
-        "rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-        className,
-      )}
-    >
-      {children}
-    </span>
-  );
-}
-
-function IconButton({
-  title,
-  onClick,
-  className,
-  children,
-}: {
-  title: string;
-  onClick: () => void;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      className={cn(
-        "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-        className,
-      )}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -726,59 +609,5 @@ function FileButton({
       <FileCode className="h-3 w-3 shrink-0" />
       <span className="truncate">{path}</span>
     </button>
-  );
-}
-
-/* ─── Skill Delete Confirm Dialog ─────────────────────────── */
-
-function SkillDeleteConfirm({
-  open,
-  skillName,
-  onCancel,
-  onConfirm,
-}: {
-  open: boolean;
-  skillName: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <AlertDialog open={open} onOpenChange={(o) => (!o ? onCancel() : undefined)}>
-      <AlertDialogContent
-        className={cn(
-          "w-[min(calc(100vw-2rem),22.75rem)] gap-0 rounded-[22px] p-5 text-center",
-          "border border-border bg-background shadow-[0_22px_70px_rgba(0,0,0,0.22)]",
-          "dark:border-white/14 dark:bg-[#2b2b2b] dark:shadow-[0_26px_90px_rgba(0,0,0,0.44)]",
-          "sm:rounded-[22px] data-[state=open]:zoom-in-95",
-        )}
-      >
-        <AlertDialogHeader className="items-center space-y-0 text-center">
-          <div className="mb-4 grid h-12 w-12 place-items-center rounded-full bg-muted">
-            <Sparkles className="h-[18px] w-[18px] text-muted-foreground" strokeWidth={2} aria-hidden />
-          </div>
-          <AlertDialogTitle className="text-center text-[14px] font-medium leading-5 text-foreground">
-            {t("skills.deleteDialogTitle", { name: skillName })}
-          </AlertDialogTitle>
-          <AlertDialogDescription className="mt-2 max-w-[17rem] text-center text-[12px] leading-4 text-muted-foreground">
-            {t("skills.deleteDescription")}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter className="mt-5 grid grid-cols-2 gap-2.5 space-x-0">
-          <AlertDialogCancel
-            onClick={onCancel}
-            className="mt-0 h-10 rounded-[11px] border-0 bg-muted px-4 text-[14px] font-medium text-foreground shadow-none hover:bg-muted/80"
-          >
-            {t("skills.deleteCancel")}
-          </AlertDialogCancel>
-          <AlertDialogAction
-            onClick={onConfirm}
-            className="h-10 rounded-[11px] bg-foreground px-4 text-[14px] font-medium text-background shadow-none hover:bg-foreground/90 dark:bg-white dark:text-black dark:hover:bg-white/90"
-          >
-            {t("skills.deleteConfirm")}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
   );
 }

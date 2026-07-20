@@ -1,22 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  Check,
-  ChevronDown,
-  ChevronRight,
-  CircleDot,
-  ExternalLink,
-  LayoutGrid,
-  List,
-  Loader2,
-  Plus,
-  PlugZap,
-  RefreshCw,
-  Trash2,
-  Upload,
-  Wrench,
-  X,
-  Zap,
-} from "lucide-react";
+import { Check, ChevronDown, Loader2, Plus, PlugZap, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -27,15 +10,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { FormField } from "@/components/ui/form-field";
+import { Input } from "@/components/ui/input";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { RefreshIconButton } from "@/components/ui/refresh-icon-button";
+import { Textarea } from "@/components/ui/textarea";
+import { ViewShell } from "@/components/ui/view-shell";
 import {
   fetchMcpPresets,
   runMcpPresetAction,
@@ -47,8 +33,11 @@ import {
   isMcpPresetsPayload,
   MCP_PRESETS_CHANGED_EVENT,
 } from "@/lib/mcp-preset-events";
-import type { McpPresetField, McpPresetInfo, McpPresetsPayload } from "@/lib/types";
+import type { McpPresetInfo, McpPresetsPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+import { PresetCard } from "./components/PresetCard";
+import { ServerCard } from "./components/ServerCard";
 
 type TransportType = "stdio" | "sse" | "streamableHttp";
 
@@ -83,20 +72,6 @@ const EMPTY_FORM: CustomServerForm = {
   enabled_tools: "*",
 };
 
-type TFunc = (key: string, options?: Record<string, unknown>) => string;
-
-function statusIcon(status: McpPresetInfo["status"]) {
-  switch (status) {
-    case "configured":
-      return <Check className="h-3.5 w-3.5 text-emerald-500" />;
-    case "missing_credentials":
-    case "missing_dependency":
-      return <X className="h-3.5 w-3.5 text-amber-500" />;
-    default:
-      return <CircleDot className="h-3.5 w-3.5 text-muted-foreground/50" />;
-  }
-}
-
 export function McpView({ onBack, token }: McpViewProps) {
   const { t } = useTranslation();
   const [payload, setPayload] = useState<McpPresetsPayload | null>(null);
@@ -116,8 +91,6 @@ export function McpView({ onBack, token }: McpViewProps) {
 
   // Active tab: "all" | "connected"
   const [activeTab, setActiveTab] = useState<"all" | "connected">("all");
-  // View mode: list (single column) | grid (4 columns)
-  const [viewMode, setViewMode] = useState<"list" | "grid">("grid");
 
   // Preset inline form state
   const [expandedPreset, setExpandedPreset] = useState<string | null>(null);
@@ -137,6 +110,8 @@ export function McpView({ onBack, token }: McpViewProps) {
     Record<string, string[]>
   >({});
   const [savingTools, setSavingTools] = useState<Record<string, boolean>>({});
+  // 每个服务保存工具失败时返回的错误信息(按 server 名存储)
+  const [toolsError, setToolsError] = useState<Record<string, string>>({});
 
   const loadPresets = async () => {
     setLoading(true);
@@ -298,7 +273,8 @@ export function McpView({ onBack, token }: McpViewProps) {
 
   const handleImport = async () => {
     if (!importText.trim()) {
-      setImportError(t("mcp.validation.invalidJsonHeaders"));
+      // 导入内容为空时给出对应提示,避免误显示"headers JSON 无效"
+      setImportError(t("mcp.validation.importEmpty"));
       return;
     }
     setImporting(true);
@@ -396,12 +372,20 @@ export function McpView({ onBack, token }: McpViewProps) {
   const handleSaveTools = async (name: string) => {
     const tools = enabledToolsCache[name] ?? [];
     setSavingTools((prev) => ({ ...prev, [name]: true }));
+    // 进入保存流程时清除上一次的错误信息
+    setToolsError((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
     try {
       const updated = await updateMcpServerTools(token, name, tools);
       setPayload(updated);
       setShowTools((prev) => ({ ...prev, [name]: false }));
-    } catch {
-      // ignore
+    } catch (e) {
+      // 记录错误并就近在工具面板提示用户,避免静默吞错
+      console.error("Failed to save MCP tools for", name, e);
+      setToolsError((prev) => ({ ...prev, [name]: (e as Error).message }));
     } finally {
       setSavingTools((prev) => ({ ...prev, [name]: false }));
     }
@@ -413,67 +397,41 @@ export function McpView({ onBack, token }: McpViewProps) {
   );
   const installed = connectedServers.filter((s) => s.status === "configured");
 
-  return (
-    <div className="flex h-full flex-col bg-background">
-      <header className="flex items-center gap-2 border-b px-4 py-3">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onBack}>
-          <ChevronRight className="h-4 w-4 rotate-180" />
-        </Button>
-        <div className="flex items-center gap-2">
-          <PlugZap className="h-4.5 w-4.5 text-foreground/80" />
-          <h1 className="text-sm font-semibold">{t("mcp.title")}</h1>
-        </div>
-        <div className="ml-auto flex items-center gap-1.5">
-          <div className="flex items-center rounded-md border bg-muted/40 p-0.5">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "h-6 w-6 rounded-sm",
-                viewMode === "list"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setViewMode("list")}
-              title={t("mcp.listView")}
-              aria-label={t("mcp.listView")}
-              aria-pressed={viewMode === "list"}
-            >
-              <List className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "h-6 w-6 rounded-sm",
-                viewMode === "grid"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setViewMode("grid")}
-              title={t("mcp.gridView")}
-              aria-label={t("mcp.gridView")}
-              aria-pressed={viewMode === "grid"}
-            >
-              <LayoutGrid className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={loadPresets}
-            disabled={loading}
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-          </Button>
-        </div>
-      </header>
+  const renderServerCard = (server: McpPresetInfo) => (
+    <ServerCard
+      key={server.name}
+      server={server}
+      acting={acting}
+      testing={testing[server.name] ?? false}
+      testResult={testResults[server.name]}
+      showTools={showTools[server.name] ?? false}
+      enabledToolsCache={enabledToolsCache[server.name] ?? null}
+      savingTools={savingTools[server.name] ?? false}
+      toolsError={toolsError[server.name] ?? null}
+      onRemove={handleRemove}
+      onTest={() => handleTest(server.name)}
+      onToggleTools={() => toggleToolsPanel(server)}
+      onToggleTool={(tool) => handleToggleTool(server.name, tool)}
+      onSelectAll={() =>
+        handleSelectAllTools(server.name, server.tool_names ?? [])
+      }
+      onClear={() => handleClearTools(server.name)}
+      onSaveTools={() => handleSaveTools(server.name)}
+    />
+  );
 
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+  return (
+    <ViewShell
+      onBack={onBack}
+      icon={<PlugZap className="h-4.5 w-4.5 text-foreground/80" />}
+      title={t("mcp.title")}
+      actions={<RefreshIconButton onClick={loadPresets} loading={loading} />}
+      bodyClassName="flex flex-col p-0"
+    >
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {loading && !payload ? (
           <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            <LoadingSpinner />
             {t("mcp.loading")}
           </div>
         ) : error ? (
@@ -527,39 +485,15 @@ export function McpView({ onBack, token }: McpViewProps) {
                     {t("mcp.noPresets")}
                   </p>
                 ) : (
-                  <div className={cn(viewMode === "grid" ? "grid grid-cols-4 gap-1.5" : "mx-auto flex w-full max-w-2xl flex-col gap-2.5")}>
+                  <div className="grid grid-cols-4 gap-1.5">
                     {allServers.map((server) => {
                       const isConnected = server.installed || server.status === "configured";
                       return isConnected ? (
-                        <ServerCard
-                          key={server.name}
-                          server={server}
-                          viewMode={viewMode}
-                          acting={acting}
-                          testing={testing[server.name] ?? false}
-                          testResult={testResults[server.name]}
-                          showTools={showTools[server.name] ?? false}
-                          enabledToolsCache={enabledToolsCache[server.name] ?? null}
-                          savingTools={savingTools[server.name] ?? false}
-                          onRemove={handleRemove}
-                          onTest={() => handleTest(server.name)}
-                          onToggleTools={() => toggleToolsPanel(server)}
-                          onToggleTool={(tool) => handleToggleTool(server.name, tool)}
-                          onSelectAll={() =>
-                            handleSelectAllTools(
-                              server.name,
-                              server.tool_names ?? [],
-                            )
-                          }
-                          onClear={() => handleClearTools(server.name)}
-                          onSaveTools={() => handleSaveTools(server.name)}
-                          t={t as TFunc}
-                        />
+                        renderServerCard(server)
                       ) : (
                         <PresetCard
                           key={server.name}
                           server={server}
-                          viewMode={viewMode}
                           expanded={expandedPreset === server.name}
                           formValues={presetFormValues[server.name] ?? {}}
                           enabling={enablingPreset === server.name}
@@ -584,7 +518,6 @@ export function McpView({ onBack, token }: McpViewProps) {
                               return next;
                             });
                           }}
-                          t={t as TFunc}
                         />
                       );
                     })}
@@ -601,186 +534,14 @@ export function McpView({ onBack, token }: McpViewProps) {
                     {t("mcp.empty")}
                   </p>
                 ) : (
-                  <div className={cn(viewMode === "grid" ? "grid grid-cols-4 gap-1.5" : "mx-auto flex w-full max-w-2xl flex-col gap-2.5")}>
-                    {connectedServers.map((server) => (
-                      <ServerCard
-                        key={server.name}
-                        server={server}
-                        viewMode={viewMode}
-                        acting={acting}
-                        testing={testing[server.name] ?? false}
-                        testResult={testResults[server.name]}
-                        showTools={showTools[server.name] ?? false}
-                        enabledToolsCache={enabledToolsCache[server.name] ?? null}
-                        savingTools={savingTools[server.name] ?? false}
-                        onRemove={handleRemove}
-                        onTest={() => handleTest(server.name)}
-                        onToggleTools={() => toggleToolsPanel(server)}
-                        onToggleTool={(tool) => handleToggleTool(server.name, tool)}
-                        onSelectAll={() =>
-                          handleSelectAllTools(
-                            server.name,
-                            server.tool_names ?? [],
-                          )
-                        }
-                        onClear={() => handleClearTools(server.name)}
-                        onSaveTools={() => handleSaveTools(server.name)}
-                        t={t as TFunc}
-                      />
-                    ))}
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {connectedServers.map((server) => renderServerCard(server))}
                   </div>
                 )}
               </div>
             )}
 
-            {/* Add custom server form */}
-            {showForm && (
-              <section className="mt-3">
-                <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  {t("mcp.addServer")}
-                </h2>
-                <div className="space-y-3 rounded-xl border border-border/50 bg-background p-3">
-                  <FormField label={t("mcp.form.name")} required>
-                    <Input
-                      placeholder={t("mcp.form.namePlaceholder")}
-                      value={form.name}
-                      onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                      className="h-8 text-[12.5px]"
-                    />
-                  </FormField>
-
-                  <FormField label={t("mcp.form.transport")} required>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className="h-8 w-full justify-between text-[12.5px] font-normal"
-                        >
-                          {form.transport}
-                          <ChevronDown className="h-3.5 w-3.5 opacity-50" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent className="min-w-[160px]">
-                        {(["stdio", "sse", "streamableHttp"] as TransportType[]).map((tp) => (
-                          <DropdownMenuItem
-                            key={tp}
-                            onClick={() => setForm((f) => ({ ...f, transport: tp }))}
-                            className="text-[12.5px]"
-                          >
-                            {tp}
-                            {form.transport === tp && <Check className="ml-auto h-3 w-3" />}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </FormField>
-
-                  {form.transport === "stdio" ? (
-                    <>
-                      <FormField label={t("mcp.form.command")} required>
-                        <Input
-                          placeholder="npx"
-                          value={form.command}
-                          onChange={(e) => setForm((f) => ({ ...f, command: e.target.value }))}
-                          className="h-8 text-[12.5px] font-mono"
-                        />
-                      </FormField>
-                      <FormField label={t("mcp.form.args")}>
-                        <Textarea
-                          placeholder='["-y", "@playwright/mcp@latest"]'
-                          value={form.args}
-                          onChange={(e) => setForm((f) => ({ ...f, args: e.target.value }))}
-                          className="min-h-[56px] text-[12px] font-mono"
-                        />
-                      </FormField>
-                      <FormField label={t("mcp.form.env")}>
-                        <Textarea
-                          placeholder='{"API_KEY": "sk-..."}'
-                          value={form.env}
-                          onChange={(e) => setForm((f) => ({ ...f, env: e.target.value }))}
-                          className="min-h-[56px] text-[12px] font-mono"
-                        />
-                      </FormField>
-                      <FormField label={t("mcp.form.cwd")}>
-                        <Input
-                          placeholder="/path/to/working/dir"
-                          value={form.cwd}
-                          onChange={(e) => setForm((f) => ({ ...f, cwd: e.target.value }))}
-                          className="h-8 text-[12.5px] font-mono"
-                        />
-                      </FormField>
-                    </>
-                  ) : (
-                    <>
-                      <FormField label={t("mcp.form.url")} required>
-                        <Input
-                          placeholder="https://example.com/mcp"
-                          value={form.url}
-                          onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
-                          className="h-8 text-[12.5px] font-mono"
-                        />
-                      </FormField>
-                      <FormField label={t("mcp.form.headers")}>
-                        <Textarea
-                          placeholder='{"Authorization": "Bearer ..."}'
-                          value={form.headers}
-                          onChange={(e) => setForm((f) => ({ ...f, headers: e.target.value }))}
-                          className="min-h-[56px] text-[12px] font-mono"
-                        />
-                      </FormField>
-                    </>
-                  )}
-
-                  <FormField label={t("mcp.form.toolTimeout")}>
-                    <Input
-                      type="number"
-                      min={5}
-                      max={600}
-                      value={form.tool_timeout}
-                      onChange={(e) => setForm((f) => ({ ...f, tool_timeout: e.target.value }))}
-                      className="h-8 w-24 text-[12.5px]"
-                    />
-                  </FormField>
-
-                  <FormField label={t("mcp.form.enabledTools")}>
-                    <Input
-                      placeholder="*"
-                      value={form.enabled_tools}
-                      onChange={(e) => setForm((f) => ({ ...f, enabled_tools: e.target.value }))}
-                      className="h-8 text-[12.5px]"
-                    />
-                  </FormField>
-
-                  {formError && (
-                    <p className="text-[11px] text-destructive">{formError}</p>
-                  )}
-
-                  <div className="flex items-center justify-end gap-2 pt-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-3 text-[11px]"
-                      onClick={() => {
-                        setShowForm(false);
-                        setForm(EMPTY_FORM);
-                        setFormError(null);
-                      }}
-                    >
-                      {t("mcp.form.cancel")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="h-7 gap-1 px-3 text-[11px]"
-                      disabled={saving}
-                      onClick={handleSaveCustom}
-                    >
-                      {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                      {t("mcp.form.save")}
-                    </Button>
-                  </div>
-                </div>
-              </section>
-            )}
+            {/* Add custom server form — moved to Dialog at end of component */}
           </div>
         )}
       </div>
@@ -856,396 +617,155 @@ export function McpView({ onBack, token }: McpViewProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
 
-function PresetCard({
-  server,
-  viewMode,
-  expanded,
-  formValues,
-  enabling,
-  error,
-  onEnable,
-  onRemove,
-  onFieldChange,
-  onCancel,
-  t,
-}: {
-  server: McpPresetInfo;
-  viewMode: "list" | "grid";
-  expanded: boolean;
-  formValues: Record<string, string>;
-  enabling: boolean;
-  error: string | null;
-  onEnable: () => void;
-  onRemove: () => void;
-  onFieldChange: (field: string, value: string) => void;
-  onCancel: () => void;
-  t: TFunc;
-}) {
-  const isConfigured = server.status === "configured";
-  const hasError =
-    server.status === "missing_credentials" || server.status === "missing_dependency";
-  const fields = server.required_fields ?? [];
-  const needsFields = fields.length > 0;
-
-  return (
-    <div
-      className={cn(
-        "group flex flex-col transition-colors",
-        viewMode === "grid"
-          ? "rounded-lg border px-2.5 py-2"
-          : "rounded-xl border bg-card px-3.5 py-3 shadow-sm",
-        hasError
-          ? "border-amber-500/40 bg-amber-500/[0.03]"
-          : isConfigured
-            ? viewMode === "grid"
-              ? "border-border bg-background hover:border-violet-500/60"
-              : "border-border hover:bg-accent/20"
-            : "border-border bg-muted/20 opacity-70 hover:opacity-100",
-      )}
-    >
-      <div className="flex items-start gap-2">
-        <div
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white"
-          style={{ backgroundColor: server.brand_color || "#6b7280" }}
-        >
-          {server.display_name.charAt(0).toUpperCase()}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1">
-            <span className="truncate text-sm font-medium leading-tight">
-              {server.display_name}
-            </span>
-            {statusIcon(server.status)}
-          </div>
-          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground/60">
-            <span className="uppercase">{server.transport}</span>
-          </div>
-        </div>
-        <ToggleSwitch
-          checked={isConfigured}
-          disabled={enabling}
-          onClick={isConfigured ? onRemove : onEnable}
-          ariaLabel={isConfigured ? t("mcp.enabled") : t("mcp.enable")}
-        />
-      </div>
-
-      <p className="mt-1.5 line-clamp-2 text-xs leading-snug text-muted-foreground">
-        {server.description}
-      </p>
-
-      {expanded && needsFields && (
-        <div className="mt-2 space-y-2 rounded-md border border-border/40 bg-muted/20 p-2">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
-            {t("mcp.presetFields")}
-          </p>
-          {fields.map((field: McpPresetField) => (
-            <div key={field.name} className="space-y-1">
-              <label className="text-[11px] font-medium text-muted-foreground/80">
-                {field.label}
-                {field.required && <span className="ml-0.5 text-destructive">*</span>}
-              </label>
+      {/* 添加自定义 MCP 服务弹窗（与 SkillsView 编辑弹窗样式一致） */}
+      <Dialog open={showForm} onOpenChange={(o) => setShowForm(o)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-sm">{t("mcp.addServer")}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <FormField label={t("mcp.form.name")} required>
               <Input
-                type={field.secret ? "password" : "text"}
-                placeholder={field.placeholder ?? ""}
-                value={formValues[field.name] ?? ""}
-                onChange={(e) => onFieldChange(field.name, e.target.value)}
-                className="h-6 text-[11px]"
+                placeholder={t("mcp.form.namePlaceholder")}
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                className="h-8 text-[12.5px]"
               />
-            </div>
-          ))}
-          {server.note && (
-            <p className="text-[10px] text-muted-foreground/60">
-              <span className="font-medium">{t("mcp.note")}: </span>
-              {server.note}
-            </p>
-          )}
-          {error && (
-            <p className="text-[11px] text-destructive">{error}</p>
-          )}
-          <div className="flex items-center justify-end gap-2 pt-1">
+            </FormField>
+
+            <FormField label={t("mcp.form.transport")} required>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="h-8 w-full justify-between text-[12.5px] font-normal"
+                  >
+                    {form.transport}
+                    <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="min-w-[160px]">
+                  {(["stdio", "sse", "streamableHttp"] as TransportType[]).map((tp) => (
+                    <DropdownMenuItem
+                      key={tp}
+                      onClick={() => setForm((f) => ({ ...f, transport: tp }))}
+                      className="text-[12.5px]"
+                    >
+                      {tp}
+                      {form.transport === tp && <Check className="ml-auto h-3 w-3" />}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </FormField>
+
+            {form.transport === "stdio" ? (
+              <>
+                <FormField label={t("mcp.form.command")} required>
+                  <Input
+                    placeholder="npx"
+                    value={form.command}
+                    onChange={(e) => setForm((f) => ({ ...f, command: e.target.value }))}
+                    className="h-8 text-[12.5px] font-mono"
+                  />
+                </FormField>
+                <FormField label={t("mcp.form.args")}>
+                  <Textarea
+                    placeholder='["-y", "@playwright/mcp@latest"]'
+                    value={form.args}
+                    onChange={(e) => setForm((f) => ({ ...f, args: e.target.value }))}
+                    className="min-h-[56px] text-[12px] font-mono"
+                  />
+                </FormField>
+                <FormField label={t("mcp.form.env")}>
+                  <Textarea
+                    placeholder='{"API_KEY": "sk-..."}'
+                    value={form.env}
+                    onChange={(e) => setForm((f) => ({ ...f, env: e.target.value }))}
+                    className="min-h-[56px] text-[12px] font-mono"
+                  />
+                </FormField>
+                <FormField label={t("mcp.form.cwd")}>
+                  <Input
+                    placeholder="/path/to/working/dir"
+                    value={form.cwd}
+                    onChange={(e) => setForm((f) => ({ ...f, cwd: e.target.value }))}
+                    className="h-8 text-[12.5px] font-mono"
+                  />
+                </FormField>
+              </>
+            ) : (
+              <>
+                <FormField label={t("mcp.form.url")} required>
+                  <Input
+                    placeholder="https://example.com/mcp"
+                    value={form.url}
+                    onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
+                    className="h-8 text-[12.5px] font-mono"
+                  />
+                </FormField>
+                <FormField label={t("mcp.form.headers")}>
+                  <Textarea
+                    placeholder='{"Authorization": "Bearer ..."}'
+                    value={form.headers}
+                    onChange={(e) => setForm((f) => ({ ...f, headers: e.target.value }))}
+                    className="min-h-[56px] text-[12px] font-mono"
+                  />
+                </FormField>
+              </>
+            )}
+
+            <FormField label={t("mcp.form.toolTimeout")}>
+              <Input
+                type="number"
+                min={5}
+                max={600}
+                value={form.tool_timeout}
+                onChange={(e) => setForm((f) => ({ ...f, tool_timeout: e.target.value }))}
+                className="h-8 w-24 text-[12.5px]"
+              />
+            </FormField>
+
+            <FormField label={t("mcp.form.enabledTools")}>
+              <Input
+                placeholder="*"
+                value={form.enabled_tools}
+                onChange={(e) => setForm((f) => ({ ...f, enabled_tools: e.target.value }))}
+                className="h-8 text-[12.5px]"
+              />
+            </FormField>
+
+            {formError && (
+              <p className="text-[11px] text-destructive">{formError}</p>
+            )}
+          </div>
+
+          <DialogFooter>
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 px-2.5 text-[11px]"
-              onClick={onCancel}
+              className="h-8"
+              onClick={() => {
+                setShowForm(false);
+                setForm(EMPTY_FORM);
+                setFormError(null);
+              }}
             >
               {t("mcp.form.cancel")}
             </Button>
             <Button
               size="sm"
-              className="h-6 gap-1 px-2.5 text-[11px]"
-              disabled={enabling}
-              onClick={onEnable}
+              className="h-8 gap-1.5"
+              disabled={saving}
+              onClick={handleSaveCustom}
             >
-              {enabling ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
               {t("mcp.form.save")}
             </Button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ServerCard({
-  server,
-  viewMode,
-  acting,
-  testing,
-  testResult,
-  showTools,
-  enabledToolsCache,
-  savingTools,
-  onRemove,
-  onTest,
-  onToggleTools,
-  onToggleTool,
-  onSelectAll,
-  onClear,
-  onSaveTools,
-  t,
-}: {
-  server: McpPresetInfo;
-  viewMode: "list" | "grid";
-  acting: string | null;
-  testing: boolean;
-  testResult?: { ok: boolean; message: string; toolCount?: number };
-  showTools: boolean;
-  enabledToolsCache: string[] | null;
-  savingTools: boolean;
-  onRemove: (name: string) => void;
-  onTest: () => void;
-  onToggleTools: () => void;
-  onToggleTool: (tool: string) => void;
-  onSelectAll: () => void;
-  onClear: () => void;
-  onSaveTools: () => void;
-  t: TFunc;
-}) {
-  const isActing = acting === server.name;
-  const isConfigured = server.status === "configured";
-  const toolNames = server.tool_names ?? [];
-  const hasTools = toolNames.length > 0;
-  const selected = enabledToolsCache ?? [];
-  const docsUrl = server.docs_url;
-
-  return (
-    <div
-      className={cn(
-        "group flex flex-col transition-colors",
-        viewMode === "grid"
-          ? "rounded-lg border px-2.5 py-2"
-          : "rounded-xl border bg-card px-3.5 py-3 shadow-sm",
-        isConfigured
-          ? viewMode === "grid"
-            ? "border-border bg-background hover:border-violet-500/60"
-            : "border-border hover:bg-accent/20"
-          : "border-amber-500/40 bg-amber-500/[0.03]",
-      )}
-    >
-      {/* Header: icon + name + status + toggle */}
-      <div className="flex items-start gap-2">
-        <div
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white"
-          style={{ backgroundColor: server.brand_color || "#6b7280" }}
-        >
-          {server.display_name.charAt(0).toUpperCase()}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1">
-            <span className="truncate text-sm font-medium leading-tight">
-              {server.display_name}
-            </span>
-            {statusIcon(server.status)}
-          </div>
-          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground/60">
-            <span className="uppercase">{server.transport}</span>
-            {server.tool_count != null && server.tool_count > 0 && (
-              <>
-                <span>·</span>
-                <span>{server.tool_count} {t("mcp.tools")}</span>
-              </>
-            )}
-          </div>
-        </div>
-        <ToggleSwitch
-          checked={isConfigured}
-          disabled={isActing}
-          onClick={() => onRemove(server.name)}
-          ariaLabel={t("mcp.enabled")}
-        />
-      </div>
-
-      {/* Body: description */}
-      <p className="mt-1.5 line-clamp-2 text-xs leading-snug text-muted-foreground">
-        {server.connection_summary || server.description}
-      </p>
-
-      {/* Test result */}
-      {testResult && (
-        <div
-          className={cn(
-            "mt-1.5 rounded px-1.5 py-1 text-[10px]",
-            testResult.ok
-              ? "bg-violet-500/10 text-violet-600"
-              : "bg-destructive/10 text-destructive",
-          )}
-        >
-          {testResult.message}
-        </div>
-      )}
-
-      {/* Tools panel */}
-      {showTools && (
-        <div className="mt-2 rounded-md border border-border/40 bg-muted/20 p-2">
-          <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
-              {t("mcp.toolList")}
-            </span>
-            {hasTools && (
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-5 px-1.5 text-[10px] text-muted-foreground/70"
-                  onClick={onSelectAll}
-                >
-                  {t("mcp.selectAll")}
-                </Button>
-                <span className="text-muted-foreground/30">·</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-5 px-1.5 text-[10px] text-muted-foreground/70"
-                  onClick={onClear}
-                >
-                  {t("mcp.clearAll")}
-                </Button>
-              </div>
-            )}
-          </div>
-          {!hasTools ? (
-            <p className="py-1.5 text-center text-[10px] text-muted-foreground/60">
-              {t("mcp.noTools")}
-            </p>
-          ) : (
-            <>
-              <div className="max-h-32 space-y-0.5 overflow-y-auto pr-1">
-                {toolNames.map((tool) => (
-                  <div
-                    key={tool}
-                    className="flex cursor-pointer items-center justify-between gap-1.5 rounded px-1 py-0.5 hover:bg-accent/30"
-                  >
-                    <span className="truncate text-[10px]">{tool}</span>
-                    <ToggleSwitch
-                      checked={selected.includes(tool)}
-                      onClick={() => onToggleTool(tool)}
-                      ariaLabel={tool}
-                    />
-                  </div>
-                ))}
-              </div>
-              <div className="mt-2 flex items-center justify-end border-t border-border/40 pt-1.5">
-                <Button
-                  size="sm"
-                  className="h-6 gap-1 px-2.5 text-[11px]"
-                  disabled={savingTools}
-                  onClick={onSaveTools}
-                >
-                  {savingTools ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Check className="h-3 w-3" />
-                  )}
-                  {t("mcp.saveTools")}
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Footer: actions */}
-      <div className="mt-2 flex items-center justify-between border-t border-border/40 pt-1.5">
-        <div className="flex items-center gap-0">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-muted-foreground/60 hover:text-violet-600 hover:bg-violet-500/10"
-            disabled={testing}
-            onClick={onTest}
-            title={t("mcp.test")}
-          >
-            {testing ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Zap className="h-3 w-3" />
-            )}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-muted-foreground/60 hover:text-sky-600 hover:bg-sky-500/10"
-            onClick={onToggleTools}
-            title={t("mcp.toolsManage")}
-          >
-            <Wrench className="h-3 w-3" />
-          </Button>
-          {docsUrl && (
-            <a
-              href={docsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => {
-                e.preventDefault();
-                window.open(docsUrl, "_blank", "noopener,noreferrer");
-              }}
-              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/50 hover:bg-accent/40 hover:text-foreground"
-              title={docsUrl}
-            >
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          )}
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6 text-muted-foreground/60 hover:text-red-600 hover:bg-red-500/10"
-          disabled={isActing}
-          onClick={() => onRemove(server.name)}
-          title="delete"
-        >
-          {isActing ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <Trash2 className="h-3 w-3" />
-          )}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function FormField({
-  label,
-  required,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1">
-      <label className="text-[11px] font-medium text-muted-foreground/80">
-        {label}
-        {required && <span className="ml-0.5 text-destructive">*</span>}
-      </label>
-      {children}
-    </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </ViewShell>
   );
 }

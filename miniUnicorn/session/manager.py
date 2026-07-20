@@ -623,6 +623,44 @@ class SessionManager:
             logger.warning("Failed to delete session file {}: {}", path, e)
             return False
 
+    def rewind_to_user_message(self, key: str, user_message_index: int) -> int:
+        """Truncate session messages to remove the N-th user message and everything after.
+
+        Args:
+            key: Session key (e.g., ``websocket:<chat_id>``).
+            user_message_index: 0-based index of the user message to rewind from.
+                Pass ``0`` to clear all messages.
+
+        Returns:
+            The number of messages removed. Returns ``0`` when the target user
+            message cannot be located.
+        """
+        if user_message_index < 0:
+            return 0
+        session = self.get_or_create(key)
+        if not session.messages:
+            return 0
+        user_count = 0
+        cutoff = len(session.messages)
+        for i, msg in enumerate(session.messages):
+            if msg.get("role") == "user":
+                if user_count == user_message_index:
+                    cutoff = i
+                    break
+                user_count += 1
+        if cutoff >= len(session.messages):
+            return 0
+        removed = len(session.messages) - cutoff
+        session.messages = session.messages[:cutoff]
+        # Keep last_consolidated within bounds — consolidated entries are
+        # referenced by index relative to session.messages. If a rewind removes
+        # consolidated content, reset the pointer so history replay starts fresh.
+        if session.last_consolidated > len(session.messages):
+            session.last_consolidated = len(session.messages)
+        session.updated_at = datetime.now()
+        self.save(session)
+        return removed
+
     def read_session_file(self, key: str) -> dict[str, Any] | None:
         """Load a session from disk without caching; intended for read-only HTTP endpoints.
 

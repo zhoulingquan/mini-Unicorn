@@ -27,6 +27,12 @@ class WebUIChannelsError(ValueError):
 
 QueryParams = dict[str, list[str]]
 
+# ChannelsConfig 中显式声明的内置频道字段（QwenPaw-style）。
+# 其余频道（插件）通过 pydantic extra="allow" 存放。
+_BUILTIN_CHANNEL_FIELDS = frozenset({
+    "feishu", "dingtalk", "qq", "wecom", "weixin", "websocket",
+})
+
 
 def _query_first(query: QueryParams, key: str) -> str | None:
     values = query.get(key)
@@ -36,6 +42,58 @@ def _query_first(query: QueryParams, key: str) -> str | None:
 def _query_first_alias(query: QueryParams, snake: str, camel: str) -> str | None:
     value = _query_first(query, snake)
     return _query_first(query, camel) if value is None else value
+
+
+def _get_channel_section(cfg: ChannelsConfig, name: str) -> dict[str, Any] | None:
+    """读取某个 channel 的配置 dict（先看显式字段，再看 extras）。"""
+    if name in _BUILTIN_CHANNEL_FIELDS:
+        section = getattr(cfg, name, None)
+    else:
+        extras = getattr(cfg, "__pydantic_extra__", None) or {}
+        section = extras.get(name)
+    if section is None:
+        return None
+    if isinstance(section, dict):
+        return section
+    # pydantic 对象 → dump
+    model_dump = getattr(section, "model_dump", None)
+    if callable(model_dump):
+        return model_dump(by_alias=True)
+    return None
+
+
+def _set_channel_section(cfg: ChannelsConfig, name: str, value: dict[str, Any]) -> None:
+    """写入 channel 配置（自动路由到显式字段或 extras）。"""
+    if name in _BUILTIN_CHANNEL_FIELDS:
+        setattr(cfg, name, value)
+    else:
+        extras = getattr(cfg, "__pydantic_extra__", None)
+        if extras is None:
+            raise WebUIChannelsError("channels config does not accept extra fields")
+        extras[name] = value
+
+
+def _remove_channel_section(cfg: ChannelsConfig, name: str) -> bool:
+    """移除 channel 配置；返回是否曾存在。"""
+    if name in _BUILTIN_CHANNEL_FIELDS:
+        current = getattr(cfg, name, None)
+        if current is None:
+            return False
+        setattr(cfg, name, None)
+        return True
+    extras = getattr(cfg, "__pydantic_extra__", None) or {}
+    if name not in extras:
+        return False
+    extras.pop(name, None)
+    return True
+
+
+def _channel_is_configured(cfg: ChannelsConfig, name: str) -> bool:
+    """判断 channel 是否已在 config 中显式配置（启用）。"""
+    if name in _BUILTIN_CHANNEL_FIELDS:
+        return getattr(cfg, name, None) is not None
+    extras = getattr(cfg, "__pydantic_extra__", None) or {}
+    return name in extras
 
 
 # 字段名包含这些关键字时，前端渲染为 password 输入框
@@ -183,8 +241,18 @@ def list_channels() -> dict[str, Any]:
     通过 ``discover_all()`` 枚举内置 + 插件 channel，再从
     ``config.channels`` 读取每个 channel 的当前配置 dict。
     未在 config 中显式配置的 channel 返回 ``config: null``。
+
+    QwenPaw-style：返回项含 ``is_builtin`` 字段供前端区分内置频道与
+    插件频道，用于两段式布局（已启用/可用频道）和筛选 tabs。
+
+    ``qr_login_supported`` 标记该频道是否支持 WebUI 扫码登录（参考
+    QwenPaw QrcodeAuthBlock）。判定方式：在
+    ``miniUnicorn.webui.qrcode_auth_handler.QRCODE_AUTH_HANDLERS`` 注册表
+    中存在对应 handler 的频道即支持。所有 handler 都是无状态纯函数，
+    不依赖 channel 实例。
     """
     from miniUnicorn.channels.registry import discover_all
+    from miniUnicorn.webui.qrcode_auth_handler import QRCODE_AUTH_HANDLERS
 
     try:
         available = discover_all()
@@ -193,8 +261,9 @@ def list_channels() -> dict[str, Any]:
 
     config = load_config()
     channels_cfg: ChannelsConfig = config.channels
-    # ChannelsConfig 使用 extra="allow" 接受任意 channel 字段
-    extras = getattr(channels_cfg, "__pydantic_extra__", {}) or {}
+
+    # 支持扫码登录的频道集合 = 已注册 handler 的频道（feishu/weixin/wecom/dingtalk/qq）
+    _QR_LOGIN_SUPPORTED = frozenset(QRCODE_AUTH_HANDLERS.keys())
 
     items: list[dict[str, Any]] = []
     for name in sorted(available.keys()):
@@ -204,18 +273,9 @@ def list_channels() -> dict[str, Any]:
             continue
         cls = available[name]
         meta = _channel_class_meta(cls)
-        # 读取当前配置（可能为 dict 或 pydantic 对象）
-        current = extras.get(name)
-        if current is None:
-            current = getattr(channels_cfg, name, None)
-        if current is None:
-            config_dict: dict[str, Any] | None = None
-        elif isinstance(current, dict):
-            config_dict = current
-        else:
-            # pydantic 对象 → dump
-            model_dump = getattr(current, "model_dump", None)
-            config_dict = model_dump(by_alias=True) if callable(model_dump) else None
+        config_dict = _get_channel_section(channels_cfg, name)
+        # 内置频道 = ChannelsConfig 中显式声明的字段；其余为插件频道
+        is_builtin = name in _BUILTIN_CHANNEL_FIELDS
 
         items.append({
             "name": name,
@@ -224,8 +284,10 @@ def list_channels() -> dict[str, Any]:
             "default_config": meta["default_config"],
             "config_schema": meta["config_schema"],
             "configured": config_dict is not None,
-            "enabled": name in (config.channels.__pydantic_extra__ or {}) or hasattr(channels_cfg, name),
+            "enabled": _channel_is_configured(channels_cfg, name),
             "config": config_dict,
+            "is_builtin": is_builtin,
+            "qr_login_supported": name in _QR_LOGIN_SUPPORTED,
         })
 
     # 顶层 ChannelsConfig 公共字段
@@ -266,10 +328,6 @@ def update_channel_config(query: QueryParams) -> dict[str, Any]:
 
     config = load_config()
     channels_cfg: ChannelsConfig = config.channels
-    extras = getattr(channels_cfg, "__pydantic_extra__", None)
-    if extras is None:
-        # ChannelsConfig 未开启 extra="allow" 的兜底（不应发生）
-        raise WebUIChannelsError("channels config does not accept extra fields")
 
     if config_json is not None:
         import json
@@ -280,11 +338,10 @@ def update_channel_config(query: QueryParams) -> dict[str, Any]:
             raise WebUIChannelsError(f"invalid config JSON: {e}") from None
         if not isinstance(parsed, dict):
             raise WebUIChannelsError("config must be a JSON object")
-        extras[name] = parsed
-    elif name not in extras:
+        _set_channel_section(channels_cfg, name, parsed)
+    elif not _channel_is_configured(channels_cfg, name):
         # 未配置该 channel 且未显式提交 config 时，使用 channel 类的 default_config()
         # 作为兜底，使 toggle 可以直接启用未配置的 channel。
-        # 参考 nanobot：每个 Channel 类有 default_config() classmethod 返回完整字段。
         from miniUnicorn.channels.registry import discover_all
 
         try:
@@ -307,17 +364,17 @@ def update_channel_config(query: QueryParams) -> dict[str, Any]:
             raise WebUIChannelsError(
                 f"channel '{name}' default_config returned non-dict value"
             )
-        extras[name] = defaults
+        _set_channel_section(channels_cfg, name, defaults)
 
     enabled_raw = _query_first(query, "enabled")
     if enabled_raw is not None:
-        # enabled=false 时从 extras 中移除该 channel 配置
+        # enabled=false 时移除该 channel 配置
         if enabled_raw.strip().lower() in {"false", "0", "no", "off"}:
-            extras.pop(name, None)
-        # enabled=true 时，extras 中应已存在 config（由上方 config_json 或 default_config 写入）
-        elif name not in extras:
+            _remove_channel_section(channels_cfg, name)
+        # enabled=true 时，section 中应已存在 config（由上方 config_json 或 default_config 写入）
+        elif not _channel_is_configured(channels_cfg, name):
             # 兜底：使用空 dict，确保后续 save 不丢失 enabled 标志
-            extras[name] = {}
+            _set_channel_section(channels_cfg, name, {})
 
     try:
         save_config(config)
@@ -327,8 +384,8 @@ def update_channel_config(query: QueryParams) -> dict[str, Any]:
     return {
         "ok": True,
         "name": name,
-        "enabled": name in extras,
-        "config": extras.get(name),
+        "enabled": _channel_is_configured(channels_cfg, name),
+        "config": _get_channel_section(channels_cfg, name),
     }
 
 
@@ -344,15 +401,225 @@ def delete_channel_config(query: QueryParams) -> dict[str, Any]:
 
     config = load_config()
     channels_cfg: ChannelsConfig = config.channels
-    extras = getattr(channels_cfg, "__pydantic_extra__", {}) or {}
 
-    if name not in extras:
+    if not _remove_channel_section(channels_cfg, name):
         raise WebUIChannelsError(f"channel '{name}' is not configured", status=404)
 
-    extras.pop(name, None)
     try:
         save_config(config)
     except Exception as e:
         raise WebUIChannelsError(f"failed to save config: {e}") from e
 
     return {"ok": True, "name": name}
+
+
+# ---------------------------------------------------------------------------
+# QR 扫码登录（参考 QwenPaw QrcodeAuthBlock，统一走 QRCODE_AUTH_HANDLERS）
+# ---------------------------------------------------------------------------
+
+
+def _run_async(coro):
+    """在同步 WebUI API 中驱动 async handler 协程到完成。
+
+    ``channels_api`` 暴露的是同步函数（被 websocket channel 的同步路由
+    handler 调用），而 QwenPaw 风格的 handler 都是 ``async`` 的。
+
+    gateway 主线程通常已经有一个运行中的 asyncio loop（websocket channel
+    的 dispatcher），直接调 ``loop.run_until_complete`` 会抛
+    ``RuntimeError: This event loop is already running``。因此在独立线程
+    中创建新 loop 运行协程，彻底避开主 loop 冲突。
+    """
+    import asyncio
+    import threading
+    from concurrent.futures import Future
+
+    result: "Future[Any]" = Future()
+
+    def _runner() -> None:
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            value = loop.run_until_complete(coro)
+            result.set_result(value)
+        except BaseException as exc:  # noqa: BLE001 - 透传给调用方
+            result.set_exception(exc)
+        finally:
+            try:
+                loop.close()
+            finally:
+                asyncio.set_event_loop(None)
+
+    worker = threading.Thread(target=_runner, daemon=True)
+    worker.start()
+    worker.join()
+    return result.result()
+
+
+def _persist_qr_credentials(name: str, credentials: dict[str, Any]) -> dict[str, Any]:
+    """把 handler 返回的 credentials 持久化到 config.channels.<name>。
+
+    保留每个频道已有的 config 字段（如 base_url/domain/allow_from），
+    仅用 credentials 中的字段覆盖同名键，并标记 ``enabled=True``。
+
+    对 feishu 频道，仍调用 ``save_registration_result`` 以走完整的实例
+    合并逻辑（多实例支持 + identityKey 维护），不直接覆盖 section。
+    """
+    if name == "feishu":
+        from miniUnicorn.channels.feishu.channel import (
+            DEFAULT_INSTANCE_ID,
+            save_registration_result,
+        )
+
+        save_registration_result(
+            {
+                "app_id": credentials.get("app_id", ""),
+                "app_secret": credentials.get("app_secret", ""),
+                "domain": credentials.get("domain", "feishu"),
+            },
+            instance_id=DEFAULT_INSTANCE_ID,
+        )
+    else:
+        config = load_config()
+        channels_cfg: ChannelsConfig = config.channels
+        current = _get_channel_section(channels_cfg, name) or {}
+        if not isinstance(current, dict):
+            current = {}
+        # 合并：保留已有字段，用 credentials 覆盖同名键
+        merged = {**current, **credentials, "enabled": True}
+        _set_channel_section(channels_cfg, name, merged)
+        try:
+            save_config(config)
+        except Exception as e:
+            raise WebUIChannelsError(f"failed to save credentials: {e}") from e
+
+    # 重新读取已保存的 config 返回给前端
+    cfg = load_config()
+    return _get_channel_section(cfg.channels, name) or {}
+
+
+def begin_channel_qr_login(query: QueryParams) -> dict[str, Any]:
+    """启动某个 channel 的扫码登录流程。
+
+    参数：
+      - ``name``: channel 名称（必填，必须在 ``QRCODE_AUTH_HANDLERS`` 中注册）
+      - ``domain``: 可选，feishu/lark，仅 feishu handler 使用
+      - ``base_url``: 可选，weixin 自定义 iLink 服务地址
+
+    返回：
+      - ``qrcode_image``: base64 PNG 二维码图片（前端直接 ``<img src="data:image/png;base64,...">``）
+      - ``scan_url``: 原始扫码 URL（备用，前端一般用 ``qrcode_image``）
+      - ``poll_token``: 轮询扫码状态所需的 token
+      - ``interval``: 轮询间隔（秒）
+      - ``expires_in``: 二维码有效期（秒）
+    """
+    import time
+
+    name = (_query_first(query, "name") or "").strip().lower()
+    if not name:
+        raise WebUIChannelsError("name is required")
+
+    from miniUnicorn.webui.qrcode_auth_handler import (
+        generate_qrcode_image,
+        get_qr_handler,
+    )
+
+    handler = get_qr_handler(name)
+    if handler is None:
+        raise WebUIChannelsError(
+            f"channel '{name}' does not support QR login via WebUI",
+            status=400,
+        )
+
+    try:
+        result = _run_async(handler.fetch_qrcode(query))
+    except WebUIChannelsError:
+        raise
+    except Exception as e:
+        raise WebUIChannelsError(f"failed to start QR login: {e}") from e
+
+    try:
+        qrcode_image = generate_qrcode_image(result.scan_url)
+    except Exception as e:
+        raise WebUIChannelsError(f"failed to generate QR image: {e}") from e
+
+    return {
+        "qrcode_image": qrcode_image,
+        "scan_url": result.scan_url,
+        "poll_token": result.poll_token,
+        "interval": result.interval,
+        "expires_in": result.expires_in,
+        "started_at": time.time(),
+    }
+
+
+def poll_channel_qr_status(query: QueryParams) -> dict[str, Any]:
+    """轮询扫码登录状态。
+
+    参数：
+      - ``name``: channel 名称（必填）
+      - ``poll_token``: 由 ``begin_channel_qr_login`` 返回的 token
+      - ``domain``: 可选，feishu/lark
+
+    返回：
+      - ``status``: ``pending`` / ``succeeded`` / ``failed`` / ``expired``
+      - ``error``: 失败原因（status=failed 或 expired 时）
+      - ``config``: 成功时返回已写入 config 的 channel 配置 dict（status=succeeded 时）
+
+    成功时自动持久化凭证到 ``config.json``，并标记频道为已配置（enabled=True）。
+    二维码过期（status=expired）时前端应重新调用 ``begin_channel_qr_login``。
+    """
+    name = (_query_first(query, "name") or "").strip().lower()
+    if not name:
+        raise WebUIChannelsError("name is required")
+
+    from miniUnicorn.webui.qrcode_auth_handler import get_qr_handler
+
+    handler = get_qr_handler(name)
+    if handler is None:
+        raise WebUIChannelsError(
+            f"channel '{name}' does not support QR login via WebUI",
+            status=400,
+        )
+
+    poll_token = (_query_first(query, "poll_token") or "").strip()
+    # 兼容老前端用 device_code 参数名调用
+    if not poll_token:
+        poll_token = (_query_first(query, "device_code") or "").strip()
+    if not poll_token:
+        raise WebUIChannelsError("poll_token is required")
+
+    try:
+        res = _run_async(handler.poll_status(poll_token, query))
+    except WebUIChannelsError:
+        raise
+    except Exception as e:
+        raise WebUIChannelsError(f"failed to poll QR status: {e}") from e
+
+    status_raw = res.status
+    if status_raw == "success":
+        try:
+            saved = _persist_qr_credentials(name, res.credentials)
+        except WebUIChannelsError:
+            raise
+        except Exception as e:
+            raise WebUIChannelsError(
+                f"login succeeded but failed to save credentials: {e}"
+            ) from e
+        return {
+            "status": "succeeded",
+            "config": saved,
+        }
+
+    if status_raw == "expired":
+        return {
+            "status": "expired",
+            "error": res.credentials.get("fail_reason", "qr_code_expired"),
+        }
+
+    if status_raw == "fail":
+        return {
+            "status": "failed",
+            "error": res.credentials.get("fail_reason", "authorization_failed"),
+        }
+
+    return {"status": "pending"}

@@ -7,13 +7,26 @@ from typing import Any
 
 from miniUnicorn.config.schema import ModelPresetConfig
 from miniUnicorn.providers.base import LLMProvider
-from miniUnicorn.providers.factory import ProviderSnapshot, build_provider_snapshot
+from miniUnicorn.providers.factory import ProviderSignature, ProviderSnapshot, build_provider_snapshot
 
 PresetSnapshotLoader = Callable[[str], ProviderSnapshot]
 
 
-def default_selection_signature(signature: tuple[object, ...] | None) -> tuple[object, ...] | None:
-    return signature[:2] if signature else None
+def default_selection_signature(
+    signature: ProviderSignature | tuple[object, ...] | None,
+) -> tuple[object, ...] | None:
+    """提取“默认选择”的标识键。
+
+    - 对于 ``ProviderSignature``(由 ``provider_signature`` 产出),取 ``(model, provider)``;
+    - 对于 preset 快照短元组 ``("model_preset", name, json)``,取前两元素作为 preset 标识;
+    - ``None`` 时返回 ``None``。
+    """
+    if signature is None:
+        return None
+    if isinstance(signature, ProviderSignature):
+        return (signature.model, signature.provider)
+    # preset 快照仍以短元组形式存储,沿用切片语义。
+    return signature[:2]
 
 
 def configured_model_presets(config: Any) -> dict[str, ModelPresetConfig]:

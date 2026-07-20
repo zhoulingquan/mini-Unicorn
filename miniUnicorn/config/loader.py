@@ -88,8 +88,15 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
 
     data = config.model_dump(mode="json", by_alias=True)
 
+    # 不在 open 中使用 mode 参数(跨平台兼容),写完后单独 chmod 限制为仅文件所有者可读写
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+
+    # 限制文件权限为 0600(仅所有者可读写),Windows 等不支持的平台失败时仅记录 warning
+    try:
+        path.chmod(0o600)
+    except OSError as exc:
+        logger.warning("无法设置配置文件 {} 的权限为 0o600: {}", path, exc)
 
 
 _ENV_REF_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")

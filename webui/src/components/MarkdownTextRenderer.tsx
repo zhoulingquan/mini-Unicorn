@@ -5,6 +5,7 @@ import rehypeKatex from "rehype-katex";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { useTranslation } from "react-i18next";
 
 import { CodeBlock } from "@/components/CodeBlock";
 import { FileReferenceChip, isLikelyFilePath } from "@/components/FileReferenceChip";
@@ -31,6 +32,7 @@ export default function MarkdownTextRenderer({
   className,
   highlightCode = true,
 }: MarkdownTextRendererProps) {
+  const { t } = useTranslation();
   const components = useMemo<Components>(
     () => ({
       code({ className: cls, children: kids, ...props }) {
@@ -128,7 +130,7 @@ export default function MarkdownTextRenderer({
                 controls
                 preload="metadata"
                 className="block max-h-[26rem] max-w-full bg-black"
-                aria-label={label ? `Video attachment: ${label}` : "Video attachment"}
+                aria-label={label ? `${t("message.videoAttachment", { defaultValue: "Video attachment" })}: ${label}` : t("message.videoAttachment", { defaultValue: "Video attachment" })}
               />
               {label ? (
                 <span className="block max-w-full truncate px-3 py-2 text-xs text-muted-foreground">
@@ -150,7 +152,7 @@ export default function MarkdownTextRenderer({
               target="_blank"
               rel="noreferrer noopener"
               className="block bg-muted/20"
-              aria-label={label ? `Open ${label}` : "Open image"}
+              aria-label={label ? `${t("message.openImage", { defaultValue: "Open image" })}: ${label}` : t("message.openImage", { defaultValue: "Open image" })}
             >
               <img
                 src={source}
@@ -174,7 +176,7 @@ export default function MarkdownTextRenderer({
         );
       },
     }),
-    [highlightCode],
+    [highlightCode, t],
   );
 
   return (

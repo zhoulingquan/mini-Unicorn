@@ -17,6 +17,9 @@ def _bwrap(command: str, workspace: str, cwd: str) -> str:
     Only the workspace is bind-mounted read-write; its parent dir (which holds
     config.json) is hidden behind a fresh tmpfs.  The media directory is
     bind-mounted read-only so exec commands can read uploaded attachments.
+
+    注意:当前 bwrap 仅做文件系统隔离,未使用 ``--unshare-net``,沙箱内仍可
+    访问公网;生产环境如需网络隔离应配合外部防火墙。
     """
     ws = Path(workspace).resolve()
     media = get_media_dir().resolve()

@@ -798,14 +798,14 @@ async def test_send_typing_uses_keepalive_until_send_finishes() -> None:
 
     channel._send_text = AsyncMock(side_effect=_slow_send_text)
 
-    old_interval = weixin_mod.TYPING_KEEPALIVE_INTERVAL_S
-    weixin_mod.TYPING_KEEPALIVE_INTERVAL_S = 0.01
+    old_interval = weixin_mod.channel.TYPING_KEEPALIVE_INTERVAL_S
+    weixin_mod.channel.TYPING_KEEPALIVE_INTERVAL_S = 0.01
     try:
         await channel.send(
             type("Msg", (), {"chat_id": "wx-user", "content": "pong", "media": [], "metadata": {}})()
         )
     finally:
-        weixin_mod.TYPING_KEEPALIVE_INTERVAL_S = old_interval
+        weixin_mod.channel.TYPING_KEEPALIVE_INTERVAL_S = old_interval
 
     assert typing_statuses.count(1) >= 2
     assert typing_statuses[-1] == 2
@@ -818,8 +818,8 @@ async def test_get_typing_ticket_failure_uses_backoff_and_cached_ticket(monkeypa
     channel._token = "token"
 
     now = {"value": 1000.0}
-    monkeypatch.setattr(weixin_mod.time, "time", lambda: now["value"])
-    monkeypatch.setattr(weixin_mod.random, "random", lambda: 0.5)
+    monkeypatch.setattr(weixin_mod.channel.time, "time", lambda: now["value"])
+    monkeypatch.setattr(weixin_mod.channel.random, "random", lambda: 0.5)
 
     channel._api_post = AsyncMock(return_value={"ret": 0, "typing_ticket": "ticket-ok"})
     first = await channel._get_typing_ticket("wx-user", "ctx-1")
@@ -935,7 +935,7 @@ class _DummyErrorDownloadResponse(_DummyDownloadResponse):
 @pytest.mark.asyncio
 async def test_download_media_item_uses_full_url_when_present(tmp_path) -> None:
     channel, _bus = _make_channel()
-    weixin_mod.get_media_dir = lambda _name: tmp_path
+    weixin_mod.channel.get_media_dir = lambda _name: tmp_path
 
     full_url = "https://cdn.example.test/download/full"
     channel._client = SimpleNamespace(
@@ -958,7 +958,7 @@ async def test_download_media_item_uses_full_url_when_present(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_download_media_item_falls_back_when_full_url_returns_retryable_error(tmp_path) -> None:
     channel, _bus = _make_channel()
-    weixin_mod.get_media_dir = lambda _name: tmp_path
+    weixin_mod.channel.get_media_dir = lambda _name: tmp_path
 
     full_url = "https://cdn.example.test/download/full?taskid=123"
     channel._client = SimpleNamespace(
@@ -989,7 +989,7 @@ async def test_download_media_item_falls_back_when_full_url_returns_retryable_er
 @pytest.mark.asyncio
 async def test_download_media_item_falls_back_to_encrypt_query_param(tmp_path) -> None:
     channel, _bus = _make_channel()
-    weixin_mod.get_media_dir = lambda _name: tmp_path
+    weixin_mod.channel.get_media_dir = lambda _name: tmp_path
 
     channel._client = SimpleNamespace(
         get=AsyncMock(return_value=_DummyDownloadResponse(content=b"fallback-bytes"))
@@ -1007,7 +1007,7 @@ async def test_download_media_item_falls_back_to_encrypt_query_param(tmp_path) -
 @pytest.mark.asyncio
 async def test_download_media_item_does_not_retry_when_full_url_fails_without_fallback(tmp_path) -> None:
     channel, _bus = _make_channel()
-    weixin_mod.get_media_dir = lambda _name: tmp_path
+    weixin_mod.channel.get_media_dir = lambda _name: tmp_path
 
     full_url = "https://cdn.example.test/download/full"
     channel._client = SimpleNamespace(
@@ -1024,7 +1024,7 @@ async def test_download_media_item_does_not_retry_when_full_url_fails_without_fa
 @pytest.mark.asyncio
 async def test_download_media_item_non_image_requires_aes_key_even_with_full_url(tmp_path) -> None:
     channel, _bus = _make_channel()
-    weixin_mod.get_media_dir = lambda _name: tmp_path
+    weixin_mod.channel.get_media_dir = lambda _name: tmp_path
 
     full_url = "https://cdn.example.test/download/voice"
     channel._client = SimpleNamespace(
@@ -1360,12 +1360,12 @@ async def test_poll_loop_logs_exception_and_continues_on_poll_failure(monkeypatc
     )
 
     # Use a tiny retry delay so the test finishes quickly
-    original_retry = weixin_mod.RETRY_DELAY_S
-    weixin_mod.RETRY_DELAY_S = 0.01
+    original_retry = weixin_mod.channel.RETRY_DELAY_S
+    weixin_mod.channel.RETRY_DELAY_S = 0.01
     try:
         await channel.start()
     finally:
-        weixin_mod.RETRY_DELAY_S = original_retry
+        weixin_mod.channel.RETRY_DELAY_S = original_retry
 
     assert call_count == 2
     assert any("WeChat poll loop error" in m for m in logged_messages)

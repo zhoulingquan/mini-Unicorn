@@ -154,11 +154,12 @@ function modelSettings(model: string, provider: string): SettingsPayload {
       gateway_port: 8765,
       heartbeat: {
         enabled: true,
-        interval_s: 1800,
+        interval_s: 3600,
         keep_recent_messages: 8,
+        model_preset: null,
       },
       dream: {
-        schedule: "every 2h",
+        schedule: "cron 0 3 * * *",
         max_batch_size: 20,
         max_iterations: 15,
         annotate_line_ages: true,

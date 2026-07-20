@@ -294,6 +294,27 @@ export interface SettingsPayload {
       use_jina_reader: boolean;
     };
   };
+  web_search: {
+    enable: boolean;
+    provider: string;
+    region: string;
+    max_results: number;
+    timeout: number;
+    fallback_chain: string[];
+    enable_cache: boolean;
+    cache_ttl: number;
+    proxy: string | null;
+    user_agent: string | null;
+    backends: Record<
+      string,
+      {
+        api_key_hint: string | null;
+        api_key_set: boolean;
+        base_url: string;
+        timeout: number;
+      }
+    >;
+  };
   runtime: {
     config_path: string;
     workspace_path: string;
@@ -303,6 +324,7 @@ export interface SettingsPayload {
       enabled: boolean;
       interval_s: number;
       keep_recent_messages: number;
+      model_preset: string | null;
     };
     dream: {
       schedule: string;
@@ -581,6 +603,26 @@ export interface WebFetchSettingsUpdate {
   useJinaReader: boolean;
 }
 
+export interface WebSearchBackendDraft {
+  api_key: string;
+  base_url: string;
+  timeout: number;
+}
+
+export interface WebSearchSettingsUpdate {
+  enable: boolean;
+  provider: string;
+  region: string;
+  max_results: number;
+  timeout: number;
+  fallback_chain: string[];
+  enable_cache: boolean;
+  cache_ttl: number;
+  proxy: string;
+  user_agent: string;
+  backends: Record<string, WebSearchBackendDraft>;
+}
+
 export interface NetworkSafetySettingsUpdate {
   webuiAllowLocalServiceAccess: boolean;
   webuiDefaultAccessMode: WebuiDefaultAccessMode;
@@ -588,7 +630,8 @@ export interface NetworkSafetySettingsUpdate {
 
 export interface RuntimeSettingsUpdate {
   heartbeatIntervalS?: number;
-  dreamIntervalH?: number;
+  dreamCron?: string;
+  heartbeatModelPreset?: string;
 }
 
 export type CronScheduleKind = "every" | "cron" | "at";
@@ -723,6 +766,35 @@ export interface ChannelPayload {
   default_config: Record<string, unknown> | null;
   /** Config 类字段元数据列表，供前端动态渲染表单（参考 QwenPaw Console）。 */
   config_schema: ChannelFieldSchema[] | null;
+  /** 是否为内置频道（true=ChannelsConfig 显式字段，false=插件频道走 extras）。 */
+  is_builtin: boolean;
+  /** 是否支持 WebUI 扫码登录（true=显示 QrcodeAuthBlock）。 */
+  qr_login_supported: boolean;
+}
+
+/** begin_channel_qr_login 返回的扫码会话信息。 */
+export interface ChannelQrBeginPayload {
+  /** base64 PNG 二维码图片，前端直接用 ``<img src="data:image/png;base64,...">``。 */
+  qrcode_image: string;
+  /** 原始扫码 URL（备用）。 */
+  scan_url: string;
+  /** 轮询扫码状态所需的 token（不同频道语义不同：feishu=device_code，QQ=task_id+key 编码）。 */
+  poll_token: string;
+  /** 轮询间隔（秒）。 */
+  interval: number;
+  /** 二维码有效期（秒）。 */
+  expires_in: number;
+  /** 后端记录的开始时间戳（秒，用于前端计算剩余时间）。 */
+  started_at: number;
+}
+
+/** poll_channel_qr_status 返回的扫码状态。 */
+export interface ChannelQrStatusPayload {
+  /** ``pending`` 等待扫码 / ``succeeded`` 已成功 / ``failed`` 用户拒绝 / ``expired`` 二维码过期。 */
+  status: "pending" | "succeeded" | "failed" | "expired";
+  error?: string;
+  /** 仅 status=succeeded 时存在：已写入 config 的 channel 配置 dict。 */
+  config?: Record<string, unknown> | null;
 }
 
 export interface ChannelsPayload {

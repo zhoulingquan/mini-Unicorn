@@ -1,0 +1,183 @@
+// Overview section:状态总览 + AI / Persona / System 三组配置入口。
+// 从 SettingsView.tsx 拆分而来。
+
+import type { Dispatch, SetStateAction } from "react";
+import { Activity, Bot, HardDrive, Loader2, Moon, RotateCcw } from "lucide-react";
+import { useTranslation } from "react-i18next";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import type { RuntimeSettingsUpdate, SettingsPayload } from "@/lib/types";
+
+import {
+  extractDreamCron,
+  type SettingsSectionKey,
+} from "../types";
+import { BootstrapFileRow } from "../components/BootstrapFileRow";
+import { DreamFilesButton } from "../components/DreamFilesButton";
+import { HeartbeatLlmConfig } from "../components/HeartbeatLlmConfig";
+import { NumberInput } from "../components/SegmentedControl";
+import { RestartSettingsFooter } from "../components/RestartSettingsFooter";
+import {
+  OverviewListRow,
+  SettingsGroup,
+  SettingsRow,
+  SettingsSectionTitle,
+  StatusPill,
+} from "../components/SettingsRow";
+
+export function OverviewSettings({
+  settings,
+  requiresRestart,
+  onRestart,
+  isRestarting,
+  onSelectSection,
+  showBrandLogos,
+  runtimeForm,
+  runtimeDirty,
+  runtimeSaving,
+  onChangeRuntimeForm,
+  onSaveRuntime,
+}: {
+  settings: SettingsPayload;
+  requiresRestart: boolean;
+  onRestart?: () => void;
+  isRestarting?: boolean;
+  onSelectSection: (section: SettingsSectionKey) => void;
+  showBrandLogos: boolean;
+  runtimeForm: RuntimeSettingsUpdate;
+  runtimeDirty: boolean;
+  runtimeSaving: boolean;
+  onChangeRuntimeForm: Dispatch<SetStateAction<RuntimeSettingsUpdate>>;
+  onSaveRuntime: () => void;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  const activePreset = settings.agent.model_preset || "default";
+  const activeProvider = settings.agent.resolved_provider ?? settings.agent.provider;
+  return (
+    <div className="space-y-7">
+      <section>
+        <div className="overflow-hidden rounded-[22px] border border-border/45 bg-card/86 shadow-[0_18px_65px_rgba(15,23,42,0.075)] backdrop-blur-xl dark:border-white/10 dark:shadow-[0_18px_65px_rgba(0,0,0,0.24)]">
+          <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="min-w-0">
+                <div className="text-[12px] font-medium text-muted-foreground">MiniUnicorn</div>
+                <div className="mt-0.5 truncate text-[18px] font-semibold leading-6 text-foreground">
+                  {settings.agent.model}
+                </div>
+                <div className="mt-0.5 truncate text-[13px] leading-5 text-muted-foreground">
+                  {activeProvider} · {activePreset}
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              <StatusPill tone={requiresRestart ? "neutral" : "success"}>
+                {requiresRestart
+                  ? tx("settings.values.restartPending", "Restart pending")
+                  : tx("settings.values.ready", "Ready")}
+              </StatusPill>
+              {requiresRestart && onRestart ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={onRestart}
+                  disabled={isRestarting}
+                  className="rounded-full"
+                >
+                  {isRestarting ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+                  ) : (
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                  )}
+                  {isRestarting ? t("app.system.restarting") : t("app.system.restart")}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <SettingsSectionTitle>{tx("settings.sections.ai", "AI")}</SettingsSectionTitle>
+        <SettingsGroup>
+          <OverviewListRow
+            icon={Bot}
+            valueLogoProvider={activeProvider}
+            title={tx("settings.overview.model", "Current model")}
+            value={settings.agent.model}
+            caption={`${activeProvider} · ${activePreset}`}
+            showBrandLogos={showBrandLogos}
+            onClick={() => onSelectSection("models")}
+          />
+        </SettingsGroup>
+      </section>
+
+      <section>
+        <SettingsSectionTitle>{tx("settings.sections.persona", "Persona")}</SettingsSectionTitle>
+        <SettingsGroup>
+          <BootstrapFileRow fileName="AGENTS.md" />
+          <BootstrapFileRow fileName="SOUL.md" />
+        </SettingsGroup>
+      </section>
+
+      <section>
+        <SettingsSectionTitle>{tx("settings.sections.system", "System")}</SettingsSectionTitle>
+        <SettingsGroup>
+          <OverviewListRow
+            icon={HardDrive}
+            title={tx("settings.overview.workspace", "Workspace")}
+            value={settings.runtime.workspace_path}
+            caption={tx("settings.rows.configPath", "Config path")}
+          />
+          <SettingsRow
+            icon={Activity}
+            title={tx("settings.overview.heartbeat", "Heartbeat")}
+            description={tx("settings.help.heartbeat", "Idle check interval in seconds (60-86400).")}
+          >
+            <NumberInput
+              value={runtimeForm.heartbeatIntervalS ?? settings.runtime.heartbeat.interval_s}
+              min={60}
+              max={86400}
+              suffix="s"
+              onChange={(heartbeatIntervalS) =>
+                onChangeRuntimeForm((prev) => ({ ...prev, heartbeatIntervalS }))
+              }
+            />
+          </SettingsRow>
+          <HeartbeatLlmConfig
+            runtimeForm={runtimeForm}
+            onChangeRuntimeForm={onChangeRuntimeForm}
+            settings={settings}
+          />
+          <SettingsRow
+            icon={Moon}
+            title={tx("settings.overview.dream", "Dream")}
+            description={tx("settings.help.dream", "Memory consolidation cron expression (e.g. '0 3 * * *' for daily at 3am).")}
+          >
+            <Input
+              type="text"
+              value={runtimeForm.dreamCron ?? extractDreamCron(settings.runtime.dream.schedule)}
+              placeholder="0 3 * * *"
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(event) =>
+                onChangeRuntimeForm((prev) => ({ ...prev, dreamCron: event.target.value }))
+              }
+              className="h-8 w-24 rounded-full text-center text-[13px]"
+            />
+          </SettingsRow>
+          <RestartSettingsFooter
+            dirty={runtimeDirty}
+            saving={runtimeSaving}
+            pendingRestart={false}
+            onSave={onSaveRuntime}
+            onRestart={onRestart}
+            isRestarting={isRestarting}
+            extraActions={<DreamFilesButton />}
+          />
+        </SettingsGroup>
+      </section>
+    </div>
+  );
+}

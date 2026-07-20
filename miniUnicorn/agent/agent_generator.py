@@ -34,6 +34,8 @@ _AVAILABLE_TOOLS = (
     "exec",
     "run_cli_app",
     "web_fetch",
+    "web_search",
+    "deep_research",
     "apply_patch",
     "spawn",
     "execute_plan",

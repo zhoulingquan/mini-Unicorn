@@ -2,18 +2,19 @@ import { useCallback, useEffect, useState } from "react";
 import {
   AlertCircle,
   CalendarClock,
-  ChevronRight,
   Clock,
   Loader2,
   Plus,
-  RefreshCw,
   Trash2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { RefreshIconButton } from "@/components/ui/refresh-icon-button";
 import { Textarea } from "@/components/ui/textarea";
+import { ViewShell } from "@/components/ui/view-shell";
 import {
   createCronJob,
   deleteCronJob,
@@ -205,25 +206,13 @@ export function CronView({ onBack, token }: CronViewProps) {
   const systemJobs = jobs.filter((j) => j.is_system);
 
   return (
-    <div className="flex h-full flex-col bg-background">
-      <header className="flex items-center gap-2 border-b px-4 py-3">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onBack}>
-          <ChevronRight className="h-4 w-4 rotate-180" />
-        </Button>
-        <div className="flex items-center gap-2">
-          <CalendarClock className="h-4.5 w-4.5 text-foreground/80" />
-          <h1 className="text-sm font-semibold">{t("cron.title")}</h1>
-        </div>
-        <div className="ml-auto flex items-center gap-1.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={load}
-            disabled={loading}
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-          </Button>
+    <ViewShell
+      onBack={onBack}
+      icon={<CalendarClock className="h-4.5 w-4.5 text-foreground/80" />}
+      title={t("cron.title")}
+      actions={
+        <>
+          <RefreshIconButton onClick={load} loading={loading} />
           <Button
             variant="outline"
             size="sm"
@@ -237,83 +226,81 @@ export function CronView({ onBack, token }: CronViewProps) {
             <Plus className="h-3.5 w-3.5" />
             {t("cron.create")}
           </Button>
+        </>
+      }
+    >
+      {loading && !payload ? (
+        <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+          <LoadingSpinner />
+          {t("cron.loading")}
         </div>
-      </header>
+      ) : error ? (
+        <div className="flex flex-col items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+          <p>{error}</p>
+          <Button variant="outline" size="sm" onClick={load}>
+            {t("cron.retry")}
+          </Button>
+        </div>
+      ) : (
+        <div className="mx-auto flex max-w-3xl flex-col gap-4">
+          {showForm ? (
+            <CreateJobForm
+              form={form}
+              setForm={setForm}
+              onSave={handleCreate}
+              onCancel={() => {
+                setShowForm(false);
+                setForm(EMPTY_FORM);
+                setFormError(null);
+              }}
+              saving={saving}
+              error={formError}
+            />
+          ) : null}
 
-      <div className="flex-1 overflow-y-auto px-4 py-3">
-        {loading && !payload ? (
-          <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            {t("cron.loading")}
-          </div>
-        ) : error ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
-            <p>{error}</p>
-            <Button variant="outline" size="sm" onClick={load}>
-              {t("cron.retry")}
-            </Button>
-          </div>
-        ) : (
-          <div className="mx-auto flex max-w-3xl flex-col gap-4">
-            {showForm ? (
-              <CreateJobForm
-                form={form}
-                setForm={setForm}
-                onSave={handleCreate}
-                onCancel={() => {
-                  setShowForm(false);
-                  setForm(EMPTY_FORM);
-                  setFormError(null);
-                }}
-                saving={saving}
-                error={formError}
-              />
-            ) : null}
+          {userJobs.length === 0 && systemJobs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+              <CalendarClock className="h-8 w-8 opacity-40" />
+              <p>{t("cron.empty")}</p>
+            </div>
+          ) : null}
 
-            {userJobs.length === 0 && systemJobs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
-                <CalendarClock className="h-8 w-8 opacity-40" />
-                <p>{t("cron.empty")}</p>
-              </div>
-            ) : null}
+          {userJobs.length > 0 ? (
+            <section className="flex flex-col gap-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {t("cron.userJobs")}
+              </h2>
+              {userJobs.map((job) => (
+                <JobCard
+                  key={job.id}
+                  job={job}
+                  onToggle={() => handleToggle(job)}
+                  onDelete={() => handleDelete(job.id)}
+                  acting={actingId === job.id}
+                />
+              ))}
+            </section>
+          ) : null}
 
-            {userJobs.length > 0 ? (
-              <section className="flex flex-col gap-2">
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  {t("cron.userJobs")}
-                </h2>
-                {userJobs.map((job) => (
-                  <JobCard
-                    key={job.id}
-                    job={job}
-                    onToggle={() => handleToggle(job)}
-                    onDelete={() => handleDelete(job.id)}
-                    acting={actingId === job.id}
-                  />
-                ))}
-              </section>
-            ) : null}
-
-            {systemJobs.length > 0 ? (
-              <section className="flex flex-col gap-2">
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  {t("cron.systemJobs")}
-                </h2>
-                {systemJobs.map((job) => (
-                  <JobCard
-                    key={job.id}
-                    job={job}
-                    onToggle={() => handleToggle(job)}
-                    onDelete={() => handleDelete(job.id)}
-                    acting={actingId === job.id}
-                  />
-                ))}
-              </section>
-            ) : null}
-          </div>
-        )}
-      </div>
-    </div>
+          {systemJobs.length > 0 ? (
+            <section className="flex flex-col gap-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {t("cron.systemJobs")}
+              </h2>
+              {systemJobs.map((job) => (
+                <JobCard
+                  key={job.id}
+                  job={job}
+                  onToggle={() => handleToggle(job)}
+                  onDelete={() => handleDelete(job.id)}
+                  acting={actingId === job.id}
+                />
+              ))}
+            </section>
+          ) : null}
+        </div>
+      )}
+    </ViewShell>
   );
 }
 

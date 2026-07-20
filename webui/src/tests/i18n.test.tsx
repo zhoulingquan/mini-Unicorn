@@ -187,7 +187,7 @@ describe("webui i18n", () => {
   it("keeps Simplified Chinese settings overview copy localized", () => {
     const settings = resources["zh-CN"].common.settings;
 
-    expect(settings.nav.browser).toBe("网页");
+    expect(settings.nav.browser).toBe("搜索");
     expect(settings.overview.workspace).toBe("工作区");
   });
 });

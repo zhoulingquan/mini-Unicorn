@@ -12,6 +12,8 @@ GFW-friendly behaviour); IP-literal targets are still checked client-side.
 
 from __future__ import annotations
 
+import asyncio
+import contextvars
 import ipaddress
 import re
 import socket
@@ -46,17 +48,27 @@ _HARD_BLOCKED_NETWORKS = [
 
 _URL_RE = re.compile(r"https?://[^\s\"'`;|<>]+", re.IGNORECASE)
 
-_allowed_networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+# SSRF 白名单使用 ContextVar 而非模块级 list 保存。
+# 同一进程内可能运行多个实例(如多 agent / 多请求上下文),若用模块级全局,
+# 一个实例调用 configure_ssrf_whitelist 会覆盖其它实例的白名单;改用 ContextVar
+# 后,白名单绑定到当前 async 上下文,各实例互不干扰。
+# _HARD_BLOCKED_NETWORKS 保持模块级常量,不应被覆盖。
+_allowed_networks_var: contextvars.ContextVar[
+    tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]
+] = contextvars.ContextVar("_allowed_networks_var", default=())
 
 
 def configure_ssrf_whitelist(cidrs: list[str]) -> None:
-    """Allow specific CIDR ranges to bypass SSRF blocking (e.g. Tailscale's 100.64.0.0/10)."""
-    global _allowed_networks
-    nets = []
+    """Allow specific CIDR ranges to bypass SSRF blocking (e.g. Tailscale's 100.64.0.0/10).
+
+    白名单写入当前 context 的 ContextVar,因此不同 async 上下文可拥有各自独立的
+    白名单,避免多实例共享同一进程时互相覆盖。函数签名保持向后兼容。
+    """
+    nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
     for cidr in cidrs:
         with suppress(ValueError):
             nets.append(ipaddress.ip_network(cidr, strict=False))
-    _allowed_networks = nets
+    _allowed_networks_var.set(tuple(nets))
 
 
 def _normalize_addr(
@@ -81,7 +93,9 @@ def _is_private(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     # IMDS endpoints to server-side fetches.
     if any(normalized in net for net in _HARD_BLOCKED_NETWORKS):
         return True
-    if _allowed_networks and any(normalized in net for net in _allowed_networks):
+    # 从当前 context 读取白名单(避免多实例共享进程时互相覆盖)
+    allowed = _allowed_networks_var.get()
+    if allowed and any(normalized in net for net in allowed):
         return False
     return any(normalized in net for net in _BLOCKED_NETWORKS)
 
@@ -112,6 +126,54 @@ def validate_url_target(url: str, *, allow_loopback: bool = False) -> tuple[bool
 
     try:
         infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    except socket.gaierror:
+        return False, f"Cannot resolve hostname: {hostname}"
+
+    addrs: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
+        addrs.append(addr)
+    if allow_loopback and _is_allowed_loopback_target(hostname, addrs):
+        return True, ""
+    for addr in addrs:
+        if _is_private(addr):
+            return False, f"Blocked: {hostname} resolves to private/internal address {addr}"
+
+    return True, ""
+
+
+async def validate_url_target_async(
+    url: str, *, allow_loopback: bool = False
+) -> tuple[bool, str]:
+    """``validate_url_target`` 的异步版本。
+
+    DNS 解析(``socket.getaddrinfo``)通过 ``asyncio.to_thread`` 放到线程池
+    执行,避免阻塞事件循环。供 web_fetch、channel 媒体下载等异步代码路径
+    使用;逻辑与同步版本一致,调用方可逐步从 ``validate_url_target`` 迁移
+    到本函数。同步调用方(如 ``contains_internal_url``)继续使用原函数。
+    """
+    try:
+        p = urlparse(url)
+    except Exception as e:
+        return False, str(e)
+
+    if p.scheme not in ("http", "https"):
+        return False, f"Only http/https allowed, got '{p.scheme or 'none'}'"
+    if not p.netloc:
+        return False, "Missing domain"
+
+    hostname = p.hostname
+    if not hostname:
+        return False, "Missing hostname"
+
+    try:
+        # 同步 getaddrinfo 放到线程池执行,避免阻塞事件循环
+        infos = await asyncio.to_thread(
+            socket.getaddrinfo, hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM
+        )
     except socket.gaierror:
         return False, f"Cannot resolve hostname: {hostname}"
 
@@ -197,8 +259,9 @@ def _ssrf_request_hook(proxy: str | None) -> Any:
       blocklist (this is the path that catches a re-bound dial even when
       a proxy is configured).
     - For hostname hosts without a proxy: re-validated via
-      ``validate_url_target`` so any redirect followed by httpx internally
-      is also covered.
+      ``validate_url_target_async`` so any redirect followed by httpx
+      internally is also covered.异步版本通过 ``asyncio.to_thread`` 在线程池
+      执行 DNS 解析,避免阻塞事件循环。
     - For hostname hosts with a proxy: the proxy resolves DNS (matches
       Reasonix's behaviour for GFW-friendly operation); we skip local
       resolution to avoid leaking the queried hostname through a
@@ -214,7 +277,8 @@ def _ssrf_request_hook(proxy: str | None) -> Any:
             addr = ipaddress.ip_address(host)
         except ValueError:
             if not proxy:
-                ok, err = validate_url_target(str(request.url))
+                # 使用异步版本,避免同步 getaddrinfo 阻塞事件循环
+                ok, err = await validate_url_target_async(str(request.url))
                 if not ok:
                     raise httpx.ConnectError(
                         f"SSRF blocked: {err}",
@@ -246,6 +310,11 @@ def create_ssrf_safe_client(
     When ``proxy`` is set, hostnames are forwarded to the proxy for DNS
     resolution (no local lookup, GFW-friendly) but IP-literal hosts are
     still blocked client-side — matching Reasonix's IP-literal check path.
+
+    SSRF 白名单通过 ``configure_ssrf_whitelist`` 设置到当前 context 的
+    ContextVar(``_allowed_networks_var``);本工厂创建的 client 在每次请求
+    时通过 ``_is_private`` 读取当前 async 上下文的白名单。同一进程内不同
+    实例可拥有各自独立的白名单,互不覆盖。
     """
     hook = _ssrf_request_hook(proxy)
     return httpx.AsyncClient(

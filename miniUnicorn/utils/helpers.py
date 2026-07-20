@@ -251,6 +251,9 @@ _TOOL_RESULT_MAX_BUCKETS = 32
 
 def safe_filename(name: str) -> str:
     """Replace unsafe path characters with underscores."""
+    # 显式过滤 ".." 以防止路径穿越(正则逐字符替换无法识别 ".." 序列)
+    if ".." in name:
+        name = name.replace("..", "_")
     return _UNSAFE_CHARS.sub("_", name).strip()
 
 

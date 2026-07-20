@@ -4,11 +4,43 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from miniUnicorn.config.schema import Config, InlineFallbackConfig, ModelPresetConfig
 from miniUnicorn.providers.base import LLMProvider
 from miniUnicorn.providers.fallback_provider import FallbackProvider
 from miniUnicorn.providers.registry import find_by_name
+
+
+@dataclass(frozen=True)
+class ProviderSignature:
+    """捕获影响活跃 provider 链的全部配置字段。
+
+    用 frozen dataclass 替代原先 15+ 元素的位置型大元组:
+    - 任何字段新增/删除不会再因下标错位而破坏所有调用方;
+    - 调用方通过 ``sig.model``、``sig.api_key`` 等具名访问替代 ``sig[0]``、``sig[3]``;
+    - frozen=True 使实例可哈希且可在等值比较中等同于值对象。
+    """
+
+    model: str
+    provider: str | None
+    provider_name: str | None
+    api_key: str | None
+    api_base: str | None
+    extra_headers: dict[str, str] | None
+    extra_body: dict[str, Any] | None
+    api_type: str
+    # region / profile 当前未在 ProviderConfig 显式声明,可能通过 extra="allow" 注入,
+    # 因此沿用 getattr 兜底语义并保留为可选字段。
+    region: str | None
+    profile: str | None
+    max_tokens: int | None
+    temperature: float | None
+    reasoning_effort: str | None
+    context_window_tokens: int | None
+    # 嵌套的 fallback 签名;每个 fallback 自身不再含 fallbacks(避免无限嵌套),
+    # 因此 fallbacks 字段为空 tuple。
+    fallbacks: tuple["ProviderSignature", ...]
 
 
 @dataclass(frozen=True)
@@ -18,7 +50,9 @@ class ProviderSnapshot:
     # None means "auto-detect from model name"; resolved to a concrete int by
     # the agent loop (apply_provider_snapshot) or build_provider_snapshot.
     context_window_tokens: int | None
-    signature: tuple[object, ...]
+    # 普通构建路径产出 ProviderSignature;但 preset 快照仍使用短元组
+    # ("model_preset", name, preset.model_dump_json()) 作为标识,因此联合类型。
+    signature: ProviderSignature | tuple[object, ...]
 
 
 def _resolve_model_preset(
@@ -128,47 +162,53 @@ def provider_signature(
     *,
     preset_name: str | None = None,
     preset: ModelPresetConfig | None = None,
-) -> tuple[object, ...]:
-    """Return the config fields that affect the active provider chain."""
+) -> ProviderSignature:
+    """Return the config fields that affect the active provider chain.
+
+    返回值由原先的位置型大元组改为 ``ProviderSignature`` 值对象:字段语义保持不变,
+    仅数据结构发生变化,调用方改用具名字段访问。
+    """
     resolved = _resolve_model_preset(config, preset_name=preset_name, preset=preset)
     p = config.get_provider(resolved.model, preset=resolved)
     fallback_presets = _resolve_fallback_presets(config, resolved)
 
-    def _fallback_signature(fallback: ModelPresetConfig) -> tuple[object, ...]:
+    def _fallback_signature(fallback: ModelPresetConfig) -> ProviderSignature:
+        # fallback 自身不再嵌套 fallbacks,故 fallbacks=() 保持空。
         fp = config.get_provider(fallback.model, preset=fallback)
-        return (
-            fallback.model,
-            fallback.provider,
-            config.get_provider_name(fallback.model, preset=fallback),
-            config.get_api_key(fallback.model, preset=fallback),
-            config.get_api_base(fallback.model, preset=fallback),
-            fp.extra_headers if fp else None,
-            fp.extra_body if fp else None,
-            fp.api_type if fp else "auto",
-            getattr(fp, "region", None) if fp else None,
-            getattr(fp, "profile", None) if fp else None,
-            fallback.max_tokens,
-            fallback.temperature,
-            fallback.reasoning_effort,
-            fallback.context_window_tokens,
+        return ProviderSignature(
+            model=fallback.model,
+            provider=fallback.provider,
+            provider_name=config.get_provider_name(fallback.model, preset=fallback),
+            api_key=config.get_api_key(fallback.model, preset=fallback),
+            api_base=config.get_api_base(fallback.model, preset=fallback),
+            extra_headers=fp.extra_headers if fp else None,
+            extra_body=fp.extra_body if fp else None,
+            api_type=fp.api_type if fp else "auto",
+            region=getattr(fp, "region", None) if fp else None,
+            profile=getattr(fp, "profile", None) if fp else None,
+            max_tokens=fallback.max_tokens,
+            temperature=fallback.temperature,
+            reasoning_effort=fallback.reasoning_effort,
+            context_window_tokens=fallback.context_window_tokens,
+            fallbacks=(),
         )
 
-    return (
-        resolved.model,
-        resolved.provider,
-        config.get_provider_name(resolved.model, preset=resolved),
-        config.get_api_key(resolved.model, preset=resolved),
-        config.get_api_base(resolved.model, preset=resolved),
-        p.extra_headers if p else None,
-        p.extra_body if p else None,
-        p.api_type if p else "auto",
-        getattr(p, "region", None) if p else None,
-        getattr(p, "profile", None) if p else None,
-        resolved.max_tokens,
-        resolved.temperature,
-        resolved.reasoning_effort,
-        resolved.context_window_tokens,
-        tuple(_fallback_signature(fallback) for fallback in fallback_presets),
+    return ProviderSignature(
+        model=resolved.model,
+        provider=resolved.provider,
+        provider_name=config.get_provider_name(resolved.model, preset=resolved),
+        api_key=config.get_api_key(resolved.model, preset=resolved),
+        api_base=config.get_api_base(resolved.model, preset=resolved),
+        extra_headers=p.extra_headers if p else None,
+        extra_body=p.extra_body if p else None,
+        api_type=p.api_type if p else "auto",
+        region=getattr(p, "region", None) if p else None,
+        profile=getattr(p, "profile", None) if p else None,
+        max_tokens=resolved.max_tokens,
+        temperature=resolved.temperature,
+        reasoning_effort=resolved.reasoning_effort,
+        context_window_tokens=resolved.context_window_tokens,
+        fallbacks=tuple(_fallback_signature(fallback) for fallback in fallback_presets),
     )
 
 

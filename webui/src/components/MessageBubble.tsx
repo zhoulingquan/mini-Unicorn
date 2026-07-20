@@ -7,11 +7,17 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Check, ChevronRight, Copy, FileIcon, ImageIcon, PlaySquare, Sparkles, Wrench } from "lucide-react";
+import { Check, ChevronRight, Copy, FileIcon, ImageIcon, PlaySquare, RotateCw, Sparkles, Undo2, Wrench } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { formatTurnLatency } from "@/lib/format";
 import type {
@@ -24,6 +30,12 @@ interface MessageBubbleProps {
   message: UIMessage;
   /** When false, hide the assistant reply copy button (mid-turn text before more agent activity). Default true. */
   showAssistantCopyAction?: boolean;
+  /** When provided, render a rewind button under the user message. */
+  onRewind?: () => void;
+  /** When provided, render a retry button under the assistant reply. */
+  onRetry?: () => void;
+  /** Disable action buttons (e.g. while a turn is streaming). */
+  disableActions?: boolean;
 }
 
 /**
@@ -38,6 +50,9 @@ interface MessageBubbleProps {
 export const MessageBubble = memo(function MessageBubble({
   message,
   showAssistantCopyAction = true,
+  onRewind,
+  onRetry,
+  disableActions = false,
 }: MessageBubbleProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -76,6 +91,7 @@ export const MessageBubble = memo(function MessageBubble({
     const hasImages = images.length > 0;
     const hasMedia = media.length > 0;
     const hasText = message.content.trim().length > 0;
+    const showRewindButton = !!onRewind && !disableActions;
     return (
       <div
         className={cn(
@@ -97,6 +113,40 @@ export const MessageBubble = memo(function MessageBubble({
             {message.content}
           </p>
         ) : null}
+        {showRewindButton ? (
+          <TooltipProvider delayDuration={200} skipDelayDuration={300}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={onRewind}
+                  disabled={disableActions}
+                  aria-label={t("message.rewind")}
+                  className={cn(
+                    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                    "text-muted-foreground/70 transition-colors hover:bg-muted/55 hover:text-foreground",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "disabled:cursor-not-allowed disabled:opacity-50",
+                  )}
+                >
+                  <Undo2 className="h-4 w-4" aria-hidden />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                align="center"
+                sideOffset={6}
+                collisionPadding={12}
+                className={cn(
+                  "rounded-[10px] border-border/60 bg-popover/95 px-2.5 py-1.5",
+                  "text-[11.5px] leading-snug text-popover-foreground shadow-md backdrop-blur",
+                )}
+              >
+                {t("message.rewind")}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : null}
       </div>
     );
   }
@@ -109,13 +159,14 @@ export const MessageBubble = memo(function MessageBubble({
 
   const showAssistantActions = message.role === "assistant" && !message.isStreaming && !empty;
   const showCopyButton = showAssistantCopyAction && showAssistantActions;
+  const showRetryButton = !!onRetry && showAssistantActions && !disableActions;
   const latencyMs = message.latencyMs;
   const showLatencyFooter =
     message.role === "assistant"
     && latencyMs != null
     && !message.isStreaming
     && (!empty || hasReasoning || media.length > 0);
-  const showAssistantFooterRow = showCopyButton || showLatencyFooter;
+  const showAssistantFooterRow = showCopyButton || showLatencyFooter || showRetryButton;
   return (
     <div className={cn("w-full text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
       {hasReasoning ? (
@@ -130,23 +181,74 @@ export const MessageBubble = memo(function MessageBubble({
           {showAssistantFooterRow ? (
             <div className="mt-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
               {showCopyButton ? (
-                <button
-                  type="button"
-                  onClick={onCopyAssistantReply}
-                  aria-label={copied ? t("message.copiedReply") : t("message.copyReply")}
-                  title={copied ? t("message.copiedReply") : t("message.copyReply")}
-                  className={cn(
-                    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                    "transition-colors hover:bg-muted/55 hover:text-foreground",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  )}
-                >
-                  {copied ? (
-                    <Check className="h-4 w-4" aria-hidden />
-                  ) : (
-                    <Copy className="h-4 w-4" aria-hidden />
-                  )}
-                </button>
+                <TooltipProvider delayDuration={200} skipDelayDuration={300}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={onCopyAssistantReply}
+                        aria-label={copied ? t("message.copiedReply") : t("message.copyReply")}
+                        className={cn(
+                          "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                          "transition-colors hover:bg-muted/55 hover:text-foreground",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        )}
+                      >
+                        {copied ? (
+                          <Check className="h-4 w-4" aria-hidden />
+                        ) : (
+                          <Copy className="h-4 w-4" aria-hidden />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="bottom"
+                      align="center"
+                      sideOffset={6}
+                      collisionPadding={12}
+                      className={cn(
+                        "rounded-[10px] border-border/60 bg-popover/95 px-2.5 py-1.5",
+                        "text-[11.5px] leading-snug text-popover-foreground shadow-md backdrop-blur",
+                      )}
+                    >
+                      {copied ? t("message.copiedReply") : t("message.copyReply")}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ) : null}
+              {showRetryButton ? (
+                <TooltipProvider delayDuration={200} skipDelayDuration={300}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={onRetry}
+                        disabled={disableActions}
+                        aria-label={t("message.retry")}
+                        className={cn(
+                          "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                          "transition-colors hover:bg-muted/55 hover:text-foreground",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                          "disabled:cursor-not-allowed disabled:opacity-50",
+                        )}
+                      >
+                        <RotateCw className="h-4 w-4" aria-hidden />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="bottom"
+                      align="center"
+                      sideOffset={6}
+                      collisionPadding={12}
+                      className={cn(
+                        "rounded-[10px] border-border/60 bg-popover/95 px-2.5 py-1.5",
+                        "text-[11.5px] leading-snug text-popover-foreground shadow-md backdrop-blur",
+                      )}
+                    >
+                      {t("message.retry")}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               ) : null}
               {showLatencyFooter ? (
                 <span

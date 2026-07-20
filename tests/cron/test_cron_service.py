@@ -627,3 +627,135 @@ async def test_list_jobs_during_on_job_does_not_cause_stale_reload(tmp_path) -> 
         next_run = j["state"]["nextRunAtMs"]
         assert next_run is not None
         assert next_run > now_ms, f"Job '{j['name']}' next_run should be in the future"
+
+
+@pytest.mark.asyncio
+async def test_catch_up_on_start_schedules_immediate_run_when_missed(tmp_path) -> None:
+    """dream 类的 catch_up_on_start=True job 在 start() 后,若距上次执行错过了
+    一个或多个触发点,则 next_run_at_ms 应被设为当前时间(让 timer 立刻触发)。"""
+    store_path = tmp_path / "cron" / "jobs.json"
+    executed = []
+
+    async def on_job(job):
+        executed.append(job.name)
+
+    # 1) 第一次 start: 注册一个 catch_up job,从未执行过,但下次触发点应正常排在未来
+    service = CronService(store_path, on_job=on_job, max_sleep_ms=200)
+    await service.start()
+    # 用一个未来一定会触发的 cron(每分钟)以便观察 next_run_at_ms 排在未来
+    service.register_system_job(CronJob(
+        id="dream",
+        name="dream",
+        schedule=CronSchedule(kind="cron", expr="0 3 * * *", tz="UTC"),
+        payload=CronPayload(kind="system_event"),
+        catch_up_on_start=True,
+    ))
+    job = service.get_job("dream")
+    assert job is not None
+    assert job.state.next_run_at_ms is not None
+    assert job.state.next_run_at_ms > int(time.time() * 1000)
+    service.stop()
+
+    # 2) 模拟 gateway 重启:手动改写磁盘 store,把 last_run_at_ms 设到很久以前
+    raw = json.loads(store_path.read_text())
+    for j in raw["jobs"]:
+        if j["id"] == "dream":
+            j["state"]["lastRunAtMs"] = int(time.time() * 1000) - 7 * 24 * 3_600_000  # 7 天前
+    store_path.write_text(json.dumps(raw))
+
+    # 3) 再次 start: 因为 last_run_at_ms < prev_due(昨天的 3 点),应触发补跑
+    service2 = CronService(store_path, on_job=on_job, max_sleep_ms=200)
+    await service2.start()
+    job2 = service2.get_job("dream")
+    assert job2 is not None
+    # 补跑: next_run_at_ms 应被设为"现在"或更早(立即触发)
+    now_ms = int(time.time() * 1000)
+    assert job2.state.next_run_at_ms is not None
+    assert job2.state.next_run_at_ms <= now_ms + 1000  # 给 1s 容差
+    # 让 timer 真的跑一次
+    await asyncio.sleep(0.3)
+    service2.stop()
+    assert "dream" in executed
+
+
+@pytest.mark.asyncio
+async def test_catch_up_on_start_skipped_when_recently_ran(tmp_path) -> None:
+    """若 last_run_at_ms 已经覆盖了上一次触发点,则不应触发补跑。"""
+    store_path = tmp_path / "cron" / "jobs.json"
+    executed = []
+
+    async def on_job(job):
+        executed.append(job.name)
+
+    service = CronService(store_path, on_job=on_job, max_sleep_ms=200)
+    await service.start()
+    service.register_system_job(CronJob(
+        id="dream",
+        name="dream",
+        schedule=CronSchedule(kind="cron", expr="0 3 * * *", tz="UTC"),
+        payload=CronPayload(kind="system_event"),
+        catch_up_on_start=True,
+    ))
+    service.stop()
+
+    # 模拟 last_run_at_ms 就在今天 3 点(刚刚跑过)
+    raw = json.loads(store_path.read_text())
+    now_ms = int(time.time() * 1000)
+    for j in raw["jobs"]:
+        if j["id"] == "dream":
+            # 假设今天 3 点已经跑过(若当前时间晚于 3 点)
+            from datetime import datetime, timezone as dt_tz
+            today_3am = datetime.now(dt_tz.utc).replace(hour=3, minute=0, second=0, microsecond=0)
+            if today_3am.timestamp() * 1000 > now_ms:
+                # 当前时间还没到 3 点,用昨天的 3 点
+                from datetime import timedelta
+                today_3am = today_3am - timedelta(days=1)
+            j["state"]["lastRunAtMs"] = int(today_3am.timestamp() * 1000)
+    store_path.write_text(json.dumps(raw))
+
+    service2 = CronService(store_path, on_job=on_job, max_sleep_ms=200)
+    await service2.start()
+    job2 = service2.get_job("dream")
+    assert job2 is not None
+    # 没有补跑: next_run_at_ms 应排在未来(明天 3 点)
+    now_ms = int(time.time() * 1000)
+    assert job2.state.next_run_at_ms is not None
+    assert job2.state.next_run_at_ms > now_ms
+    await asyncio.sleep(0.3)
+    service2.stop()
+    assert executed == []
+
+
+def test_register_system_job_preserves_last_run_at_ms(tmp_path) -> None:
+    """register_system_job 不应清掉磁盘上已存在同 id job 的 last_run_at_ms。"""
+    store_path = tmp_path / "cron" / "jobs.json"
+    service = CronService(store_path)
+    service.register_system_job(CronJob(
+        id="dream",
+        name="dream",
+        schedule=CronSchedule(kind="cron", expr="0 3 * * *", tz="UTC"),
+        payload=CronPayload(kind="system_event"),
+        catch_up_on_start=True,
+    ))
+    # 模拟一次执行,写入 last_run_at_ms
+    last_ms = int(time.time() * 1000) - 3_600_000  # 1 小时前
+    job = service.get_job("dream")
+    assert job is not None
+    job.state.last_run_at_ms = last_ms
+    job.state.run_history.append(__import__("miniUnicorn.cron.types", fromlist=["CronRunRecord"]).CronRunRecord(
+        run_at_ms=last_ms, status="ok", duration_ms=100,
+    ))
+    service._save_store()
+
+    # 再次注册(模拟 gateway 重启)
+    service.register_system_job(CronJob(
+        id="dream",
+        name="dream",
+        schedule=CronSchedule(kind="cron", expr="0 3 * * *", tz="UTC"),
+        payload=CronPayload(kind="system_event"),
+        catch_up_on_start=True,
+    ))
+    job2 = service.get_job("dream")
+    assert job2 is not None
+    assert job2.state.last_run_at_ms == last_ms
+    assert len(job2.state.run_history) == 1

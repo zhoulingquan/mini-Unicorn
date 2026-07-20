@@ -12,9 +12,11 @@ from miniUnicorn.cron.types import CronSchedule
 
 if TYPE_CHECKING:
     from miniUnicorn.agent.tools.cli_apps import CliAppsToolConfig
+    from miniUnicorn.agent.tools.deep_research.config import DeepResearchConfig
     from miniUnicorn.agent.tools.self import MyToolConfig
     from miniUnicorn.agent.tools.shell import ExecToolConfig
     from miniUnicorn.agent.tools.web import WebFetchConfig, WebToolsConfig
+    from miniUnicorn.agent.tools.web_search.config import WebSearchConfig
 
 
 class Base(BaseModel):
@@ -26,9 +28,12 @@ class Base(BaseModel):
 class ChannelsConfig(Base):
     """Configuration for chat channels.
 
-    Built-in and plugin channel configs are stored as extra fields (dicts).
-    Each channel parses its own config in __init__.
-    Per-channel "streaming": true enables streaming output (requires send_delta impl).
+    QwenPaw-style: built-in channel configs are declared as explicit fields
+    (each channel lives in ``miniUnicorn/channels/<name>/`` and parses its
+    own config dict in ``__init__``). Plugin channel configs are still
+    stored via ``extra="allow"`` (``__pydantic_extra__`` dict).
+    Per-channel ``"streaming": true`` enables streaming output (requires
+    send_delta impl).
     """
 
     model_config = ConfigDict(extra="allow")
@@ -41,15 +46,29 @@ class ChannelsConfig(Base):
     transcription_provider: str = "groq"  # Voice transcription backend: "groq" or "openai"
     transcription_language: str | None = Field(default=None, pattern=r"^[a-z]{2,3}$")  # Optional ISO-639-1 hint for audio transcription
 
+    # Built-in channel configs (QwenPaw-style explicit fields). None = not
+    # configured / disabled; dict = parsed by the channel's own Config class
+    # in __init__. Plugin channels still use the extras dict.
+    feishu: dict[str, Any] | None = None
+    dingtalk: dict[str, Any] | None = None
+    qq: dict[str, Any] | None = None
+    wecom: dict[str, Any] | None = None
+    weixin: dict[str, Any] | None = None
+    websocket: dict[str, Any] | None = None
+
 
 class DreamConfig(Base):
-    """Dream memory consolidation configuration."""
+    """Dream memory consolidation configuration.
 
-    _HOUR_MS = 3_600_000
+    Dream 走标准 cron 表达式,默认每天凌晨 3 点触发一次。
+    Gateway 启动时会检查距上次做梦是否错过了一个或多个触发点,
+    若错过则立刻补跑一次,然后按当前时间重排下一次执行。
+    """
 
     enabled: bool = True  # Register the periodic Dream consolidation job on startup
-    interval_h: int = Field(default=2, ge=1)  # Every 2 hours by default
-    cron: str | None = Field(default=None, exclude=True)  # Legacy compatibility override
+    # 5 字段 Unix cron 表达式(minute hour day-of-month month day-of-week)。
+    # 默认 "0 3 * * *" = 每天凌晨 3 点。时区由 agents.defaults.timezone 决定。
+    cron: str = Field(default="0 3 * * *")
     model_override: str | None = Field(
         default=None,
         validation_alias=AliasChoices("modelOverride", "model", "model_override"),
@@ -63,17 +82,12 @@ class DreamConfig(Base):
     annotate_line_ages: bool = True
 
     def build_schedule(self, timezone: str) -> CronSchedule:
-        """Build the runtime schedule, preferring the legacy cron override if present."""
-        if self.cron:
-            return CronSchedule(kind="cron", expr=self.cron, tz=timezone)
-        return CronSchedule(kind="every", every_ms=self.interval_h * self._HOUR_MS)
+        """Build the runtime cron schedule for this Dream config."""
+        return CronSchedule(kind="cron", expr=self.cron, tz=timezone)
 
     def describe_schedule(self) -> str:
         """Return a human-readable summary for logs and startup output."""
-        if self.cron:
-            return f"cron {self.cron} (legacy)"
-        hours = self.interval_h
-        return f"every {hours}h"
+        return f"cron {self.cron}"
 
 
 class InlineFallbackConfig(Base):
@@ -296,8 +310,17 @@ class HeartbeatConfig(Base):
     """Heartbeat service configuration (now backed by cron)."""
 
     enabled: bool = True
-    interval_s: int = 30 * 60  # 30 minutes
+    interval_s: int = 60 * 60  # 1 hour
     keep_recent_messages: int = 8
+    # 可选:为 heartbeat 单独指定一个已配置的 model_preset 名称。
+    # 留空时 heartbeat 复用 agent 主 provider/model;指定时从 config.model_presets
+    # 中加载对应的 preset(包含 model/provider/api_key/api_base),构建独立的
+    # provider 供 heartbeat 使用,不影响主对话。
+    model_preset: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("modelPreset", "model_preset"),
+        serialization_alias="modelPreset",
+    )
 
 
 class ApiConfig(Base):
@@ -348,7 +371,10 @@ class ToolsConfig(Base):
     exec: ExecToolConfig = Field(default_factory=lambda: _lazy_default("miniUnicorn.agent.tools.shell", "ExecToolConfig"))
     cli_apps: CliAppsToolConfig = Field(default_factory=lambda: _lazy_default("miniUnicorn.agent.tools.cli_apps", "CliAppsToolConfig"))
     my: MyToolConfig = Field(default_factory=lambda: _lazy_default("miniUnicorn.agent.tools.self", "MyToolConfig"))
-    restrict_to_workspace: bool = False  # policy intent: keep tool access inside workspace when possible
+    web_search: WebSearchConfig = Field(default_factory=lambda: _lazy_default("miniUnicorn.agent.tools.web_search.config", "WebSearchConfig"))
+    deep_research: "DeepResearchConfig" = Field(default_factory=lambda: _lazy_default("miniUnicorn.agent.tools.deep_research.config", "DeepResearchConfig"))
+    # 默认开启工作区隔离,避免工具越权访问工作区外路径;已有 config.json 中的显式值会覆盖此默认
+    restrict_to_workspace: bool = True
     webui_allow_local_service_access: bool = Field(
         default=True,
         validation_alias=AliasChoices(
@@ -471,33 +497,43 @@ class Config(BaseSettings):
             kw = kw.lower()
             return kw in model_lower or kw.replace("-", "_") in model_normalized
 
-        # Match by keyword (order follows PROVIDERS registry)
-        # First pass: prefer providers with API keys (exact match)
+        # 单次循环 + 优先级排序：把原来的 4 个串行 for 合并为一次遍历。
+        # 优先级（数字越小越优先，与原 4 个 pass 的先后顺序一一对应）：
+        #   0 = 关键词命中且有可用凭证（is_local/is_direct 或 api_key）
+        #       —— 对应原 first pass：精确匹配且能立即用
+        #   1 = 关键词命中但无凭证
+        #       —— 对应原 second pass：延后配置场景，仍优先于无关键词命中
+        #   2 = 无关键词命中但有 api_key
+        #       —— 对应原 third pass：网关兜底，按注册表顺序取首个有 key 的
+        #   3 = 任意已配置 provider
+        #       —— 对应原 fourth pass：最终兜底，按注册表顺序取首个
+        # 同一优先级内按 PROVIDERS 注册表顺序取第一个（与原串行 for 语义一致），
+        # 因此用 ``priority < best[0]`` 严格小于比较，遇到同优先级不替换。
+        best: tuple[int, "ProviderConfig", str] | None = None
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)
-            if p and any(_kw_matches(kw) for kw in spec.keywords):
-                if spec.is_local or spec.is_direct or p.api_key:
-                    return _with_preset_creds(p), spec.name
+            if p is None:
+                continue
+            kw_match = any(_kw_matches(kw) for kw in spec.keywords)
+            has_key = bool(p.api_key)
+            is_local_or_direct = spec.is_local or spec.is_direct
+            if kw_match and (is_local_or_direct or has_key):
+                priority = 0
+            elif kw_match:
+                priority = 1
+            elif has_key:
+                priority = 2
+            else:
+                priority = 3
+            if best is None or priority < best[0]:
+                best = (priority, p, spec.name)
+                if priority == 0:
+                    # 已是最优，后续不可能更优；提前退出
+                    break
 
-        # Second pass: keyword match even without API key (deferred config)
-        for spec in PROVIDERS:
-            p = getattr(self.providers, spec.name, None)
-            if p and any(_kw_matches(kw) for kw in spec.keywords):
-                return _with_preset_creds(p), spec.name
-
-        # Fallback: gateways first, then others (follows registry order)
-        for spec in PROVIDERS:
-            p = getattr(self.providers, spec.name, None)
-            if p and p.api_key:
-                return _with_preset_creds(p), spec.name
-
-        # Final fallback: return first configured provider even without key
-        for spec in PROVIDERS:
-            p = getattr(self.providers, spec.name, None)
-            if p:
-                return _with_preset_creds(p), spec.name
-
-        return None, None
+        if best is None:
+            return None, None
+        return _with_preset_creds(best[1]), best[2]
 
     def get_provider(
         self,
@@ -560,9 +596,11 @@ def _resolve_tool_config_refs() -> None:
     import sys
 
     from miniUnicorn.agent.tools.cli_apps import CliAppsToolConfig
+    from miniUnicorn.agent.tools.deep_research.config import DeepResearchConfig
     from miniUnicorn.agent.tools.self import MyToolConfig
     from miniUnicorn.agent.tools.shell import ExecToolConfig
     from miniUnicorn.agent.tools.web import WebFetchConfig, WebToolsConfig
+    from miniUnicorn.agent.tools.web_search.config import WebSearchConfig
 
     # Re-export into this module's namespace
     mod = sys.modules[__name__]
@@ -571,6 +609,8 @@ def _resolve_tool_config_refs() -> None:
     mod.WebToolsConfig = WebToolsConfig  # type: ignore[attr-defined]
     mod.WebFetchConfig = WebFetchConfig  # type: ignore[attr-defined]
     mod.MyToolConfig = MyToolConfig  # type: ignore[attr-defined]
+    mod.WebSearchConfig = WebSearchConfig  # type: ignore[attr-defined]
+    mod.DeepResearchConfig = DeepResearchConfig  # type: ignore[attr-defined]
 
     ToolsConfig.model_rebuild()
     Config.model_rebuild()

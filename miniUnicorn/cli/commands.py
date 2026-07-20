@@ -1,4 +1,29 @@
-"""CLI commands for MiniUnicorn."""
+"""CLI commands for MiniUnicorn.
+
+This module owns the Typer command surface (``app`` and its subcommands) and
+re-exports the helpers that used to live here as top-level definitions.  The
+heavy lifting has been split into three sibling modules:
+
+- ``_terminal_render.py`` — prompt_toolkit / Rich output helpers
+  (``_print_agent_response``, ``_ReasoningBuffer``, ``_print_cli_reasoning``,
+  ``_print_interactive_progress_line`` …).
+- ``_heartbeat.py`` — heartbeat preamble text, cached HEARTBEAT.md template
+  loader, and the heartbeat-specific provider builder.
+- ``_gateway_runner.py`` — the shared ``_run_gateway`` runtime plus the
+  cron-job dispatcher (``on_cron_job``) and its branch helpers.
+
+A few names are looked up by tests via ``unittest.mock.patch`` on this
+module's namespace (e.g. ``patch("miniUnicorn.cli.commands.PromptSession",
+...)`` or ``patch("miniUnicorn.cli.commands.evaluate_response", ...)``).
+Those names must remain importable as attributes of ``commands``; the
+helpers in the sibling modules honour the patches through late binding
+(``from miniUnicorn.cli import commands; commands.<name>(...)``).
+
+The mutable prompt_toolkit session state (``_PROMPT_SESSION`` and
+``_SAVED_TERM_ATTRS``) stays on this module for the same reason: tests
+patch ``commands._PROMPT_SESSION`` and the helpers reach it through
+``commands._PROMPT_SESSION``.
+"""
 
 import asyncio
 import functools
@@ -50,29 +75,37 @@ from rich.text import Text
 from miniUnicorn import __logo__, __version__
 from miniUnicorn.agent.loop import AgentLoop
 
-
-def _sanitize_surrogates(text: str) -> str:
-    """Reconstruct surrogate pairs into real characters; replace lone surrogates.
-
-    On Windows, console input may produce lone surrogate code points (e.g.
-    ``\\ud83d\\udc08`` for U+1F408).  Round-tripping through UTF-16 reconstructs
-    paired surrogates into their actual characters and replaces unpaired ones
-    with U+FFFD.
-    """
-    return text.encode("utf-16-le", errors="surrogatepass").decode("utf-16-le", errors="replace")
-
-
-class SafeFileHistory(FileHistory):
-    """FileHistory subclass that sanitizes surrogate characters on write.
-
-    On Windows, special Unicode input (emoji, mixed-script) can produce
-    surrogate characters that crash prompt_toolkit's file write.
-    See issue #2846.
-    """
-
-    def store_string(self, string: str) -> None:
-        super().store_string(_sanitize_surrogates(string))
-
+from miniUnicorn.cli._heartbeat import (
+    _HEARTBEAT_PREAMBLE,
+    _build_heartbeat_provider,
+    _heartbeat_template,
+)
+from miniUnicorn.cli._terminal_render import (
+    EXIT_COMMANDS,
+    _REASONING_FLUSH_CHARS,
+    _REASONING_SENTENCE_ENDINGS,
+    _ReasoningBuffer,
+    _flush_cli_reasoning,
+    _flush_pending_tty_input,
+    _init_prompt_session,
+    _is_exit_command,
+    _make_console,
+    _maybe_print_interactive_progress,
+    _print_agent_response,
+    _print_cli_progress_line,
+    _print_cli_reasoning,
+    _print_interactive_line,
+    _print_interactive_progress_line,
+    _print_interactive_response,
+    _read_interactive_input_async,
+    _render_interactive_ansi,
+    _response_renderable,
+    _restore_terminal,
+    _sanitize_surrogates,
+    SafeFileHistory,
+    console,
+)
+from miniUnicorn.cli._gateway_runner import _run_gateway
 from miniUnicorn.cli.stream import StreamRenderer, ThinkingSpinner
 from miniUnicorn.config.paths import get_workspace_path, is_default_workspace
 from miniUnicorn.config.schema import Config
@@ -91,304 +124,15 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-console = Console()
-EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit", ":q"}
-_REASONING_SENTENCE_ENDINGS = (".", "!", "?", "。", "！", "？")
-_REASONING_FLUSH_CHARS = 60
-
-_HEARTBEAT_PREAMBLE = (
-    "[Your response will be delivered directly to the user's messaging app. "
-    "Output ONLY the final user-facing message. Never reference internal "
-    "files (HEARTBEAT.md, AWARENESS.md, etc.), your instructions, or your "
-    "decision process. If nothing needs reporting, respond with just "
-    "'All clear.' and nothing else.]\n\n"
-)
-
-
-@functools.lru_cache(maxsize=None)
-def _heartbeat_template() -> str | None:
-    from miniUnicorn.utils.helpers import load_bundled_template
-    return load_bundled_template("HEARTBEAT.md")
-
 # ---------------------------------------------------------------------------
-# CLI input: prompt_toolkit for editing, paste, history, and display
+# CLI input: prompt_toolkit session state (lives on the commands module so
+# that test patches like `patch("miniUnicorn.cli.commands._PROMPT_SESSION",
+# ...)` continue to work after the split).  The helpers in
+# `_terminal_render.py` reach these via `commands._PROMPT_SESSION` /
+# `commands._SAVED_TERM_ATTRS` (late binding).
 # ---------------------------------------------------------------------------
-
 _PROMPT_SESSION: PromptSession | None = None
 _SAVED_TERM_ATTRS = None  # original termios settings, restored on exit
-
-
-def _flush_pending_tty_input() -> None:
-    """Drop unread keypresses typed while the model was generating output."""
-    try:
-        fd = sys.stdin.fileno()
-        if not os.isatty(fd):
-            return
-    except Exception:
-        return
-
-    with suppress(Exception):
-        import termios
-
-        termios.tcflush(fd, termios.TCIFLUSH)
-        return
-
-    with suppress(Exception):
-        while True:
-            ready, _, _ = select.select([fd], [], [], 0)
-            if not ready:
-                break
-            if not os.read(fd, 4096):
-                break
-
-
-def _restore_terminal() -> None:
-    """Restore terminal to its original state (echo, line buffering, etc.)."""
-    if _SAVED_TERM_ATTRS is None:
-        return
-    with suppress(Exception):
-        import termios
-
-        termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, _SAVED_TERM_ATTRS)
-
-
-def _init_prompt_session() -> None:
-    """Create the prompt_toolkit session with persistent file history."""
-    global _PROMPT_SESSION, _SAVED_TERM_ATTRS
-
-    # Save terminal state so we can restore it on exit
-    with suppress(Exception):
-        import termios
-
-        _SAVED_TERM_ATTRS = termios.tcgetattr(sys.stdin.fileno())
-
-    from miniUnicorn.config.paths import get_cli_history_path
-
-    history_file = get_cli_history_path()
-    history_file.parent.mkdir(parents=True, exist_ok=True)
-
-    _PROMPT_SESSION = PromptSession(
-        history=SafeFileHistory(str(history_file)),
-        enable_open_in_editor=False,
-        multiline=False,  # Enter submits (single line mode)
-    )
-
-
-def _make_console() -> Console:
-    return Console(file=sys.stdout)
-
-
-def _render_interactive_ansi(render_fn) -> str:
-    """Render Rich output to ANSI so prompt_toolkit can print it safely."""
-    ansi_console = Console(
-        force_terminal=sys.stdout.isatty(),
-        color_system=console.color_system or "standard",
-        width=console.width,
-    )
-    with ansi_console.capture() as capture:
-        render_fn(ansi_console)
-    return capture.get()
-
-
-def _print_agent_response(
-    response: str,
-    render_markdown: bool,
-    metadata: dict | None = None,
-    show_header: bool = True,
-) -> None:
-    """Render assistant response with consistent terminal styling."""
-    console = _make_console()
-    content = response or ""
-    body = _response_renderable(content, render_markdown, metadata)
-    if show_header:
-        console.print()
-        console.print(f"[cyan]{__logo__} MiniUnicorn[/cyan]")
-    console.print(body)
-    console.print()
-
-
-def _response_renderable(content: str, render_markdown: bool, metadata: dict | None = None):
-    """Render plain-text command output without markdown collapsing newlines."""
-    if not render_markdown:
-        return Text(content)
-    if (metadata or {}).get("render_as") == "text":
-        return Text(content)
-    return Markdown(content)
-
-
-async def _print_interactive_line(text: str) -> None:
-    """Print async interactive updates with prompt_toolkit-safe Rich styling."""
-    def _write() -> None:
-        ansi = _render_interactive_ansi(
-            lambda c: c.print(f"  [dim]↳ {text}[/dim]")
-        )
-        print_formatted_text(ANSI(ansi), end="")
-
-    await run_in_terminal(_write)
-
-
-async def _print_interactive_response(
-    response: str,
-    render_markdown: bool,
-    metadata: dict | None = None,
-) -> None:
-    """Print async interactive replies with prompt_toolkit-safe Rich styling."""
-    def _write() -> None:
-        content = response or ""
-        ansi = _render_interactive_ansi(
-            lambda c: (
-                c.print(),
-                c.print(f"[cyan]{__logo__} MiniUnicorn[/cyan]"),
-                c.print(_response_renderable(content, render_markdown, metadata)),
-                c.print(),
-            )
-        )
-        print_formatted_text(ANSI(ansi), end="")
-
-    await run_in_terminal(_write)
-
-
-def _print_cli_progress_line(text: str, thinking: ThinkingSpinner | None, renderer: StreamRenderer | None = None) -> None:
-    """Print a CLI progress line, pausing the spinner if needed."""
-    if not text.strip():
-        return
-    target = renderer.console if renderer else console
-    pause = renderer.pause_spinner() if renderer else (thinking.pause() if thinking else nullcontext())
-    with pause:
-        if renderer:
-            renderer.ensure_header()
-        target.print(f"  [dim]↳ {text}[/dim]")
-
-
-class _ReasoningBuffer:
-    def __init__(self) -> None:
-        self._text = ""
-
-    def add(self, text: str) -> str | None:
-        if not text:
-            return None
-        self._text += text
-        if self._should_flush(text):
-            return self.flush()
-        return None
-
-    def flush(self) -> str | None:
-        text = self._text.strip()
-        self._text = ""
-        return text or None
-
-    def clear(self) -> None:
-        self._text = ""
-
-    def _should_flush(self, text: str) -> bool:
-        stripped = text.rstrip()
-        return (
-            "\n" in text
-            or stripped.endswith(_REASONING_SENTENCE_ENDINGS)
-            or len(self._text) >= _REASONING_FLUSH_CHARS
-        )
-
-
-def _print_cli_reasoning(text: str, thinking: ThinkingSpinner | None, renderer: StreamRenderer | None = None) -> None:
-    """Print reasoning/thinking content in a distinct style."""
-    if not text.strip():
-        return
-    target = renderer.console if renderer else console
-    pause = renderer.pause_spinner() if renderer else (thinking.pause() if thinking else nullcontext())
-    with pause:
-        if renderer:
-            renderer.ensure_header()
-        target.print(f"[dim italic]✻ {text}[/dim italic]")
-
-
-def _flush_cli_reasoning(
-    reasoning_buffer: _ReasoningBuffer,
-    thinking: ThinkingSpinner | None,
-    renderer: StreamRenderer | None = None,
-) -> None:
-    text = reasoning_buffer.flush()
-    if text:
-        _print_cli_reasoning(text, thinking, renderer)
-
-
-async def _print_interactive_progress_line(text: str, thinking: ThinkingSpinner | None, renderer: StreamRenderer | None = None) -> None:
-    """Print an interactive progress line, pausing the spinner if needed."""
-    if not text.strip():
-        return
-    if renderer:
-        with renderer.pause_spinner():
-            renderer.ensure_header()
-            renderer.console.print(f"  [dim]↳ {text}[/dim]")
-    else:
-        with thinking.pause() if thinking else nullcontext():
-            await _print_interactive_line(text)
-
-
-async def _maybe_print_interactive_progress(
-    msg: Any,
-    thinking: ThinkingSpinner | None,
-    channels_config: Any,
-    renderer: StreamRenderer | None = None,
-    reasoning_buffer: _ReasoningBuffer | None = None,
-) -> bool:
-    metadata = msg.metadata or {}
-    if metadata.get("_retry_wait"):
-        await _print_interactive_progress_line(msg.content, thinking, renderer)
-        return True
-
-    if not metadata.get("_progress"):
-        return False
-
-    reasoning_buffer = reasoning_buffer or _ReasoningBuffer()
-
-    if metadata.get("_reasoning_end"):
-        if channels_config and not channels_config.show_reasoning:
-            reasoning_buffer.clear()
-        else:
-            _flush_cli_reasoning(reasoning_buffer, thinking, renderer)
-        return True
-
-    is_tool_hint = metadata.get("_tool_hint", False)
-    is_reasoning = metadata.get("_reasoning", False) or metadata.get("_reasoning_delta", False)
-    if is_reasoning:
-        if channels_config and not channels_config.show_reasoning:
-            reasoning_buffer.clear()
-            return True
-        text = reasoning_buffer.add(msg.content)
-        if text:
-            _print_cli_reasoning(text, thinking, renderer)
-        return True
-    if channels_config and is_tool_hint and not channels_config.send_tool_hints:
-        return True
-    if channels_config and not is_tool_hint and not channels_config.send_progress:
-        return True
-
-    await _print_interactive_progress_line(msg.content, thinking, renderer)
-    return True
-
-
-def _is_exit_command(command: str) -> bool:
-    """Return True when input should end interactive chat."""
-    return command.lower() in EXIT_COMMANDS
-
-
-async def _read_interactive_input_async() -> str:
-    """Read user input using prompt_toolkit (handles paste, history, display).
-
-    prompt_toolkit natively handles:
-    - Multiline paste (bracketed paste mode)
-    - History navigation (up/down arrows)
-    - Clean display (no ghost characters or artifacts)
-    """
-    if _PROMPT_SESSION is None:
-        raise RuntimeError("Call _init_prompt_session() first")
-    try:
-        with patch_stdout():
-            return await _PROMPT_SESSION.prompt_async(
-                HTML("<b fg='ansiblue'>You:</b> "),
-            )
-    except EOFError as exc:
-        raise KeyboardInterrupt from exc
 
 
 def version_callback(value: bool):
@@ -861,423 +605,6 @@ def desktop_gateway(
             "can_export_diagnostics": True,
         },
     )
-
-
-def _run_gateway(
-    config: Config,
-    *,
-    open_browser_url: str | None = None,
-    webui_static_dist: bool = True,
-    webui_runtime_surface: str = "browser",
-    webui_runtime_capabilities: dict[str, Any] | None = None,
-) -> None:
-    """Shared gateway runtime; ``open_browser_url`` opens a tab once channels are up."""
-    from miniUnicorn.agent.tools.cron import CronTool
-    from miniUnicorn.agent.tools.message import MessageTool
-    from miniUnicorn.bus.queue import MessageBus
-    from miniUnicorn.channels.manager import ChannelManager
-    from miniUnicorn.channels.websocket import publish_runtime_model_update
-    from miniUnicorn.cron.service import CronService
-    from miniUnicorn.cron.types import CronJob
-    from miniUnicorn.providers.factory import build_provider_snapshot, load_provider_snapshot
-    from miniUnicorn.session.manager import SessionManager
-
-    ws_cfg = getattr(config.channels, "websocket", None)
-    if isinstance(ws_cfg, dict):
-        ws_port = ws_cfg.get("port", 8765)
-    elif ws_cfg is not None:
-        ws_port = ws_cfg.port
-    else:
-        ws_port = 8765
-
-    console.print(f"{__logo__} Starting MiniUnicorn gateway version {__version__} on port {ws_port}...")
-    sync_workspace_templates(config.workspace_path)
-    bus = MessageBus()
-    try:
-        provider_snapshot = build_provider_snapshot(config)
-    except ValueError as exc:
-        console.print(f"[yellow]Warning: {exc}[/yellow]")
-        console.print("[dim]Chat will not work until an API key is configured in Settings → BYOK.[/dim]")
-        provider_snapshot = None
-    session_manager = SessionManager(config.workspace_path)
-
-    # Preserve existing single-workspace installs, but keep custom workspaces clean.
-    if is_default_workspace(config.workspace_path):
-        _migrate_cron_store(config)
-
-    # Create cron service with workspace-scoped store
-    cron_store_path = config.workspace_path / "cron" / "jobs.json"
-    cron = CronService(cron_store_path)
-
-    # Create agent with cron service
-    agent = AgentLoop.from_config(
-        config, bus,
-        provider=provider_snapshot.provider if provider_snapshot else None,
-        model=provider_snapshot.model if provider_snapshot else None,
-        context_window_tokens=provider_snapshot.context_window_tokens if provider_snapshot else None,
-        cron_service=cron,
-        session_manager=session_manager,
-        provider_snapshot_loader=load_provider_snapshot,
-        runtime_model_publisher=lambda model, preset: publish_runtime_model_update(
-            bus,
-            model,
-            preset,
-        ),
-        provider_signature=provider_snapshot.signature if provider_snapshot else None,
-    )
-
-    from miniUnicorn.agent.loop import UNIFIED_SESSION_KEY
-    from miniUnicorn.bus.events import OutboundMessage
-
-    def _channel_session_key(channel: str, chat_id: str) -> str:
-        return (
-            UNIFIED_SESSION_KEY
-            if config.agents.defaults.unified_session
-            else f"{channel}:{chat_id}"
-        )
-
-    async def _deliver_to_channel(
-        msg: OutboundMessage, *, record: bool = False, session_key: str | None = None,
-    ) -> None:
-        """Publish a user-visible message and mirror it into that channel's session."""
-        metadata = dict(msg.metadata or {})
-        record = record or bool(metadata.pop("_record_channel_delivery", False))
-        if metadata != (msg.metadata or {}):
-            msg = OutboundMessage(
-                channel=msg.channel,
-                chat_id=msg.chat_id,
-                content=msg.content,
-                reply_to=msg.reply_to,
-                media=msg.media,
-                metadata=metadata,
-                buttons=msg.buttons,
-            )
-        if (
-            record
-            and msg.channel != "cli"
-            and msg.content.strip()
-            and hasattr(session_manager, "get_or_create")
-            and hasattr(session_manager, "save")
-        ):
-            key = session_key or _channel_session_key(msg.channel, msg.chat_id)
-            session = session_manager.get_or_create(key)
-            extra: dict[str, Any] = {"_channel_delivery": True}
-            if msg.media:
-                extra["media"] = list(msg.media)
-            session.add_message("assistant", msg.content, **extra)
-            session_manager.save(session)
-        await bus.publish_outbound(msg)
-
-    message_tool = getattr(agent, "tools", {}).get("message")
-    if isinstance(message_tool, MessageTool):
-        message_tool.set_send_callback(_deliver_to_channel)
-
-    # Set cron callback (needs agent)
-    async def on_cron_job(job: CronJob) -> str | None:
-        """Execute a cron job through the agent."""
-        async def _silent(*_args, **_kwargs):
-            pass
-
-        # Dream is an internal job — run directly, not through the agent loop.
-        if job.name == "dream":
-            try:
-                await agent.dream.run()
-                logger.info("Dream cron job completed")
-            except Exception:
-                logger.exception("Dream cron job failed")
-            return None
-
-        # Heartbeat is a system job that checks HEARTBEAT.md for active tasks.
-        if job.name == "heartbeat":
-            heartbeat_file = config.workspace_path / "HEARTBEAT.md"
-            try:
-                content = heartbeat_file.read_text(encoding="utf-8")
-            except OSError:
-                logger.debug("Heartbeat: HEARTBEAT.md missing")
-                return None
-            if not content or content == _heartbeat_template():
-                logger.debug("Heartbeat: HEARTBEAT.md empty or identical to template")
-                return None
-
-            channel, chat_id = _pick_heartbeat_target()
-            if channel == "cli":
-                return None
-
-            prompt = (
-                _HEARTBEAT_PREAMBLE
-                + f"Review the following HEARTBEAT.md and report any active tasks:\n\n{content}"
-            )
-
-            resp = await agent.process_direct(
-                prompt,
-                session_key="heartbeat",
-                channel=channel,
-                chat_id=chat_id,
-                on_progress=_silent,
-            )
-            response = resp.content if resp else ""
-
-            # Keep a small tail of heartbeat history so the loop stays bounded.
-            session = agent.sessions.get_or_create("heartbeat")
-            session.retain_recent_legal_suffix(hb_cfg.keep_recent_messages)
-            agent.sessions.save(session)
-
-            if not response:
-                return None
-
-            should_notify = await evaluate_response(
-                response, prompt, agent.provider, agent.model,
-            )
-            if should_notify:
-                logger.info("Heartbeat: completed, delivering response")
-                await _deliver_to_channel(
-                    OutboundMessage(channel=channel, chat_id=chat_id, content=response),
-                    record=True,
-                )
-            else:
-                logger.info("Heartbeat: silenced by post-run evaluation")
-            return response
-
-        reminder_note = (
-            "The scheduled time has arrived. Deliver this reminder to the user now, "
-            "as a brief and natural message in their language. Speak directly to them — "
-            "do not narrate progress, summarize, include user IDs, or add status reports "
-            "like 'Done' or 'Reminded'.\n\n"
-            f"Reminder: {job.payload.message}"
-        )
-
-        cron_tool = agent.tools.get("cron")
-        cron_token = None
-        if isinstance(cron_tool, CronTool):
-            cron_token = cron_tool.set_cron_context(True)
-
-        message_record_token = None
-        if isinstance(message_tool, MessageTool):
-            message_record_token = message_tool.set_record_channel_delivery(True)
-
-        try:
-            resp = await agent.process_direct(
-                reminder_note,
-                session_key=f"cron:{job.id}",
-                channel=job.payload.channel or "cli",
-                chat_id=job.payload.to or "direct",
-                on_progress=_silent,
-            )
-        finally:
-            if isinstance(cron_tool, CronTool) and cron_token is not None:
-                cron_tool.reset_cron_context(cron_token)
-            if isinstance(message_tool, MessageTool) and message_record_token is not None:
-                message_tool.reset_record_channel_delivery(message_record_token)
-
-        response = resp.content if resp else ""
-
-        if job.payload.deliver and isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:
-            return response
-
-        if job.payload.deliver and job.payload.to and response:
-            should_notify = await evaluate_response(
-                response, reminder_note, agent.provider, agent.model,
-            )
-            if should_notify:
-                await _deliver_to_channel(
-                    OutboundMessage(
-                        channel=job.payload.channel or "cli",
-                        chat_id=job.payload.to,
-                        content=response,
-                        metadata=dict(job.payload.channel_meta),
-                    ),
-                    record=True,
-                    session_key=job.payload.session_key,
-                )
-        return response
-
-    cron.on_job = on_cron_job
-
-    def _webui_runtime_model_name() -> str | None:
-        model = getattr(agent, "model", None)
-        if isinstance(model, str):
-            stripped = model.strip()
-            return stripped or None
-        return None
-
-    def _webui_provider_loader():
-        # Returns the current LLMProvider (or None if not configured) so that
-        # HTTP routes like /api/agents/generate can call the LLM directly.
-        return getattr(agent, "provider", None)
-
-    def _reload_cron_system_jobs() -> None:
-        """Re-register heartbeat and dream system jobs after runtime config changes.
-
-        Called by the WebSocket channel when heartbeat/dream intervals are updated
-        from the WebUI, so the new interval takes effect without a gateway restart.
-        """
-        from miniUnicorn.config.loader import load_config as _reload_config
-        fresh = _reload_config()
-        fresh_hb = fresh.gateway.heartbeat
-        fresh_dream = fresh.agents.defaults.dream
-        tz = fresh.agents.defaults.timezone
-        if fresh_hb.enabled:
-            cron.register_system_job(CronJob(
-                id="heartbeat",
-                name="heartbeat",
-                schedule=CronSchedule(
-                    kind="every",
-                    every_ms=fresh_hb.interval_s * 1000,
-                    tz=tz,
-                ),
-                payload=CronPayload(kind="system_event"),
-            ))
-        if fresh_dream.enabled:
-            cron.register_system_job(CronJob(
-                id="dream",
-                name="dream",
-                schedule=fresh_dream.build_schedule(tz),
-                payload=CronPayload(kind="system_event"),
-            ))
-
-    def _refresh_agent_runtime_model() -> None:
-        """Refresh the running AgentLoop's model/provider from the latest config.
-
-        Called by the WebSocket channel after model/provider settings are
-        updated from the WebUI, so agent.model reflects the new selection
-        immediately (bootstrap + runtime_model_updated carry the new value).
-        """
-        try:
-            agent._refresh_provider_snapshot()
-        except Exception:
-            console.print("[yellow]Warning: failed to refresh agent runtime model[/yellow]")
-
-    # Create channel manager (forwards SessionManager so the WebSocket channel
-    # can serve the embedded webui's REST surface).
-    channels = ChannelManager(
-        config,
-        bus,
-        session_manager=session_manager,
-        webui_runtime_model_name=_webui_runtime_model_name,
-        webui_static_dist=webui_static_dist,
-        webui_runtime_surface=webui_runtime_surface,
-        webui_runtime_capabilities=webui_runtime_capabilities,
-        webui_provider_loader=_webui_provider_loader,
-        webui_cron_reloader=_reload_cron_system_jobs,
-        webui_agent_model_refresher=_refresh_agent_runtime_model,
-        webui_cron_service=cron,
-        webui_tool_registry=agent.tools,
-    )
-
-    def _pick_heartbeat_target() -> tuple[str, str]:
-        """Pick a routable channel/chat target for heartbeat-triggered messages."""
-        enabled = set(channels.enabled_channels)
-        for item in session_manager.list_sessions():
-            key = item.get("key") or ""
-            if ":" not in key:
-                continue
-            channel, chat_id = key.split(":", 1)
-            if channel in {"cli", "system"}:
-                continue
-            if channel in enabled and chat_id:
-                return channel, chat_id
-        return "cli", "direct"
-
-    if channels.enabled_channels:
-        console.print(f"[green]✓[/green] Channels enabled: {', '.join(channels.enabled_channels)}")
-    else:
-        console.print("[yellow]Warning: No channels enabled[/yellow]")
-
-    cron_status = cron.status()
-    if cron_status["jobs"] > 0:
-        console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
-
-    hb_cfg = config.gateway.heartbeat
-    if hb_cfg.enabled:
-        console.print(f"[green]✓[/green] Heartbeat: every {hb_cfg.interval_s}s")
-    else:
-        console.print("[yellow]✗[/yellow] Heartbeat: disabled")
-
-    # Register Dream system job (idempotent on restart)
-    dream_cfg = config.agents.defaults.dream
-    if dream_cfg.model_override:
-        agent.dream.model = dream_cfg.model_override
-    agent.dream.max_batch_size = dream_cfg.max_batch_size
-    agent.dream.max_iterations = dream_cfg.max_iterations
-    agent.dream.annotate_line_ages = dream_cfg.annotate_line_ages
-    from miniUnicorn.cron.types import CronJob, CronPayload, CronSchedule
-    if dream_cfg.enabled:
-        cron.register_system_job(CronJob(
-            id="dream",
-            name="dream",
-            schedule=dream_cfg.build_schedule(config.agents.defaults.timezone),
-            payload=CronPayload(kind="system_event"),
-        ))
-        console.print(f"[green]✓[/green] Dream: {dream_cfg.describe_schedule()}")
-    else:
-        console.print("[yellow]○[/yellow] Dream: disabled")
-
-    # Register Heartbeat system job (idempotent on restart)
-    if hb_cfg.enabled:
-        cron.register_system_job(CronJob(
-            id="heartbeat",
-            name="heartbeat",
-            schedule=CronSchedule(
-                kind="every",
-                every_ms=hb_cfg.interval_s * 1000,
-                tz=config.agents.defaults.timezone,
-            ),
-            payload=CronPayload(kind="system_event"),
-        ))
-
-    async def _open_browser_when_ready() -> None:
-        """Wait for the gateway to bind, then point the user's browser at the webui."""
-        if not open_browser_url:
-            return
-        import webbrowser
-        # Channels start asynchronously; a short poll lets us avoid racing the bind.
-        for _ in range(40):  # ~4s max
-            try:
-                reader, writer = await asyncio.open_connection(
-                    config.gateway.host or "127.0.0.1", ws_port
-                )
-                writer.close()
-                with suppress(Exception):
-                    await writer.wait_closed()
-                break
-            except OSError:
-                await asyncio.sleep(0.1)
-        try:
-            webbrowser.open(open_browser_url)
-            console.print(f"[green]✓[/green] Opened browser at {open_browser_url}")
-        except Exception as e:
-            console.print(f"[yellow]Could not open browser ({e}); visit {open_browser_url}[/yellow]")
-
-    async def run():
-        try:
-            await cron.start()
-            tasks = [
-                agent.run(),
-                channels.start_all(),
-            ]
-            if open_browser_url:
-                tasks.append(_open_browser_when_ready())
-            await asyncio.gather(*tasks)
-        except KeyboardInterrupt:
-            console.print("\nShutting down...")
-        except Exception:
-            import traceback
-
-            console.print("\n[red]Error: Gateway crashed unexpectedly[/red]")
-            console.print(traceback.format_exc())
-        finally:
-            await agent.close_mcp()
-            cron.stop()
-            agent.stop()
-            await channels.stop_all()
-            # Flush all cached sessions to durable storage before exit.
-            # This prevents data loss on filesystems with write-back
-            # caching (rclone VFS, NFS, FUSE mounts, etc.).
-            flushed = agent.sessions.flush_all()
-            if flushed:
-                logger.info("Shutdown: flushed {} session(s) to disk", flushed)
-
-    asyncio.run(run())
 
 
 # ============================================================================

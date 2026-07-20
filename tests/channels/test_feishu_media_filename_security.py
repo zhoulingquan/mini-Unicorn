@@ -13,7 +13,7 @@ async def test_feishu_downloaded_media_filename_cannot_escape_media_dir(monkeypa
     media_dir.mkdir()
     outside = tmp_path / "escaped.txt"
 
-    monkeypatch.setattr(feishu_module, "get_media_dir", lambda _channel: media_dir)
+    monkeypatch.setattr(feishu_module.channel, "get_media_dir", lambda _channel: media_dir)
 
     channel = FeishuChannel.__new__(FeishuChannel)
     channel.logger = SimpleNamespace(

@@ -19,6 +19,13 @@ import { useSessions } from "@/hooks/useSessions";
 import { useDeferredTitleRefresh } from "@/hooks/useDeferredTitleRefresh";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import { ThemeProvider, useTheme, type ThemeMode } from "@/hooks/useTheme";
+import { useChatRunStatus } from "@/hooks/useChatRunStatus";
+import { useDeleteRenameDialog } from "@/hooks/useDeleteRenameDialog";
+import { useRestartFlow } from "@/hooks/useRestartFlow";
+import {
+  useWorkspaceScope,
+  normalizeWorkspaceScope,
+} from "@/hooks/useWorkspaceScope";
 import { cn } from "@/lib/utils";
 import {
   supportedLocales,
@@ -40,11 +47,10 @@ import type {
   RuntimeSurface,
   SettingsPayload,
   WorkspaceScopePayload,
-  WorkspacesPayload,
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { fetchSettings, fetchWorkspaces } from "@/lib/api";
+import { fetchSettings } from "@/lib/api";
 import {
   createRuntimeHost,
   toRuntimeSurface,
@@ -66,8 +72,6 @@ type BootState =
     };
 
 const SIDEBAR_STORAGE_KEY = STORAGE_KEYS.sidebar;
-const COMPLETED_RUNS_STORAGE_KEY = STORAGE_KEYS.sidebarCompletedRuns;
-const RESTART_STARTED_KEY = STORAGE_KEYS.restartStartedAt;
 const SIDEBAR_WIDTH = 272;
 const SIDEBAR_RAIL_WIDTH = 56;
 const TOKEN_REFRESH_MARGIN_MS = 30_000;
@@ -150,39 +154,6 @@ function readSidebarOpen(): boolean {
   } catch {
     return true;
   }
-}
-
-function readCompletedRunChatIds(): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = window.localStorage.getItem(COMPLETED_RUNS_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((item): item is string => typeof item === "string"));
-  } catch {
-    return new Set();
-  }
-}
-
-function writeCompletedRunChatIds(chatIds: Set<string>): void {
-  try {
-    window.localStorage.setItem(
-      COMPLETED_RUNS_STORAGE_KEY,
-      JSON.stringify(Array.from(chatIds)),
-    );
-  } catch {
-    // ignore storage errors (private mode, etc.)
-  }
-}
-
-function normalizeWorkspaceScope(scope: WorkspaceScopePayload): WorkspaceScopePayload {
-  const accessMode = scope.access_mode === "restricted" ? "restricted" : "full";
-  return {
-    ...scope,
-    project_name: scope.project_name ?? projectNameFromPath(scope.project_path),
-    access_mode: accessMode,
-    restrict_to_workspace: accessMode === "restricted",
-  };
 }
 
 function HostChrome({
@@ -467,31 +438,7 @@ function Shell({
   const [hostSidebarOpen, setHostSidebarOpen] =
     useState<boolean>(readSidebarOpen);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<{
-    key: string;
-    label: string;
-  } | null>(null);
-  const [pendingRename, setPendingRename] = useState<{
-    key: string;
-    label: string;
-  } | null>(null);
-  const [pendingProjectRename, setPendingProjectRename] = useState<{
-    key: string;
-    label: string;
-  } | null>(null);
-  const restartSawDisconnectRef = useRef(false);
-  const [restartToast, setRestartToast] = useState<string | null>(null);
-  const [isRestarting, setIsRestarting] = useState(false);
-  const [runningChatIds, setRunningChatIds] = useState<Set<string>>(() => new Set());
-  const [completedChatIds, setCompletedChatIds] = useState<Set<string>>(readCompletedRunChatIds);
-  const [workspaces, setWorkspaces] = useState<WorkspacesPayload | null>(null);
   const [settingsSnapshot, setSettingsSnapshot] = useState<SettingsPayload | null>(null);
-  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
-  const [draftWorkspaceScope, setDraftWorkspaceScope] =
-    useState<WorkspaceScopePayload | null>(null);
-  const [workspaceOverrides, setWorkspaceOverrides] =
-    useState<Record<string, WorkspaceScopePayload>>({});
-  const runningChatIdsRef = useRef<Set<string>>(new Set());
   /** Currently selected subagent id (routes outbound turns to that agent). */
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
@@ -520,114 +467,51 @@ function Shell({
     }
   }, [hostSidebarOpen]);
 
-  useEffect(() => {
-    writeCompletedRunChatIds(completedChatIds);
-  }, [completedChatIds]);
-
   const activeSession = useMemo<ChatSummary | null>(() => {
     if (!activeKey) return null;
     return sessions.find((s) => s.key === activeKey) ?? null;
   }, [sessions, activeKey]);
-  const runningChatIdList = useMemo(() => Array.from(runningChatIds), [runningChatIds]);
-  const completedChatIdList = useMemo(() => Array.from(completedChatIds), [completedChatIds]);
   const activeChatId = activeSession?.chatId ?? null;
-  const activeWorkspaceScope = useMemo<WorkspaceScopePayload | null>(() => {
-    if (activeChatId && workspaceOverrides[activeChatId]) {
-      return workspaceOverrides[activeChatId];
-    }
-    if (activeSession?.workspaceScope) {
-      return activeSession.workspaceScope;
-    }
-    return draftWorkspaceScope ?? workspaces?.default_scope ?? null;
-  }, [
+
+  // 顺序很重要:useChatRunStatus 派生 activeChatRunning,useWorkspaceScope 依赖它。
+  const {
+    runningChatIdList,
+    completedChatIdList,
+    activeChatRunning,
+    clearCompleted,
+  } = useChatRunStatus({ client, sessions, loading, activeChatId });
+  const {
+    workspaces,
+    workspaceError,
+    setDraftWorkspaceScope,
+    setWorkspaceError,
+    setWorkspaceOverrides,
+    activeWorkspaceScope,
+    applyWorkspaceScope,
+  } = useWorkspaceScope({
+    token,
+    client,
+    sessions,
+    loading,
+    activeSession,
     activeChatId,
-    activeSession?.workspaceScope,
-    draftWorkspaceScope,
-    workspaceOverrides,
-    workspaces?.default_scope,
-  ]);
-  const activeChatRunning = activeChatId ? runningChatIds.has(activeChatId) : false;
-
-  const refreshWorkspaces = useCallback(async () => {
-    try {
-      const payload = await fetchWorkspaces(token);
-      setWorkspaces(payload);
-    } catch {
-      setWorkspaces(null);
-    }
-  }, [token]);
-
-  useEffect(() => {
-    void refreshWorkspaces();
-  }, [refreshWorkspaces]);
-
-  useEffect(() => {
-    if (loading) return;
-    const knownChatIds = new Set(sessions.map((session) => session.chatId));
-    setCompletedChatIds((current) => {
-      const next = new Set(
-        Array.from(current).filter((chatId) => knownChatIds.has(chatId)),
-      );
-      return next.size === current.size ? current : next;
-    });
-    setWorkspaceOverrides((current) => {
-      const entries = Object.entries(current).filter(([chatId]) => knownChatIds.has(chatId));
-      return entries.length === Object.keys(current).length ? current : Object.fromEntries(entries);
-    });
-  }, [loading, sessions]);
-
-  useEffect(() => {
-    return client.onSessionUpdate((_chatId, _scope, workspaceScope) => {
-      if (!workspaceScope) return;
-      const next = normalizeWorkspaceScope(workspaceScope);
-      setWorkspaceOverrides((current) => ({
-        ...current,
-        [_chatId]: next,
-      }));
-      setDraftWorkspaceScope(next);
-      setWorkspaceError(null);
-      void refreshWorkspaces();
-    });
-  }, [client, refreshWorkspaces]);
-
-  useEffect(() => {
-    return client.onError((error) => {
-      if (error.kind !== "workspace_scope_rejected") return;
-      setWorkspaceError(t("errors.workspaceScopeRejected.body"));
-      void refreshWorkspaces();
-    });
-  }, [client, refreshWorkspaces, t]);
-
-  useEffect(() => {
-    if (loading) return;
-    const activeRunIds = sessions
-      .filter((session) => typeof session.runStartedAt === "number")
-      .map((session) => session.chatId);
-    if (activeRunIds.length === 0) return;
-
-    for (const chatId of activeRunIds) {
-      client.attach(chatId);
-    }
-    setRunningChatIds((current) => {
-      let changed = false;
-      const next = new Set(current);
-      for (const chatId of activeRunIds) {
-        if (!next.has(chatId)) changed = true;
-        next.add(chatId);
-      }
-      if (!changed) return current;
-      runningChatIdsRef.current = next;
-      return next;
-    });
-    setCompletedChatIds((current) => {
-      let changed = false;
-      const next = new Set(current);
-      for (const chatId of activeRunIds) {
-        if (next.delete(chatId)) changed = true;
-      }
-      return changed ? next : current;
-    });
-  }, [client, loading, sessions]);
+    activeChatRunning,
+  });
+  const { isRestarting, restartToast, onRestart } = useRestartFlow({
+    client,
+    activeChatId: activeSession?.chatId ?? client.defaultChatId,
+  });
+  const {
+    pendingDelete,
+    pendingRename,
+    pendingProjectRename,
+    requestDelete,
+    requestRename,
+    requestProjectRename,
+    cancelDelete,
+    cancelRename,
+    cancelProjectRename,
+  } = useDeleteRenameDialog();
 
   const closeHostSidebar = useCallback(() => {
     setHostSidebarOpen(false);
@@ -651,21 +535,6 @@ function Shell({
       setMobileSidebarOpen((v) => !v);
     }
   }, []);
-
-  const applyWorkspaceScope = useCallback(
-    (scope: WorkspaceScopePayload) => {
-      const next = normalizeWorkspaceScope(scope);
-      setWorkspaceError(null);
-      if (activeChatId) {
-        if (!activeChatRunning) {
-          client.setWorkspaceScope(activeChatId, next);
-        }
-        return;
-      }
-      setDraftWorkspaceScope(next);
-    },
-    [activeChatId, activeChatRunning, client],
-  );
 
   const onCreateChat = useCallback(async (workspaceScope?: WorkspaceScopePayload | null) => {
     try {
@@ -725,12 +594,7 @@ function Shell({
       const selected = sessions.find((session) => session.key === key);
       const selectedChatId = selected?.chatId;
       if (selectedChatId) {
-        setCompletedChatIds((current) => {
-          if (!current.has(selectedChatId)) return current;
-          const next = new Set(current);
-          next.delete(selectedChatId);
-          return next;
-        });
+        clearCompleted(selectedChatId);
       }
       if (selected?.workspaceScope) {
         setDraftWorkspaceScope(normalizeWorkspaceScope(selected.workspaceScope));
@@ -742,7 +606,7 @@ function Shell({
       setView("chat");
       setMobileSidebarOpen(false);
     },
-    [sessions],
+    [clearCompleted, sessions],
   );
 
   const onTogglePin = useCallback(
@@ -763,15 +627,11 @@ function Shell({
     [updateSidebarState],
   );
 
-  const onRequestRename = useCallback((key: string, label: string) => {
-    setPendingRename({ key, label });
-  }, []);
-
   const onConfirmRename = useCallback(
     (title: string) => {
       if (!pendingRename) return;
       const key = pendingRename.key;
-      setPendingRename(null);
+      cancelRename();
       void updateSidebarState((current) => {
         const titleOverrides = { ...current.title_overrides };
         const cleaned = title.trim();
@@ -786,7 +646,7 @@ function Shell({
         };
       });
     },
-    [pendingRename, updateSidebarState],
+    [cancelRename, pendingRename, updateSidebarState],
   );
 
   const onToggleGroup = useCallback(
@@ -818,15 +678,11 @@ function Shell({
     [updateSidebarState],
   );
 
-  const onRequestRenameProject = useCallback((key: string, label: string) => {
-    setPendingProjectRename({ key, label });
-  }, []);
-
   const onConfirmProjectRename = useCallback(
     (title: string) => {
       if (!pendingProjectRename) return;
       const key = pendingProjectRename.key;
-      setPendingProjectRename(null);
+      cancelProjectRename();
       void updateSidebarState((current) => {
         const projectNameOverrides = { ...current.project_name_overrides };
         const cleaned = title.trim();
@@ -841,7 +697,7 @@ function Shell({
         };
       });
     },
-    [pendingProjectRename, updateSidebarState],
+    [cancelProjectRename, pendingProjectRename, updateSidebarState],
   );
 
   const onToggleArchive = useCallback(
@@ -879,33 +735,8 @@ function Shell({
     }));
   }, [updateSidebarState]);
 
-  const onOpenMcp = useCallback(() => {
-    setView("mcp");
-    setMobileSidebarOpen(false);
-  }, []);
-
-  const onOpenSkills = useCallback(() => {
-    setView("skills");
-    setMobileSidebarOpen(false);
-  }, []);
-
-  const onOpenAgents = useCallback(() => {
-    setView("agents");
-    setMobileSidebarOpen(false);
-  }, []);
-
-  const onOpenCron = useCallback(() => {
-    setView("cron");
-    setMobileSidebarOpen(false);
-  }, []);
-
-  const onOpenTools = useCallback(() => {
-    setView("tools");
-    setMobileSidebarOpen(false);
-  }, []);
-
-  const onOpenChannels = useCallback(() => {
-    setView("channels");
+  const openView = useCallback((name: ShellView) => {
+    setView(name);
     setMobileSidebarOpen(false);
   }, []);
 
@@ -940,80 +771,11 @@ function Shell({
     });
   }, [sessions]);
 
-  const onRestart = useCallback(() => {
-    const chatId = activeSession?.chatId ?? client.defaultChatId;
-    if (!chatId) return;
-    restartSawDisconnectRef.current = false;
-    setIsRestarting(true);
-    try {
-      window.localStorage.setItem(RESTART_STARTED_KEY, String(Date.now()));
-    } catch {
-      // ignore storage errors
-    }
-    client.sendMessage(chatId, "/restart");
-  }, [activeSession?.chatId, client]);
-
   useEffect(() => {
     return client.onRuntimeModelUpdate((modelName) => {
       onModelNameChange(modelName);
     });
   }, [client, onModelNameChange]);
-
-  useEffect(() => {
-    return client.onRunStatus((chatId, startedAt) => {
-      if (startedAt != null) {
-        const nextRunning = new Set(runningChatIdsRef.current);
-        nextRunning.add(chatId);
-        runningChatIdsRef.current = nextRunning;
-        setRunningChatIds(nextRunning);
-        setCompletedChatIds((current) => {
-          if (!current.has(chatId)) return current;
-          const next = new Set(current);
-          next.delete(chatId);
-          return next;
-        });
-        return;
-      }
-
-      if (!runningChatIdsRef.current.has(chatId)) return;
-      const nextRunning = new Set(runningChatIdsRef.current);
-      nextRunning.delete(chatId);
-      runningChatIdsRef.current = nextRunning;
-      setRunningChatIds(nextRunning);
-      setCompletedChatIds((current) => {
-        const next = new Set(current);
-        next.add(chatId);
-        return next;
-      });
-    });
-  }, [client]);
-
-  useEffect(() => {
-    return client.onStatus((status) => {
-      const startedAt = (() => {
-        try {
-          return Number(window.localStorage.getItem(RESTART_STARTED_KEY) ?? "0");
-        } catch {
-          return 0;
-        }
-      })();
-      if (!startedAt) return;
-      if (status !== "open") {
-        restartSawDisconnectRef.current = true;
-        return;
-      }
-      const elapsedMs = Date.now() - startedAt;
-      if (!restartSawDisconnectRef.current && elapsedMs < 1500) return;
-      try {
-        window.localStorage.removeItem(RESTART_STARTED_KEY);
-      } catch {
-        // ignore storage errors
-      }
-      setIsRestarting(false);
-      setRestartToast(t("app.restart.completed", { seconds: (elapsedMs / 1000).toFixed(1) }));
-      window.setTimeout(() => setRestartToast(null), 3_500);
-    });
-  }, [client, t]);
 
   const onTurnEnd = useDeferredTitleRefresh(activeSession, refresh);
 
@@ -1025,7 +787,7 @@ function Shell({
     const fallbackKey = deletingActive
       ? (sessions[currentIndex + 1]?.key ?? sessions[currentIndex - 1]?.key ?? null)
       : activeKey;
-    setPendingDelete(null);
+    cancelDelete();
     if (deletingActive) setActiveKey(fallbackKey);
     try {
       await deleteChat(key);
@@ -1033,7 +795,7 @@ function Shell({
       if (deletingActive) setActiveKey(key);
       console.error("Failed to delete session", e);
     }
-  }, [pendingDelete, deleteChat, activeKey, sessions]);
+  }, [cancelDelete, pendingDelete, deleteChat, activeKey, sessions]);
 
   const headerTitle = activeSession
     ? sidebarState.title_overrides[activeSession.key] ||
@@ -1059,21 +821,20 @@ function Shell({
     loading,
     onNewChat,
     onSelect: onSelectChat,
-    onRequestDelete: (key: string, label: string) =>
-      setPendingDelete({ key, label }),
+    onRequestDelete: requestDelete,
     onTogglePin,
-    onRequestRename,
+    onRequestRename: requestRename,
     onToggleArchive,
     onToggleGroup,
-    onRequestRenameProject,
+    onRequestRenameProject: requestProjectRename,
     onNewChatInProject,
     onOpenSettings,
-    onOpenMcp,
-    onOpenSkills,
-    onOpenAgents,
-    onOpenCron,
-    onOpenTools,
-    onOpenChannels,
+    onOpenMcp: () => openView("mcp"),
+    onOpenSkills: () => openView("skills"),
+    onOpenAgents: () => openView("agents"),
+    onOpenCron: () => openView("cron"),
+    onOpenTools: () => openView("tools"),
+    onOpenChannels: () => openView("channels"),
     onToggleArchived,
     pinnedKeys: sidebarState.pinned_keys,
     archivedKeys: sidebarState.archived_keys,
@@ -1092,19 +853,15 @@ function Shell({
     loading,
     onNewChat,
     onSelectChat,
+    requestDelete,
     onTogglePin,
-    onRequestRename,
+    requestRename,
     onToggleArchive,
     onToggleGroup,
-    onRequestRenameProject,
+    requestProjectRename,
     onNewChatInProject,
     onOpenSettings,
-    onOpenMcp,
-    onOpenSkills,
-    onOpenAgents,
-    onOpenCron,
-    onOpenTools,
-    onOpenChannels,
+    openView,
     onToggleArchived,
     sidebarState.pinned_keys,
     sidebarState.archived_keys,
@@ -1201,6 +958,15 @@ function Shell({
                 "rounded-l-[28px] shadow-[-18px_0_32px_-30px_rgb(0_0_0/0.45)] dark:shadow-[-18px_0_32px_-30px_rgb(0_0_0/0.85)]",
             )}
           >
+            {/*
+              设计意图:ThreadShell 在切换到其他视图(settings/mcp/skills 等)时
+              仅通过 invisible + pointer-events-none 隐藏,而不卸载。
+              原因:ThreadShell 内部持有 WebSocket 订阅与流式状态(useMiniUnicornStream),
+              强行卸载会断开 WS 连接并丢失已渲染的消息列表/输入草稿等会话状态。
+              用户切换回 chat 视图时,状态应原地保留(这是优点而非缺陷)。
+              如需优化长会话内存占用,应在 useMiniUnicornStream 内部按 view !== "chat"
+              暂停订阅/渲染,而不是在此处卸载组件(风险高)。
+            */}
             <div
               className={cn(
                 "absolute inset-0 flex flex-col",
@@ -1304,13 +1070,13 @@ function Shell({
         <DeleteConfirm
           open={!!pendingDelete}
           title={pendingDelete?.label ?? ""}
-          onCancel={() => setPendingDelete(null)}
+          onCancel={cancelDelete}
           onConfirm={onConfirmDelete}
         />
         <RenameChatDialog
           open={!!pendingRename}
           title={pendingRename?.label ?? ""}
-          onCancel={() => setPendingRename(null)}
+          onCancel={cancelRename}
           onConfirm={onConfirmRename}
         />
         <RenameChatDialog
@@ -1319,7 +1085,7 @@ function Shell({
           dialogTitle={t("chat.renameProjectTitle")}
           description={t("chat.renameProjectDescription")}
           placeholder={t("chat.renameProjectPlaceholder")}
-          onCancel={() => setPendingProjectRename(null)}
+          onCancel={cancelProjectRename}
           onConfirm={onConfirmProjectRename}
         />
         {restartToast ? (

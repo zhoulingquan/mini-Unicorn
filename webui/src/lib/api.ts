@@ -1,6 +1,8 @@
 import type {
   AgentDetail,
   AgentsPayload,
+  ChannelQrBeginPayload,
+  ChannelQrStatusPayload,
   ChannelsPayload,
   ChatSummary,
   CliAppsPayload,
@@ -23,6 +25,7 @@ import type {
   ToolImportResult,
   ToolsPayload,
   WebFetchSettingsUpdate,
+  WebSearchSettingsUpdate,
   WorkspacesPayload,
   WebuiThreadPersistedPayload,
   WorkspaceScopePayload,
@@ -144,6 +147,40 @@ export async function deleteSession(
     token,
   );
   return body.deleted;
+}
+
+export interface RewindResult {
+  rewound: boolean;
+  transcriptLinesRemoved: number;
+  sessionMessagesRemoved: number;
+}
+
+/**
+ * Truncate a websocket session to before the N-th user message (0-based).
+ * Both the WebUI transcript and the agent session file are truncated, and a
+ * ``session_updated`` event is broadcast so the live thread view refreshes.
+ */
+export async function rewindSession(
+  token: string,
+  key: string,
+  userMessageIndex: number,
+  base: string = "",
+): Promise<RewindResult> {
+  const query = new URLSearchParams();
+  query.set("user_message_index", String(userMessageIndex));
+  const body = await request<{
+    rewound: boolean;
+    transcript_lines_removed: number;
+    session_messages_removed: number;
+  }>(
+    `${base}/api/sessions/${encodeURIComponent(key)}/rewind?${query}`,
+    token,
+  );
+  return {
+    rewound: body.rewound,
+    transcriptLinesRemoved: body.transcript_lines_removed,
+    sessionMessagesRemoved: body.session_messages_removed,
+  };
 }
 
 export async function fetchSettings(
@@ -338,6 +375,45 @@ export interface BootstrapFilePayload {
   name: string;
   content: string;
   exists: boolean;
+}
+
+export interface DreamFileEntry {
+  name: string;
+  exists: boolean;
+  size: number;
+  size_human: string;
+  modified_at: number | null;
+  modified_at_human: string;
+}
+
+export interface DreamFilesPayload {
+  files: DreamFileEntry[];
+}
+
+export interface DreamFilePayload {
+  name: string;
+  content: string;
+  exists: boolean;
+}
+
+export async function listDreamFiles(
+  token: string,
+  base: string = "",
+): Promise<DreamFilesPayload> {
+  return request<DreamFilesPayload>(`${base}/api/dream/files`, token);
+}
+
+export async function readDreamFile(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<DreamFilePayload> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  return request<DreamFilePayload>(
+    `${base}/api/dream/file?${query}`,
+    token,
+  );
 }
 
 export async function readBootstrapFile(
@@ -682,6 +758,41 @@ export async function updateWebFetchSettings(
   );
 }
 
+export async function updateWebSearchSettings(
+  token: string,
+  update: WebSearchSettingsUpdate,
+  base: string = "",
+): Promise<SettingsPayload> {
+  const query = new URLSearchParams();
+  query.set("enable", String(update.enable));
+  query.set("provider", update.provider);
+  query.set("region", update.region);
+  query.set("max_results", String(update.max_results));
+  query.set("timeout", String(update.timeout));
+  query.set("enable_cache", String(update.enable_cache));
+  query.set("cache_ttl", String(update.cache_ttl));
+  query.set("proxy", update.proxy);
+  query.set("user_agent", update.user_agent);
+  query.set("fallback_chain", update.fallback_chain.join(","));
+  // backends 嵌套结构通过 JSON 字符串传递
+  // 空 backends 对象传 "{}" 以便后端清空;只在有非空 api_key 时包含该后端
+  const backendsObj: Record<string, { api_key?: string; base_url: string; timeout: number }> = {};
+  for (const [name, draft] of Object.entries(update.backends)) {
+    backendsObj[name] = {
+      base_url: draft.base_url,
+      timeout: draft.timeout,
+    };
+    if (draft.api_key) {
+      backendsObj[name].api_key = draft.api_key;
+    }
+  }
+  query.set("backends_json", JSON.stringify(backendsObj));
+  return request<SettingsPayload>(
+    `${base}/api/settings/web-search/update?${query}`,
+    token,
+  );
+}
+
 export async function updateNetworkSafetySettings(
   token: string,
   update: NetworkSafetySettingsUpdate,
@@ -705,8 +816,11 @@ export async function updateRuntimeSettings(
   if (update.heartbeatIntervalS !== undefined) {
     query.set("heartbeat_interval_s", String(update.heartbeatIntervalS));
   }
-  if (update.dreamIntervalH !== undefined) {
-    query.set("dream_interval_h", String(update.dreamIntervalH));
+  if (update.dreamCron !== undefined) {
+    query.set("dream_cron", update.dreamCron);
+  }
+  if (update.heartbeatModelPreset !== undefined) {
+    query.set("heartbeat_model_preset", update.heartbeatModelPreset);
   }
   return request<SettingsPayload>(
     `${base}/api/settings/runtime/update?${query}`,
@@ -852,5 +966,39 @@ export async function deleteChannelConfig(
   const query = new URLSearchParams();
   query.set("name", name);
   return request(`${base}/api/channels/delete?${query}`, token);
+}
+
+/** 启动某个 channel 的扫码登录流程（参考 QwenPaw QrcodeAuthBlock）。 */
+export async function beginChannelQrLogin(
+  token: string,
+  name: string,
+  domain?: string,
+  base: string = "",
+): Promise<ChannelQrBeginPayload> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  if (domain) query.set("domain", domain);
+  return request<ChannelQrBeginPayload>(
+    `${base}/api/channels/qrcode?${query}`,
+    token,
+  );
+}
+
+/** 轮询扫码登录状态。成功时后端自动将凭证写入 config.json。 */
+export async function pollChannelQrStatus(
+  token: string,
+  name: string,
+  pollToken: string,
+  domain?: string,
+  base: string = "",
+): Promise<ChannelQrStatusPayload> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  query.set("poll_token", pollToken);
+  if (domain) query.set("domain", domain);
+  return request<ChannelQrStatusPayload>(
+    `${base}/api/channels/qrcode/status?${query}`,
+    token,
+  );
 }
 

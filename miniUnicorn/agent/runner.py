@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import inspect
 import os
-from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -67,7 +66,7 @@ _MICROCOMPACT_KEEP_RECENT = 10
 _MICROCOMPACT_MIN_CHARS = 500
 _COMPACTABLE_TOOLS = frozenset({
     "read_file", "exec", "grep", "find_files",
-    "web_fetch", "list_dir", "list_exec_sessions",
+    "web_fetch", "web_search", "list_dir", "list_exec_sessions",
 })
 _BACKFILL_CONTENT = "[Tool result unavailable — call was interrupted or lost]"
 
@@ -538,6 +537,30 @@ class AgentRunner:
             messages_for_model = self._inject_step_guidance(messages_for_model, guidance)
         return messages_for_model
 
+    @staticmethod
+    async def _extract_reasoning(
+        response: Any,
+        context: AgentHookContext,
+        hook: AgentHook,
+    ) -> None:
+        """从响应中提取 reasoning 并清洗 content,按需通过 hook 流式输出。
+
+        副作用:
+        - 修改 ``response.content``,剥离 reasoning/thinking 块后的纯净文本
+        - 当存在 reasoning 且本轮尚未流式输出过时,调用 hook.emit_reasoning
+          与 hook.emit_reasoning_end,并标记 context.streamed_reasoning
+        """
+        reasoning_text, cleaned_content = extract_reasoning(
+            response.reasoning_content,
+            response.thinking_blocks,
+            response.content,
+        )
+        response.content = cleaned_content
+        if reasoning_text and not context.streamed_reasoning:
+            await hook.emit_reasoning(reasoning_text)
+            await hook.emit_reasoning_end()
+            context.streamed_reasoning = True
+
     async def _run_iteration(
         self, spec: AgentRunSpec, messages: list[dict[str, Any]],
         state: _RunState, iteration: int, hook: AgentHook,
@@ -569,16 +592,7 @@ class AgentRunner:
             await hook.after_iteration(context)
             return True
 
-        reasoning_text, cleaned_content = extract_reasoning(
-            response.reasoning_content,
-            response.thinking_blocks,
-            response.content,
-        )
-        response.content = cleaned_content
-        if reasoning_text and not context.streamed_reasoning:
-            await hook.emit_reasoning(reasoning_text)
-            await hook.emit_reasoning_end()
-            context.streamed_reasoning = True
+        await self._extract_reasoning(response, context, hook)
 
         if response.should_execute_tools:
             return await self._execute_tool_branch(
@@ -750,6 +764,25 @@ class AgentRunner:
             task.add_done_callback(self._background_tasks.discard)
         return False
 
+    @staticmethod
+    def _classify_terminal_error(
+        response: Any,
+        clean: str,
+        spec: AgentRunSpec,
+    ) -> str:
+        """分类 LLM 错误响应并返回最终内容字符串。
+
+        - 欠费/额度耗尽 (arrearage):返回 ``_ARREARAGE_ERROR_MESSAGE``
+        - 其他错误:返回 ``clean`` 或 ``spec.error_message`` 或 ``_DEFAULT_ERROR_MESSAGE``
+          (按优先级取第一个非空值)
+
+        仅在 ``response.finish_reason == "error"`` 时由调用方调用;调用方需自行判断
+        finish_reason。本方法为纯函数,无副作用。
+        """
+        if LLMProvider.is_arrearage_response(response):
+            return _ARREARAGE_ERROR_MESSAGE
+        return clean or spec.error_message or _DEFAULT_ERROR_MESSAGE
+
     async def _handle_final_response(
         self, spec: AgentRunSpec, response: Any,
         messages: list[dict[str, Any]], messages_for_model: list[dict[str, Any]],
@@ -861,10 +894,8 @@ class AgentRunner:
             return False
 
         if response.finish_reason == "error":
-            if LLMProvider.is_arrearage_response(response):
-                state.final_content = _ARREARAGE_ERROR_MESSAGE
-            else:
-                state.final_content = clean or spec.error_message or _DEFAULT_ERROR_MESSAGE
+            error_content = self._classify_terminal_error(response, clean, spec)
+            state.final_content = error_content
             state.stop_reason = "error"
             state.error = state.final_content
             self._append_model_error_placeholder(messages)
@@ -1285,10 +1316,13 @@ class AgentRunner:
         prepare_call = getattr(spec.tools, "prepare_call", None)
         tool, params, prep_error = None, tool_call.arguments, None
         if callable(prepare_call):
-            with suppress(Exception):
+            # prepare_call 失败不应阻断工具调用流程,但仍需记录便于排查
+            try:
                 prepared = prepare_call(tool_call.name, tool_call.arguments)
                 if isinstance(prepared, tuple) and len(prepared) == 3:
                     tool, params, prep_error = prepared
+            except Exception as e:
+                logger.debug("prepare_call failed for %s: %s", tool_call.name, e)
         if prep_error:
             event = {
                 "name": tool_call.name,
@@ -1338,7 +1372,8 @@ class AgentRunner:
                 result = await spec.tools.execute(tool_call.name, params)
         except asyncio.CancelledError:
             raise
-        except BaseException as exc:
+        # 仅捕获 Exception,放行 KeyboardInterrupt/SystemExit 等系统级中断
+        except Exception as exc:
             if file_edit_trackers and progress_callback is not None:
                 await invoke_file_edit_progress(
                     progress_callback,

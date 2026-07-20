@@ -62,6 +62,11 @@ class CronJob:
     created_at_ms: int = 0
     updated_at_ms: int = 0
     delete_after_run: bool = False
+    # 若为 True,gateway 重启后若距上次执行错过了一个或多个触发点(基于 cron
+    # 表达式或 every 间隔),则立刻补跑一次,然后按当前时间重排下一次执行。
+    # 目前仅 dream 这类低频且语义重要的 system job 需要补跑;heartbeat 等
+    # 高频 job 不需要,因为错过一次本就无所谓。
+    catch_up_on_start: bool = False
 
     @classmethod
     def from_dict(cls, kwargs: dict):

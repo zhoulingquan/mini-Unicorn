@@ -1,5 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
+import i18n from "@/i18n";
+
 interface ErrorBoundaryProps {
   children: ReactNode;
   /** Optional fallback renderer; receives the thrown error and a reset callback. */
@@ -56,7 +58,7 @@ function DefaultErrorFallback({
       className="flex h-full w-full flex-col items-center justify-center gap-3 px-4 text-center"
     >
       <p className="text-sm font-semibold text-foreground">
-        Something went wrong
+        {i18n.t("common.errorBoundary.title", { defaultValue: "Something went wrong" })}
       </p>
       <p className="max-w-md text-xs text-muted-foreground">
         {error.message || String(error)}
@@ -66,7 +68,7 @@ function DefaultErrorFallback({
         onClick={onReset}
         className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
       >
-        Try again
+        {i18n.t("common.errorBoundary.retry", { defaultValue: "Try again" })}
       </button>
     </div>
   );

@@ -144,7 +144,16 @@ class _PreparedCommand:
     )
 )
 class ExecTool(Tool):
-    """Tool to execute shell commands."""
+    """Tool to execute shell commands.
+
+    安全说明 (defense in depth):
+        本工具内置的 ``deny_patterns`` 与 ``_BYPASS_PATTERNS`` 仅作为"防呆"层,
+        用于拦截明显的破坏性命令与常见绕过手法(如 ``$(...)``、反引号、
+        ``base64 -d``、``python -c``、``perl -e`` 等)。这**不是安全边界**——
+        只要攻击者能控制命令字符串,就存在绕过这些正则的可能。
+        生产环境必须叠加 ``sandbox="bwrap"`` + ``restrict_to_workspace=True``
+        才能形成真正的执行隔离;在不可信输入场景下,绝不可仅依赖本层防护。
+    """
     _scopes = {"core", "subagent"}
 
     config_key = "exec"
@@ -610,7 +619,7 @@ class ExecTool(Tool):
         (r'\$\(', "command substitution $(...)"),
         (r"\$'", "ANSI-C quoting $'...'"),
         (r'`[^`]+`', "backtick command substitution"),
-        (r'base64\s+--decode\b|\bbase64\s+-d\b|\bdbase64\s+-d\b', "base64 decode pipe"),
+        (r'base64\s+--decode\b|\bbase64\s+-d\b|\bdbbase64\s+-d\b', "base64 decode pipe"),
         (r'xxd\s+-r\b', "hex decode pipe"),
         (r'\\x[0-9a-fA-F]{2}', "hex escape sequence"),
         (r'\\[0-7]{3}', "octal escape sequence"),
@@ -618,6 +627,21 @@ class ExecTool(Tool):
         (r'printf\s+.*\\x[0-9a-fA-F]', "printf hex escape"),
         (r'eval\s+', "eval command"),
         (r'exec\s+', "exec command"),
+        # M5: 通过解释器 -c/-e 内联执行任意代码,可绕过其它模式检查。
+        # 仅拦截 `python -c`、`python2 -c`、`python3 -c` 这类内联代码执行,
+        # 不影响 `python script.py`、`python -m module`、`python --version` 等正常用法。
+        (r'\bpython\d*\s+-c\b', "python -c inline code execution"),
+        (r'\bperl\s+-e\b', "perl -e inline code execution"),
+        (r'\bnode\s+-e\b', "node -e inline code execution"),
+        (r'\bruby\s+-e\b', "ruby -e inline code execution"),
+        # awk 内 system() 调用:仅在 awk 程序段内出现 system( 时拦截,
+        # 不影响 `awk '{print $1}'`、`awk -F: '{...}'` 等正常文本处理。
+        # 限制在管道/分号之前,避免跨段误匹配。
+        (r'\bawk\b[^|;&\n]*\bsystem\s*\(', "awk system() inline execution"),
+        # find -exec / -execdir:允许 `find . -type f` 等查找操作,
+        # 仅拦截通过 -exec / -execdir 触发的子进程执行。
+        # 同样限制在管道/分号之前,避免跨段误匹配。
+        (r'\bfind\b[^|;&\n]*\s+-exec(?:dir)?\b', "find -exec execution"),
     ]
 
     def _guard_command(
@@ -627,7 +651,12 @@ class ExecTool(Tool):
         *,
         restrict_to_workspace: bool | None = None,
     ) -> str | None:
-        """Best-effort safety guard for potentially destructive commands."""
+        """Best-effort safety guard for potentially destructive commands.
+
+        本方法仅作为 defense-in-depth(防呆)层,拦截明显的破坏性命令与
+        常见绕过手法,不是安全边界。生产环境必须叠加 ``sandbox="bwrap"``
+        与 ``restrict_to_workspace=True`` 才能形成真正的执行隔离。
+        """
         cmd = command.strip()
         lower = cmd.lower()
 

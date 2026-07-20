@@ -38,7 +38,7 @@ from miniUnicorn.bus.queue import MessageBus
 from miniUnicorn.command import CommandContext, CommandRouter, register_builtin_commands
 from miniUnicorn.config.schema import AgentDefaults, ModelPresetConfig
 from miniUnicorn.providers.base import LLMProvider
-from miniUnicorn.providers.factory import ProviderSnapshot
+from miniUnicorn.providers.factory import ProviderSignature, ProviderSnapshot
 from miniUnicorn.security.workspace_access import (
     WorkspaceScopeResolver,
     bind_workspace_scope,
@@ -162,7 +162,9 @@ class AgentLoopOptions:
     disabled_skills: list[str] | None = None
     tools_config: Any | None = None
     provider_snapshot_loader: Callable[..., ProviderSnapshot] | None = None
-    provider_signature: tuple[object, ...] | None = None
+    # provider_signature 既可能是 ``ProviderSignature``(由 ``provider_signature()``
+    # 产出),也可能是测试中构造的短元组;因此联合类型。
+    provider_signature: ProviderSignature | tuple[object, ...] | None = None
     model_presets: dict[str, ModelPresetConfig] | None = None
     model_preset: str | None = None
     preset_snapshot_loader: preset_helpers.PresetSnapshotLoader | None = None
@@ -321,6 +323,11 @@ class AgentLoop:
         # Plan-and-Execute / Reflection / TurnBudget defaults (all opt-in).
         # Read from AgentDefaults so users can enable these via YAML config;
         # all default to False/None, preserving legacy behavior.
+        #
+        # 兼容性说明:此处使用 getattr(defaults, ..., default) 而非直接属性访问,
+        # 是为了兼容旧版 AgentDefaults 子类或自定义配置对象未声明这些可选字段的
+        # 情形,避免触发 AttributeError。这些字段属于渐进添加的可选功能,旧的
+        # 配置文件或外部子类可能未同步更新 dataclass 定义。
         self.use_planner = getattr(defaults, "use_planner", False)
         self.planner_model = getattr(defaults, "planner_model", None)
         self.planner_max_replans = getattr(defaults, "planner_max_replans", 3)
@@ -387,18 +394,9 @@ class AgentLoop:
         # When a session has an active task, new messages for that session
         # are routed here instead of creating a new task.
         self._pending_queues: dict[str, asyncio.Queue] = {}
-        # SessionManager LRU evict 回调：当会话从缓存淘汰时，清理本 loop 持有的
-        # 锁和待处理队列。**仅当该会话当前没有活跃任务时**才清理，否则任务结束
-        # 后的 finally 块仍会引用这些结构。
-        def _on_session_evict(key: str) -> None:
-            if self._active_tasks.get(key):
-                # 有活跃任务：保留锁和队列，让 _dispatch 的 finally 自行清理。
-                return
-            self._session_locks.pop(key, None)
-            # pending_queues 不应残留（_dispatch finally 会 pop），但保险起见仍清掉。
-            self._pending_queues.pop(key, None)
-            self._pending_turn_latency_ms.pop(key, None)
-        self.sessions.set_on_evict(_on_session_evict)
+        # 注册 SessionManager LRU evict 回调:当会话从缓存淘汰时,清理本 loop
+        # 持有的锁和待处理队列。具体逻辑见 _on_session_evict 方法。
+        self.sessions.set_on_evict(self._on_session_evict)
         # MINIUNICORN_MAX_CONCURRENT_REQUESTS: <=0 means unlimited; default 3.
         _max = int(os.environ.get("MINIUNICORN_MAX_CONCURRENT_REQUESTS", "3"))
         self._concurrency_gate: asyncio.Semaphore | None = (
@@ -767,6 +765,20 @@ class AgentLoop:
         else:
             logger.warning("Command '{}' matched but dispatch returned None", raw)
 
+    def _on_session_evict(self, key: str) -> None:
+        """SessionManager LRU evict 回调:会话从缓存淘汰时清理本 loop 持有的资源。
+
+        **仅当该会话当前没有活跃任务时**才清理,否则任务结束后的 finally 块
+        仍会引用这些结构(锁和待处理队列),过早清理会导致 _dispatch 出错。
+        """
+        if self._active_tasks.get(key):
+            # 有活跃任务:保留锁和队列,让 _dispatch 的 finally 自行清理。
+            return
+        self._session_locks.pop(key, None)
+        # pending_queues 不应残留(_dispatch finally 会 pop),但保险起见仍清掉。
+        self._pending_queues.pop(key, None)
+        self._pending_turn_latency_ms.pop(key, None)
+
     async def _cancel_active_tasks(self, key: str) -> int:
         """Cancel and await all active tasks and subagents for *key*.
 
@@ -784,7 +796,9 @@ class AgentLoop:
                 if asyncio.current_task().cancelling():
                     raise
             except Exception:
-                logger.debug("Task cleanup error in _cancel_active_tasks", exc_info=True)
+                # 取消任务时的清理错误应可见 - 此前用 debug 级别会静默关键问题
+                # (例如子任务抛出非 CancelledError 异常),不利于排查。
+                logger.warning("Task cleanup error in _cancel_active_tasks", exc_info=True)
         sub_cancelled = await self.subagents.cancel_by_session(key)
         return cancelled + sub_cancelled
 
@@ -1110,6 +1124,79 @@ class AgentLoop:
                 else None
             )
 
+    async def _cleanup_dispatch(
+        self,
+        session_key: str,
+        msg: InboundMessage,
+        pending: asyncio.Queue | None,
+    ) -> None:
+        """统一清理 _dispatch 资源(幂等,可多次调用不报错)。
+
+        涵盖所有退出路径(正常/cancel/exception/未获取锁)的清理工作:
+        1. 排空 pending 队列中残留消息,重新发布到 bus(仅当 pending 不为 None)
+        2. 发布 idle 状态
+        3. 移除 turn latency 记录
+        4. 丢弃 webui turn 跟踪
+
+        每个步骤用 try/except 隔离,防止单步失败影响其他清理。
+        """
+        # 1. 排空 pending 队列(只有当 pending 仍属于当前 session 时才取走,
+        # 避免 steal 后续任务的 cleanup ownership)。
+        if pending is not None:
+            try:
+                queue = None
+                if self._pending_queues.get(session_key) is pending:
+                    queue = self._pending_queues.pop(session_key, None)
+                else:
+                    queue = pending
+                if queue is not None:
+                    leftover = 0
+                    while True:
+                        try:
+                            item = queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            break
+                        await self.bus.publish_inbound(item)
+                        leftover += 1
+                    if leftover:
+                        logger.info(
+                            "Re-published {} leftover message(s) to bus for session {}",
+                            leftover, session_key,
+                        )
+            except Exception:
+                logger.debug(
+                    "Failed to drain pending queue for session {}",
+                    session_key,
+                    exc_info=True,
+                )
+        # 2. 发布 idle 状态。
+        try:
+            await self._webui_turns.publish_run_status(msg, "idle")
+        except Exception:
+            logger.debug(
+                "Failed to publish idle run status for session {}",
+                session_key,
+                exc_info=True,
+            )
+        # 3. 移除 turn latency 记录(pop 自带默认值,天然幂等)。
+        try:
+            self._pending_turn_latency_ms.pop(session_key, None)
+        except Exception:
+            logger.debug(
+                "Failed to pop pending turn latency for session {}",
+                session_key,
+                exc_info=True,
+            )
+        # 4. 丢弃 webui turn 跟踪。
+        try:
+            self._webui_turns.discard(session_key)
+        except Exception:
+            logger.debug(
+                "Failed to discard webui turn for session {}",
+                session_key,
+                exc_info=True,
+            )
+
     async def _dispatch(self, msg: InboundMessage) -> None:
         """Process a message: per-session serial, cross-session concurrent."""
         session_key = self._effective_session_key(msg)
@@ -1197,7 +1284,9 @@ class AgentLoop:
                                 key,
                             )
                     except Exception:
-                        logger.debug(
+                        # checkpoint 恢复失败会导致用户丢失部分上下文(工具结果、
+                        # assistant 消息等),属于影响用户体验的关键问题,需要可见。
+                        logger.warning(
                             "Could not restore checkpoint for cancelled session {}",
                             session_key,
                             exc_info=True,
@@ -1210,38 +1299,14 @@ class AgentLoop:
                         content="Sorry, I encountered an error.",
                     ))
                 finally:
-                    # Drain any messages still in the pending queue and re-publish
-                    # them to the bus so they are processed as fresh inbound messages
-                    # rather than silently lost.  Only remove our own queue; a
-                    # later task waiting on the lock must not be able to steal
-                    # cleanup ownership.
-                    queue = None
-                    if self._pending_queues.get(session_key) is pending:
-                        queue = self._pending_queues.pop(session_key, None)
-                    else:
-                        queue = pending
-                    if queue is not None:
-                        leftover = 0
-                        while True:
-                            try:
-                                item = queue.get_nowait()
-                            except asyncio.QueueEmpty:
-                                break
-                            await self.bus.publish_inbound(item)
-                            leftover += 1
-                        if leftover:
-                            logger.info(
-                                "Re-published {} leftover message(s) to bus for session {}",
-                                leftover, session_key,
-                            )
-                    await self._webui_turns.publish_run_status(msg, "idle")
-                    self._pending_turn_latency_ms.pop(session_key, None)
-                    self._webui_turns.discard(session_key)
+                    # 内层 finally:统一清理(pending 必不为 None,会排空队列)。
+                    # 详细逻辑见 _cleanup_dispatch。
+                    await self._cleanup_dispatch(session_key, msg, pending)
         finally:
+            # 外层 finally:仅当未获取锁(pending is None,即从未进入内层 try)
+            # 时执行清理。_cleanup_dispatch 是幂等的,即使重复调用也不会出错。
             if pending is None:
-                await self._webui_turns.publish_run_status(msg, "idle")
-                self._pending_turn_latency_ms.pop(session_key, None)
-                self._webui_turns.discard(session_key)
+                await self._cleanup_dispatch(session_key, msg, pending)
 
     async def close_mcp(self) -> None:
         """Drain pending background archives, then close MCP connections."""
