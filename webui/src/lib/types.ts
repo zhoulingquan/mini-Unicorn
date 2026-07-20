@@ -297,12 +297,8 @@ export interface SettingsPayload {
   web_search: {
     enable: boolean;
     provider: string;
-    region: string;
     max_results: number;
     timeout: number;
-    fallback_chain: string[];
-    enable_cache: boolean;
-    cache_ttl: number;
     proxy: string | null;
     user_agent: string | null;
     backends: Record<
@@ -612,12 +608,8 @@ export interface WebSearchBackendDraft {
 export interface WebSearchSettingsUpdate {
   enable: boolean;
   provider: string;
-  region: string;
   max_results: number;
   timeout: number;
-  fallback_chain: string[];
-  enable_cache: boolean;
-  cache_ttl: number;
   proxy: string;
   user_agent: string;
   backends: Record<string, WebSearchBackendDraft>;

@@ -22,7 +22,7 @@ from miniUnicorn.agent.tools.web_search.config import WebSearchConfig
         backend={
             "type": "string",
             "description": (
-                "Search backend. 'auto' (default) = use fallback chain. "
+                "Search backend. 'auto' (default) = query all backends concurrently and merge deduped results. "
                 "Options: auto / bing_cn / baidu / sogou / bocha / tencent / duckduckgo."
             ),
             "default": "auto",
@@ -39,7 +39,8 @@ class WebSearchTool(Tool):
     description = (
         "Search the web with a keyword query. Returns up to `count` results, "
         "each with title, url, and a short snippet. "
-        "Default backend='auto' picks an available engine automatically (CN-friendly). "
+        "Default backend='auto' queries all available engines (CN + overseas) concurrently "
+        "and merges deduped results for maximum coverage. "
         "Use web_fetch to read full content of a specific URL."
     )
 
@@ -83,8 +84,8 @@ class WebSearchTool(Tool):
         provider = (self.config.provider or "auto").lower()
         if provider not in ("", "auto"):
             return provider == "duckduckgo"
-        # auto 模式:国内降级链不含 duckduckgo,可并发
-        return self.config.region.lower() != "cn"
+        # auto 模式:并发调用所有后端(含 duckduckgo),保守串行
+        return True
 
     async def execute(
         self,

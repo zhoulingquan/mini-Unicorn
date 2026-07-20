@@ -687,12 +687,8 @@ def _build_web_search_section(config: Any) -> dict[str, Any]:
     return {
         "enable": ws.enable,
         "provider": ws.provider,
-        "region": ws.region,
         "max_results": ws.max_results,
         "timeout": ws.timeout,
-        "fallback_chain": list(ws.fallback_chain or []),
-        "enable_cache": ws.enable_cache,
-        "cache_ttl": ws.cache_ttl,
         "proxy": ws.proxy,
         "user_agent": ws.user_agent,
         "backends": backends_payload,
@@ -1259,16 +1255,20 @@ async def list_provider_models(query: QueryParams) -> dict[str, Any]:
     try:
         from openai import AsyncOpenAI
 
-        client = AsyncOpenAI(api_key=api_key or "unused", base_url=api_base)
-        models = await client.models.list()
+        client = AsyncOpenAI(api_key=api_key or "unused", base_url=api_base, timeout=30.0)
+        try:
+            models = await client.models.list()
+        finally:
+            await client.close()
         model_ids = sorted(
             [m.id for m in models.data if m.id],
             key=lambda x: x.lower(),
         )
-        await client.close()
         return {"provider": provider_name, "models": model_ids}
     except Exception as exc:
-        raise WebUISettingsError(f"Failed to fetch models: {exc}") from exc
+        # Use status=500 so the WebUI surfaces a clear error; the default 400
+        # would imply user input was invalid, which is misleading here.
+        raise WebUISettingsError(f"Failed to fetch models: {exc}", status=500) from exc
 
 
 def update_network_safety_settings(query: QueryParams) -> dict[str, Any]:
@@ -1398,15 +1398,11 @@ def update_web_search_settings(query: QueryParams) -> dict[str, Any]:
 
     支持的字段:
     - enable: bool
-    - provider: str (auto / bocha / bing_cn / sogou / baidu / tencent / duckduckgo)
-    - region: str (cn / global)
+    - provider: str (auto=并发全部后端 / bocha / bing_cn / sogou / baidu / tencent / duckduckgo)
     - max_results: int (1-10)
     - timeout: int (秒)
-    - enable_cache: bool
-    - cache_ttl: int (秒)
     - proxy: str (可空)
     - user_agent: str (可空)
-    - fallback_chain: str (逗号分隔,可空)
     - backends_json: JSON 字符串,形如
       {"bocha": {"api_key": "...", "base_url": "...", "timeout": 30}}
     """
@@ -1415,9 +1411,9 @@ def update_web_search_settings(query: QueryParams) -> dict[str, Any]:
     changed = False
 
     # 标量字段
-    bool_fields = {"enable", "enable_cache"}
-    int_fields = {"max_results", "timeout", "cache_ttl"}
-    str_fields = {"provider", "region", "proxy", "user_agent"}
+    bool_fields = {"enable"}
+    int_fields = {"max_results", "timeout"}
+    str_fields = {"provider", "proxy", "user_agent"}
 
     for field in bool_fields:
         raw = _query_first_alias(query, field, _to_camel(field))
@@ -1443,8 +1439,6 @@ def update_web_search_settings(query: QueryParams) -> dict[str, Any]:
             raise WebUISettingsError("max_results must be between 1 and 10")
         if field == "timeout" and new_val <= 0:
             raise WebUISettingsError("timeout must be positive")
-        if field == "cache_ttl" and new_val <= 0:
-            raise WebUISettingsError("cache_ttl must be positive")
         if getattr(ws, field) != new_val:
             setattr(ws, field, new_val)
             changed = True
@@ -1458,14 +1452,6 @@ def update_web_search_settings(query: QueryParams) -> dict[str, Any]:
             new_val = None
         if getattr(ws, field) != new_val:
             setattr(ws, field, new_val)
-            changed = True
-
-    # fallback_chain: 逗号分隔字符串
-    fc_raw = _query_first_alias(query, "fallback_chain", "fallbackChain")
-    if fc_raw is not None:
-        new_chain = [s.strip() for s in fc_raw.split(",") if s.strip()]
-        if list(getattr(ws, "fallback_chain", []) or []) != new_chain:
-            ws.fallback_chain = new_chain
             changed = True
 
     # backends 嵌套: JSON 字符串

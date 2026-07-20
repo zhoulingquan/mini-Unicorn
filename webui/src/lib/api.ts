@@ -766,14 +766,10 @@ export async function updateWebSearchSettings(
   const query = new URLSearchParams();
   query.set("enable", String(update.enable));
   query.set("provider", update.provider);
-  query.set("region", update.region);
   query.set("max_results", String(update.max_results));
   query.set("timeout", String(update.timeout));
-  query.set("enable_cache", String(update.enable_cache));
-  query.set("cache_ttl", String(update.cache_ttl));
   query.set("proxy", update.proxy);
   query.set("user_agent", update.user_agent);
-  query.set("fallback_chain", update.fallback_chain.join(","));
   // backends 嵌套结构通过 JSON 字符串传递
   // 空 backends 对象传 "{}" 以便后端清空;只在有非空 api_key 时包含该后端
   const backendsObj: Record<string, { api_key?: string; base_url: string; timeout: number }> = {};

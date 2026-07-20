@@ -46,6 +46,15 @@ function settingsPayload(): SettingsPayload {
       user_agent: null,
       fetch: { use_jina_reader: true },
     },
+    web_search: {
+      enable: true,
+      provider: "auto",
+      max_results: 5,
+      timeout: 30,
+      proxy: null,
+      user_agent: null,
+      backends: {},
+    },
     runtime: {
       config_path: "/tmp/config.json",
       workspace_path: "/tmp/workspace",

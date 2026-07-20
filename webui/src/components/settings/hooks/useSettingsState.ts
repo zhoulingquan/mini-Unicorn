@@ -107,12 +107,8 @@ export function useSettingsState({
   const [webSearchForm, setWebSearchForm] = useState<WebSearchSettingsUpdate>({
     enable: true,
     provider: "auto",
-    region: "cn",
     max_results: 5,
     timeout: 30,
-    fallback_chain: [],
-    enable_cache: true,
-    cache_ttl: 3600,
     proxy: "",
     user_agent: "",
     backends: {},
@@ -195,12 +191,8 @@ export function useSettingsState({
       setWebSearchForm({
         enable: ws.enable,
         provider: ws.provider,
-        region: ws.region,
         max_results: ws.max_results,
         timeout: ws.timeout,
-        fallback_chain: ws.fallback_chain ?? [],
-        enable_cache: ws.enable_cache,
-        cache_ttl: ws.cache_ttl,
         proxy: ws.proxy ?? "",
         user_agent: ws.user_agent ?? "",
         backends: backendsDraft,
@@ -334,16 +326,10 @@ export function useSettingsState({
     const ws = settings.web_search;
     if (webSearchForm.enable !== ws.enable) return true;
     if (webSearchForm.provider !== ws.provider) return true;
-    if (webSearchForm.region !== ws.region) return true;
     if (webSearchForm.max_results !== ws.max_results) return true;
     if (webSearchForm.timeout !== ws.timeout) return true;
-    if (webSearchForm.enable_cache !== ws.enable_cache) return true;
-    if (webSearchForm.cache_ttl !== ws.cache_ttl) return true;
     if ((webSearchForm.proxy || null) !== (ws.proxy ?? null)) return true;
     if ((webSearchForm.user_agent || null) !== (ws.user_agent ?? null)) return true;
-    const formChain = [...webSearchForm.fallback_chain].sort().join(",");
-    const curChain = [...(ws.fallback_chain ?? [])].sort().join(",");
-    if (formChain !== curChain) return true;
     // backends:任何 api_key 非空都视为 dirty(用户输入了新 key)
     for (const draft of Object.values(webSearchForm.backends)) {
       if (draft.api_key) return true;
