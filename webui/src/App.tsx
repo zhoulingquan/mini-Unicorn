@@ -6,12 +6,14 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { RenameChatDialog } from "@/components/RenameChatDialog";
 import { Sidebar } from "@/components/Sidebar";
 import { AgentsView } from "@/components/agents/AgentsView";
+import { AppsView } from "@/components/apps/AppsView";
 import { McpView } from "@/components/mcp/McpView";
 import { SkillsView } from "@/components/skills/SkillsView";
 import { SettingsView, type SettingsSectionKey } from "@/components/settings/SettingsView";
 import { CronView } from "@/components/cron/CronView";
 import { ToolsView } from "@/components/tools/ToolsView";
 import { ChannelsView } from "@/components/channels/ChannelsView";
+import { SearchDialog } from "@/components/search/SearchDialog";
 import { ThreadShell } from "@/components/thread/ThreadShell";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
@@ -76,7 +78,7 @@ const SIDEBAR_WIDTH = 272;
 const SIDEBAR_RAIL_WIDTH = 56;
 const TOKEN_REFRESH_MARGIN_MS = 30_000;
 const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
-type ShellView = "chat" | "settings" | "mcp" | "skills" | "agents" | "cron" | "tools" | "channels";
+type ShellView = "chat" | "settings" | "mcp" | "skills" | "agents" | "cron" | "tools" | "channels" | "apps";
 
 function bootstrapTokenExpiresAt(expiresInSeconds: number): number {
   return Date.now() + Math.max(0, expiresInSeconds) * 1000;
@@ -434,6 +436,7 @@ function Shell({
     useSidebarState(sessions, !loading);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [view, setView] = useState<ShellView>("chat");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionKey>("overview");
   const [hostSidebarOpen, setHostSidebarOpen] =
     useState<boolean>(readSidebarOpen);
@@ -771,6 +774,24 @@ function Shell({
     });
   }, [sessions]);
 
+  /** Cmd/Ctrl+K 打开会话搜索;Esc 关闭由 Dialog 自身处理。 */
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  /** SearchDialog 选中会话:关闭弹窗 + 切到对应 chat。 */
+  const onSelectFromSearch = useCallback((key: string) => {
+    setSearchOpen(false);
+    onSelectChat(key);
+  }, [onSelectChat]);
+
   useEffect(() => {
     return client.onRuntimeModelUpdate((modelName) => {
       onModelNameChange(modelName);
@@ -835,6 +856,8 @@ function Shell({
     onOpenCron: () => openView("cron"),
     onOpenTools: () => openView("tools"),
     onOpenChannels: () => openView("channels"),
+    onOpenApps: () => openView("apps"),
+    onOpenSearch: () => setSearchOpen(true),
     onToggleArchived,
     pinnedKeys: sidebarState.pinned_keys,
     archivedKeys: sidebarState.archived_keys,
@@ -1064,6 +1087,11 @@ function Shell({
                 <ChannelsView onBack={onBackToChat} token={token} />
               </div>
             )}
+            {view === "apps" && (
+              <div className="absolute inset-0 flex flex-col">
+                <AppsView onBack={onBackToChat} />
+              </div>
+            )}
           </main>
         </div>
 
@@ -1087,6 +1115,13 @@ function Shell({
           placeholder={t("chat.renameProjectPlaceholder")}
           onCancel={cancelProjectRename}
           onConfirm={onConfirmProjectRename}
+        />
+        <SearchDialog
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
+          sessions={sessions}
+          titleOverrides={sidebarState.title_overrides}
+          onSelect={onSelectFromSearch}
         />
         {restartToast ? (
           <div

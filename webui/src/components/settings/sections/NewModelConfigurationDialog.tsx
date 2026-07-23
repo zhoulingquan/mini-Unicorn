@@ -40,11 +40,15 @@ export function NewModelConfigurationDialog({
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
-  const canSave = Boolean(draft.label.trim() && draft.provider.trim() && draft.model.trim());
+  const isCustom = draft.provider === "custom";
+  // custom provider 必须自带 api_key+api_base(单例未配置);其他 provider 可选自带凭证
+  const canSave = Boolean(
+    draft.label.trim() && draft.provider.trim() && draft.model.trim()
+  ) && (!isCustom || (draft.apiKey?.trim() && draft.apiBase?.trim()));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[520px] rounded-[28px] border-border/55 bg-card/95 p-0 shadow-[0_28px_90px_rgba(15,23,42,0.20)] backdrop-blur-xl dark:border-white/10">
+      <DialogContent className="max-w-[520px] p-0">
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -53,10 +57,14 @@ export function NewModelConfigurationDialog({
         >
           <DialogHeader className="border-b border-border/45 px-5 py-4 text-left">
             <DialogTitle className="text-[18px] font-semibold tracking-[-0.01em]">
-              {tx("settings.models.newConfiguration", "New model configuration")}
+              {draft.editingPresetName
+                ? tx("settings.models.editConfiguration", "Edit model configuration")
+                : tx("settings.models.newConfiguration", "New model configuration")}
             </DialogTitle>
             <DialogDescription className="text-[12.5px] leading-5">
-              {tx("settings.models.newConfigurationHelp", "Save a provider and model as a one-click option.")}
+              {draft.editingPresetName
+                ? tx("settings.models.editConfigurationHelp", "Update the label, model, or credentials for this configuration.")
+                : tx("settings.models.newConfigurationHelp", "Save a provider and model as a one-click option.")}
             </DialogDescription>
           </DialogHeader>
 
@@ -107,6 +115,40 @@ export function NewModelConfigurationDialog({
                 />
               </div>
             </div>
+
+            {isCustom ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1.5 block text-[12px] font-medium text-muted-foreground">
+                    {tx("settings.byok.apiKey", "API Key")}
+                  </span>
+                  <ClearableInput
+                    type="password"
+                    value={draft.apiKey ?? ""}
+                    placeholder="sk-..."
+                    onChange={(event) =>
+                      onChangeDraft((prev) => ({ ...prev, apiKey: event.target.value }))
+                    }
+                    onClear={() => onChangeDraft((prev) => ({ ...prev, apiKey: "" }))}
+                    className="h-10 rounded-full px-4 text-[14px]"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-[12px] font-medium text-muted-foreground">
+                    {tx("settings.byok.apiBase", "API Base")}
+                  </span>
+                  <ClearableInput
+                    value={draft.apiBase ?? ""}
+                    placeholder="https://api.example.com/v1"
+                    onChange={(event) =>
+                      onChangeDraft((prev) => ({ ...prev, apiBase: event.target.value }))
+                    }
+                    onClear={() => onChangeDraft((prev) => ({ ...prev, apiBase: "" }))}
+                    className="h-10 rounded-full px-4 text-[14px]"
+                  />
+                </label>
+              </div>
+            ) : null}
           </div>
 
           <DialogFooter className="border-t border-border/45 px-5 py-4 sm:space-x-2">

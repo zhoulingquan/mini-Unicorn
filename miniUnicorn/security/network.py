@@ -8,6 +8,12 @@ transport layer. Hostname targets are validated pre-flight by
 initial requests and any explicit redirects). When a proxy is configured,
 hostnames are forwarded to the proxy for resolution (matching Reasonix's
 GFW-friendly behaviour); IP-literal targets are still checked client-side.
+
+DNS rebinding 防护:``validate_url_target`` 解析 hostname 后会把
+``hostname → frozenset(已校验 IP)`` 写入 ContextVar(``_pinned_dns_var``);
+``_ssrf_request_hook`` 在 dial 前重新解析 hostname,如果任一解析到的 IP 不
+在 pin 集合中(说明 DNS 在两次查询间被改写),拒绝请求。pin 记录有 30 秒
+TTL,过期后允许 DNS 正常变更生效。
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ import contextvars
 import ipaddress
 import re
 import socket
+import time
 from contextlib import suppress
 from typing import Any
 from urllib.parse import urlparse
@@ -56,6 +63,61 @@ _URL_RE = re.compile(r"https?://[^\s\"'`;|<>]+", re.IGNORECASE)
 _allowed_networks_var: contextvars.ContextVar[
     tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]
 ] = contextvars.ContextVar("_allowed_networks_var", default=())
+
+# DNS rebinding 防护:hostname → (已校验 IP 集合, 时间戳)。
+# validate_url_target 解析成功后写入;_ssrf_request_hook dial 前重新解析并比对。
+# TTL 30 秒,过期后允许 DNS 正常变更生效。
+# 注意:ContextVar 不支持 default 工厂(不像 dataclass 的 default_factory),
+# 因此 default 设为 None,由 _pin_dns_resolution / _check_dns_pin 在读取时
+# 统一处理 None → 空 dict,避免共享 dict 类本身作为默认值。
+_DNS_PIN_TTL_S: float = 30.0
+_pinned_dns_var: contextvars.ContextVar[
+    dict[str, tuple[frozenset[str], float]] | None
+] = contextvars.ContextVar("_pinned_dns_var", default=None)
+
+
+def _pin_dns_resolution(hostname: str, ips: list[str]) -> None:
+    """把已校验过的 hostname → IP 集合写入当前 context 的 pin 表。
+
+    用于 DNS rebinding 防御:后续 dial 前会重新解析并比对,如果 IP 集合
+    发生变化(说明 DNS 被改写),拒绝请求。
+    """
+    if not hostname or not ips:
+        return
+    pinned = _pinned_dns_var.get()
+    # 复制一份再写,避免共享底层 dict;None 时初始化为空 dict
+    pinned = dict(pinned) if pinned else {}
+    pinned[hostname.lower()] = (frozenset(ips), time.monotonic())
+    _pinned_dns_var.set(pinned)
+
+
+def _check_dns_pin(hostname: str, current_ips: list[str]) -> tuple[bool, str]:
+    """检查重新解析得到的 IP 是否都在 pin 集合内。
+
+    Returns: (ok, error_message)。如果 hostname 不在 pin 表中,返回 (True, "")
+    (无 pin 记录时不强制检查,兼容旧调用方)。如果任一 IP 不在 pin 集合中,
+    返回 (False, 原因)。
+    """
+    if not hostname or not current_ips:
+        return True, ""
+    pinned = _pinned_dns_var.get()
+    if not pinned:
+        return True, ""
+    entry = pinned.get(hostname.lower())
+    if entry is None:
+        return True, ""
+    pinned_ips, pinned_at = entry
+    # TTL 过期:允许 DNS 变更,不强制检查
+    if time.monotonic() - pinned_at > _DNS_PIN_TTL_S:
+        return True, ""
+    current_set = set(current_ips)
+    new_ips = current_set - set(pinned_ips)
+    if new_ips:
+        return False, (
+            f"DNS rebinding suspected: {hostname} resolved to new IP(s) "
+            f"{sorted(new_ips)} not in pinned set {sorted(pinned_ips)}"
+        )
+    return True, ""
 
 
 def configure_ssrf_whitelist(cidrs: list[str]) -> None:
@@ -109,6 +171,9 @@ def validate_url_target(url: str, *, allow_loopback: bool = False) -> tuple[bool
     names that happen to resolve to loopback.
 
     Returns (ok, error_message).  When ok is True, error_message is empty.
+
+    解析成功后会把 hostname → IP 集合写入 ContextVar(``_pinned_dns_var``),
+    供 ``_ssrf_request_hook`` 在 dial 前比对,防御 DNS rebinding。
     """
     try:
         p = urlparse(url)
@@ -137,11 +202,15 @@ def validate_url_target(url: str, *, allow_loopback: bool = False) -> tuple[bool
             continue
         addrs.append(addr)
     if allow_loopback and _is_allowed_loopback_target(hostname, addrs):
+        # 即使是 loopback,也要 pin DNS,防止后续被改写为非 loopback
+        _pin_dns_resolution(hostname, [str(a) for a in addrs])
         return True, ""
     for addr in addrs:
         if _is_private(addr):
             return False, f"Blocked: {hostname} resolves to private/internal address {addr}"
 
+    # 解析通过校验,把 hostname → IP 集合写入 pin 表,供 _ssrf_request_hook 比对
+    _pin_dns_resolution(hostname, [str(a) for a in addrs])
     return True, ""
 
 
@@ -154,6 +223,8 @@ async def validate_url_target_async(
     执行,避免阻塞事件循环。供 web_fetch、channel 媒体下载等异步代码路径
     使用;逻辑与同步版本一致,调用方可逐步从 ``validate_url_target`` 迁移
     到本函数。同步调用方(如 ``contains_internal_url``)继续使用原函数。
+
+    解析成功后同样写入 DNS pin,防御 DNS rebinding。
     """
     try:
         p = urlparse(url)
@@ -185,11 +256,13 @@ async def validate_url_target_async(
             continue
         addrs.append(addr)
     if allow_loopback and _is_allowed_loopback_target(hostname, addrs):
+        _pin_dns_resolution(hostname, [str(a) for a in addrs])
         return True, ""
     for addr in addrs:
         if _is_private(addr):
             return False, f"Blocked: {hostname} resolves to private/internal address {addr}"
 
+    _pin_dns_resolution(hostname, [str(a) for a in addrs])
     return True, ""
 
 
@@ -266,6 +339,9 @@ def _ssrf_request_hook(proxy: str | None) -> Any:
       Reasonix's behaviour for GFW-friendly operation); we skip local
       resolution to avoid leaking the queried hostname through a
       side-channel DNS lookup.
+    - DNS rebinding 防护:无论是否有代理,只要 hostname 在 pin 表中
+      (即之前被 validate_url_target 校验过),dial 前会重新解析并比对
+      IP 集合。如果出现新 IP,拒绝请求。
     """
 
     async def _hook(request: httpx.Request) -> None:
@@ -276,6 +352,7 @@ def _ssrf_request_hook(proxy: str | None) -> Any:
         try:
             addr = ipaddress.ip_address(host)
         except ValueError:
+            # hostname host
             if not proxy:
                 # 使用异步版本,避免同步 getaddrinfo 阻塞事件循环
                 ok, err = await validate_url_target_async(str(request.url))
@@ -284,6 +361,16 @@ def _ssrf_request_hook(proxy: str | None) -> Any:
                         f"SSRF blocked: {err}",
                         request=request,
                     )
+            # DNS rebinding 防护:重新解析 hostname 并比对 pin 集合。
+            # 即使配置了代理(proxy 模式下 validate_url_target_async 被跳过),
+            # 也执行 pin 检查 — 但 pin 表只在 validate_url_target 写入,
+            # 代理场景下无 pin 记录,_check_dns_pin 会返回 (True, "") 不强制。
+            pin_ok, pin_err = await _check_dns_pin_async(host)
+            if not pin_ok:
+                raise httpx.ConnectError(
+                    f"SSRF blocked: {pin_err}",
+                    request=request,
+                )
             return
         if _is_private(addr):
             raise httpx.ConnectError(
@@ -292,6 +379,31 @@ def _ssrf_request_hook(proxy: str | None) -> Any:
             )
 
     return _hook
+
+
+async def _check_dns_pin_async(hostname: str) -> tuple[bool, str]:
+    """重新解析 hostname 并比对 pin 集合(异步版本)。
+
+    如果 hostname 不在 pin 表中或 pin 已过期,返回 (True, "")。
+    如果重新解析得到的 IP 集合包含 pin 表中没有的新 IP,返回 (False, 原因)。
+    """
+    pinned = _pinned_dns_var.get()
+    if not pinned or hostname.lower() not in pinned:
+        return True, ""
+    try:
+        infos = await asyncio.to_thread(
+            socket.getaddrinfo, hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM
+        )
+    except socket.gaierror:
+        # 解析失败时不阻止请求(让 httpx 自己报错),pin 检查只是防御层
+        return True, ""
+    current_ips: list[str] = []
+    for info in infos:
+        try:
+            current_ips.append(info[4][0])
+        except (IndexError, ValueError):
+            continue
+    return _check_dns_pin(hostname, current_ips)
 
 
 def create_ssrf_safe_client(

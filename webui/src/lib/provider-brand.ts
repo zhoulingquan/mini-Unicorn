@@ -107,7 +107,6 @@ const PROVIDER_BRANDS: Record<string, ProviderBrand> = {
   kagi: brand("kagi.com", "#FFB319", "K"),
   olostep: brand("olostep.com", "#111827", "O"),
   opencode: brand("opencode.ai", "#7C3AED", "OC"),
-  searxng: brand("searxng.org", "#3050FF", "SX"),
   tavily: brand("tavily.com", "#111827", "T"),
 };
 

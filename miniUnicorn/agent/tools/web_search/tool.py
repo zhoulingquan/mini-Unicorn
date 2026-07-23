@@ -23,7 +23,7 @@ from miniUnicorn.agent.tools.web_search.config import WebSearchConfig
             "type": "string",
             "description": (
                 "Search backend. 'auto' (default) = query all backends concurrently and merge deduped results. "
-                "Options: auto / bing_cn / baidu / sogou / bocha / tencent / duckduckgo."
+                "Options: auto / searxng / tavily / bing_cn."
             ),
             "default": "auto",
         },
@@ -39,7 +39,7 @@ class WebSearchTool(Tool):
     description = (
         "Search the web with a keyword query. Returns up to `count` results, "
         "each with title, url, and a short snippet. "
-        "Default backend='auto' queries all available engines (CN + overseas) concurrently "
+        "Default backend='auto' queries all backends (searxng + tavily + bing_cn) concurrently "
         "and merges deduped results for maximum coverage. "
         "Use web_fetch to read full content of a specific URL."
     )
@@ -80,12 +80,8 @@ class WebSearchTool(Tool):
 
     @property
     def exclusive(self) -> bool:
-        # duckduckgo 用 ddgs 同步库,需串行;其余后端可并发
-        provider = (self.config.provider or "auto").lower()
-        if provider not in ("", "auto"):
-            return provider == "duckduckgo"
-        # auto 模式:并发调用所有后端(含 duckduckgo),保守串行
-        return True
+        # 所有后端(searxng/tavily/bing_cn)均基于 httpx 异步,可安全并发
+        return False
 
     async def execute(
         self,
@@ -112,7 +108,8 @@ class WebSearchTool(Tool):
                     "backend": resp.backend,
                     "query": query,
                     "hint": (
-                        "Tip: configure api_key for bocha/tencent, or set proxy for duckduckgo. "
+                        "Tip: configure searxng.base_url for self-hosted meta search, "
+                        "or tavily api_key for AI summaries. "
                         "See config.web_search.backends / config.web_search.proxy."
                     ),
                 },

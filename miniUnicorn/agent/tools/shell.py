@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-import shlex
 import shutil
 import sys
 from contextlib import suppress
@@ -144,16 +143,7 @@ class _PreparedCommand:
     )
 )
 class ExecTool(Tool):
-    """Tool to execute shell commands.
-
-    安全说明 (defense in depth):
-        本工具内置的 ``deny_patterns`` 与 ``_BYPASS_PATTERNS`` 仅作为"防呆"层,
-        用于拦截明显的破坏性命令与常见绕过手法(如 ``$(...)``、反引号、
-        ``base64 -d``、``python -c``、``perl -e`` 等)。这**不是安全边界**——
-        只要攻击者能控制命令字符串,就存在绕过这些正则的可能。
-        生产环境必须叠加 ``sandbox="bwrap"`` + ``restrict_to_workspace=True``
-        才能形成真正的执行隔离;在不可信输入场景下,绝不可仅依赖本层防护。
-    """
+    """Tool to execute shell commands."""
     _scopes = {"core", "subagent"}
 
     config_key = "exec"
@@ -444,11 +434,8 @@ class ExecTool(Tool):
             if _IS_WINDOWS:
                 env["PATH"] = env.get("PATH", "") + os.pathsep + self.path_append
             else:
-                # Inline path_append safely quoted instead of using an injectable
-                # MINIUNICORN_PATH_APPEND env var. shlex.quote prevents command
-                # injection from the configured path_append value.
-                quoted_append = shlex.quote(self.path_append)
-                command = f'export PATH="$PATH"{os.pathsep}{quoted_append}; {command}'
+                env["MINIUNICORN_PATH_APPEND"] = self.path_append
+                command = f'export PATH="$PATH{os.pathsep}$MINIUNICORN_PATH_APPEND"; {command}'
 
         shell_program, shell_error = self._resolve_shell(shell)
         if shell_error:
@@ -516,14 +503,8 @@ class ExecTool(Tool):
         allowed = {"sh", "bash", "zsh"}
         path = Path(shell).expanduser()
         if path.is_absolute():
-            # Strict path whitelist: only allow known-safe shell binaries.
-            # This prevents pointing the executor at an arbitrary binary
-            # (e.g. ``/tmp/evil``) even if its basename matches ``bash``.
-            if str(path) not in ExecTool._ALLOWED_SHELL_BINARIES:
-                return None, (
-                    f"Error: unsupported shell path {shell!r}. "
-                    f"Allowed: {', '.join(sorted(ExecTool._ALLOWED_SHELL_BINARIES))}"
-                )
+            if path.name not in allowed:
+                return None, f"Error: unsupported shell {shell!r}. Allowed: bash, sh, zsh"
             if not path.is_file() or not os.access(path, os.X_OK):
                 return None, f"Error: shell is not executable: {shell}"
             return str(path), None
@@ -534,12 +515,6 @@ class ExecTool(Tool):
         resolved = shutil.which(shell)
         if not resolved:
             return None, f"Error: shell not found: {shell}"
-        # Verify the resolved path is in the whitelist.
-        if resolved not in ExecTool._ALLOWED_SHELL_BINARIES:
-            return None, (
-                f"Error: resolved shell path {resolved!r} is not in the allowed list. "
-                f"Allowed: {', '.join(sorted(ExecTool._ALLOWED_SHELL_BINARIES))}"
-            )
         return resolved, None
 
     @staticmethod
@@ -604,22 +579,10 @@ class ExecTool(Tool):
                 env[key] = val
         return env
 
-    # Whitelist of absolute shell binary paths accepted by the ``shell``
-    # parameter.  This prevents an LLM from pointing the executor at an
-    # arbitrary binary (e.g. ``/tmp/evil``) even if its basename looks safe.
-    _ALLOWED_SHELL_BINARIES: ClassVar[frozenset[str]] = frozenset({
-        "/bin/sh",
-        "/bin/bash",
-        "/usr/bin/bash",
-        "/bin/zsh",
-        "/usr/bin/zsh",
-    })
-
     _BYPASS_PATTERNS: ClassVar[list[tuple[str, str]]] = [
         (r'\$\(', "command substitution $(...)"),
-        (r"\$'", "ANSI-C quoting $'...'"),
         (r'`[^`]+`', "backtick command substitution"),
-        (r'base64\s+--decode\b|\bbase64\s+-d\b|\bdbbase64\s+-d\b', "base64 decode pipe"),
+        (r'base64\s+--decode\b|\bbase64\s+-d\b|\bdbase64\s+-d\b', "base64 decode pipe"),
         (r'xxd\s+-r\b', "hex decode pipe"),
         (r'\\x[0-9a-fA-F]{2}', "hex escape sequence"),
         (r'\\[0-7]{3}', "octal escape sequence"),
@@ -627,21 +590,6 @@ class ExecTool(Tool):
         (r'printf\s+.*\\x[0-9a-fA-F]', "printf hex escape"),
         (r'eval\s+', "eval command"),
         (r'exec\s+', "exec command"),
-        # M5: 通过解释器 -c/-e 内联执行任意代码,可绕过其它模式检查。
-        # 仅拦截 `python -c`、`python2 -c`、`python3 -c` 这类内联代码执行,
-        # 不影响 `python script.py`、`python -m module`、`python --version` 等正常用法。
-        (r'\bpython\d*\s+-c\b', "python -c inline code execution"),
-        (r'\bperl\s+-e\b', "perl -e inline code execution"),
-        (r'\bnode\s+-e\b', "node -e inline code execution"),
-        (r'\bruby\s+-e\b', "ruby -e inline code execution"),
-        # awk 内 system() 调用:仅在 awk 程序段内出现 system( 时拦截,
-        # 不影响 `awk '{print $1}'`、`awk -F: '{...}'` 等正常文本处理。
-        # 限制在管道/分号之前,避免跨段误匹配。
-        (r'\bawk\b[^|;&\n]*\bsystem\s*\(', "awk system() inline execution"),
-        # find -exec / -execdir:允许 `find . -type f` 等查找操作,
-        # 仅拦截通过 -exec / -execdir 触发的子进程执行。
-        # 同样限制在管道/分号之前,避免跨段误匹配。
-        (r'\bfind\b[^|;&\n]*\s+-exec(?:dir)?\b', "find -exec execution"),
     ]
 
     def _guard_command(
@@ -651,18 +599,13 @@ class ExecTool(Tool):
         *,
         restrict_to_workspace: bool | None = None,
     ) -> str | None:
-        """Best-effort safety guard for potentially destructive commands.
-
-        本方法仅作为 defense-in-depth(防呆)层,拦截明显的破坏性命令与
-        常见绕过手法,不是安全边界。生产环境必须叠加 ``sandbox="bwrap"``
-        与 ``restrict_to_workspace=True`` 才能形成真正的执行隔离。
-        """
+        """Best-effort safety guard for potentially destructive commands."""
         cmd = command.strip()
         lower = cmd.lower()
 
-        # allow_patterns take priority over deny_patterns so that users can
-        # exempt specific commands (e.g. "rm -rf" inside a build directory)
-        # from the hardcoded deny list via configuration.
+        # allow_patterns take priority over user-configured deny_patterns so
+        # that users can exempt specific commands (e.g. "rm -rf" inside a build
+        # directory) from their own deny list via configuration.
         explicitly_allowed = bool(self.allow_patterns) and any(
             re.search(p, lower) for p in self.allow_patterns
         )
@@ -674,9 +617,13 @@ class ExecTool(Tool):
             if self.allow_patterns:
                 return "Error: Command blocked by allowlist filter (not in allowlist)"
 
-            for bypass_pat, desc in self._BYPASS_PATTERNS:
-                if re.search(bypass_pat, cmd):
-                    return f"Error: Command blocked by safety guard (potential bypass via {desc})"
+        # 硬编码 bypass 检测始终执行,即使 allow_patterns 匹配。
+        # 这防止用户配置宽泛的 allow 模式(如 ".*")绕过所有安全检查:
+        # $(...)、backtick、base64 decode、eval、exec 等构造可能用于
+        # 逃避 guard 本身,属于不可豁免的硬编码 deny。
+        for bypass_pat, desc in self._BYPASS_PATTERNS:
+            if re.search(bypass_pat, cmd):
+                return f"Error: Command blocked by safety guard (potential bypass via {desc})"
 
         from miniUnicorn.security.network import contains_internal_url
         if contains_internal_url(

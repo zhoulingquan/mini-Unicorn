@@ -9,7 +9,6 @@ import functools
 
 from loguru import logger
 
-
 _HEARTBEAT_PREAMBLE = (
     "[Your response will be delivered directly to the user's messaging app. "
     "Output ONLY the final user-facing message. Never reference internal "

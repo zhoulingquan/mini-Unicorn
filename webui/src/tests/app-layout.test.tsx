@@ -36,6 +36,9 @@ function baseSettingsPayload() {
       temperature: 0.1,
       reasoning_effort: null,
       tool_hint_max_length: 40,
+      use_planner: false,
+      planner_model: null,
+      planner_max_replans: 3,
     },
     model_presets: [{
       name: "default",
@@ -583,6 +586,9 @@ describe("App layout", () => {
                 temperature: 0.1,
                 reasoning_effort: null,
                 tool_hint_max_length: 40,
+                use_planner: false,
+                planner_model: null,
+                planner_max_replans: 3,
               },
               model_presets: [
                 {
@@ -743,21 +749,8 @@ describe("App layout", () => {
     expect(screen.getByRole("heading", { name: /Models/ })).toBeInTheDocument();
 
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Web" }));
-    expect(screen.getByText("Search provider")).toBeInTheDocument();
+    // Web 设置页现在包含 web_search 工具配置和 Jina reader 开关
     expect(screen.getByRole("switch", { name: "Jina reader" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Brave Search/ })).toBeInTheDocument();
-    expect(screen.getByTestId("provider-picker-logo-brave")).toBeInTheDocument();
-    expect(screen.getByText("BSAo••••ew20")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    fireEvent.change(screen.getByPlaceholderText("Leave blank to keep the current key"), {
-      target: { value: "unsaved-brave-key" },
-    });
-    fireEvent.pointerDown(screen.getByRole("button", { name: /Brave Search/ }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Tavily" }));
-    fireEvent.pointerDown(screen.getByRole("button", { name: /Tavily/ }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Brave Search" }));
-    expect(screen.getByText("BSAo••••ew20")).toBeInTheDocument();
-    expect(screen.queryByDisplayValue("unsaved-brave-key")).not.toBeInTheDocument();
 
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Overview" }));
     expect(screen.queryByText("Bot name")).not.toBeInTheDocument();
@@ -845,6 +838,9 @@ describe("App layout", () => {
                 temperature: 0.1,
                 reasoning_effort: null,
                 tool_hint_max_length: 40,
+                use_planner: false,
+                planner_model: null,
+                planner_max_replans: 3,
               },
               model_presets: [
                 {

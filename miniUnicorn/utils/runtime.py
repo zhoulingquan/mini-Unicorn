@@ -10,12 +10,6 @@ from loguru import logger
 
 from miniUnicorn.utils.helpers import stringify_text_blocks
 
-# Allow at most one retry of the same external lookup target within a turn:
-# count=1 (first attempt) and count=2 (one retry) pass through; count=3 is
-# blocked. Retries are typically transient (network blip, rate-limit retry
-# after backoff), so we permit one extra attempt. Beyond that we assume the
-# source itself is bad and force the agent to use what it already has, which
-# avoids agent loops where the model keeps hitting the same failing URL.
 _MAX_REPEAT_EXTERNAL_LOOKUPS = 2
 
 # Third same-target workspace violation in a turn escalates to "stop retrying".
@@ -87,6 +81,10 @@ def external_lookup_signature(tool_name: str, arguments: dict[str, Any]) -> str 
         url = str(arguments.get("url") or "").strip()
         if url:
             return f"web_fetch:{url.lower()}"
+    if tool_name == "web_search":
+        query = str(arguments.get("query") or arguments.get("search_term") or "").strip()
+        if query:
+            return f"web_search:{query.lower()}"
     return None
 
 

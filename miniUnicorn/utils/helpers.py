@@ -14,68 +14,6 @@ from typing import Any
 import tiktoken
 from loguru import logger
 
-_TIKTOKEN_CACHE: dict[str, Any] = {}
-
-
-def _get_tiktoken_encoding(name: str = "cl100k_base") -> Any:
-    """Return a cached tiktoken encoding.
-
-    The encoding is loaded once and cached so async call stacks never block
-    on ``tiktoken.get_encoding`` (which can take hundreds of ms on first call
-    while it downloads/loads the BPE merge table).
-    """
-    if name not in _TIKTOKEN_CACHE:
-        _TIKTOKEN_CACHE[name] = tiktoken.get_encoding(name)
-    return _TIKTOKEN_CACHE[name]
-
-
-# Preload the default encoding at import time (sync context) so the first
-# async token estimate doesn't block the event loop.
-with suppress(Exception):
-    _get_tiktoken_encoding("cl100k_base")
-
-
-
-# Precompiled patterns for ``strip_think``. Each rule's intent is documented
-# inline so the ordering and the edge-only scoping remain auditable. Compiling
-# at module load avoids re-compiling the same patterns on every streamed chunk.
-_STRIP_THINK_PATTERNS: tuple[tuple[str, "re.Pattern[str]"], ...] = (
-    # 1a. Well-formed <think>...</think> blocks anywhere in the text.
-    ("block_think_closed", re.compile(r"<think>[\s\S]*?</think>")),
-    # 1b. Streaming prefix where <think> is opened but never closed
-    #     (covers the entire remainder of the text from the opening tag onwards).
-    ("block_think_open_prefix", re.compile(r"^\s*<think>[\s\S]*$")),
-    # 2a. Well-formed <thought>...</thought> blocks anywhere in the text.
-    ("block_thought_closed", re.compile(r"<thought>[\s\S]*?</thought>")),
-    # 2b. Streaming prefix where <thought> is opened but never closed.
-    ("block_thought_open_prefix", re.compile(r"^\s*<thought>[\s\S]*$")),
-    # 3. Malformed opening tags missing the closing > — e.g. <think广场
-    #    where the tag name is directly followed by user content. The negative
-    #    lookahead lists ASCII tag-name chars (letters, digits, _, -, :) plus
-    #    > / / ; we can't use \w because Python's default
-    #    Unicode mode would match CJK chars and defeat this guard.
-    ("malformed_think_open", re.compile(r"<think(?![A-Za-z0-9_\-:>/])")),
-    ("malformed_thought_open", re.compile(r"<thought(?![A-Za-z0-9_\-:>/])")),
-    # 4. Edge-only orphan closing tags. Restricted to the very start/end of
-    #    the text so we don't rewrite messages that *discuss* the tokens.
-    ("orphan_think_close_start", re.compile(r"^\s*</think>\s*")),
-    ("orphan_think_close_end", re.compile(r"\s*</think>\s*$")),
-    ("orphan_thought_close_start", re.compile(r"^\s*</thought>\s*")),
-    ("orphan_thought_close_end", re.compile(r"\s*</thought>\s*$")),
-    # 5. Edge-only Harmony / Gemma 4 channel markers at the start of text.
-    ("channel_marker_start", re.compile(r"^\s*<\|?channel\|?>\s*")),
-    # 6. Trailing partial control tags split across stream chunks — e.g.
-    #    <thi, <thin, <tho. Only known control-token prefixes at
-    #    the very end are stripped so user content is never touched.
-    ("trailing_partial_control", re.compile(
-        r"(?:</?(?:t|th|thi|thin|think|tho|thou|thoug|though|thought)>?"
-        r"|<\|?(?:c|ch|cha|chan|chann|channe|channel)(?:\|?>?)?)$"
-    )),
-    # 7. Bare leading < or <| left behind after chunk-boundary
-    #    stripping above (defensive cleanup for very short leftovers).
-    ("bare_leading_angle", re.compile(r"^\s*<\|?$")),
-)
-
 
 def strip_think(text: str) -> str:
     """Remove thinking blocks, unclosed trailing tags, and tokenizer-level
@@ -102,8 +40,34 @@ def strip_think(text: str) -> str:
     tokens mid-text would silently rewrite any message where a user or the
     assistant discusses the tokens themselves.
     """
-    for _name, pattern in _STRIP_THINK_PATTERNS:
-        text = pattern.sub("", text)
+    # Well-formed blocks first.
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text)
+    text = re.sub(r"^\s*<think>[\s\S]*$", "", text)
+    text = re.sub(r"<thought>[\s\S]*?</thought>", "", text)
+    text = re.sub(r"^\s*<thought>[\s\S]*$", "", text)
+    # Malformed opening tags: `<think` / `<thought` where the next char is
+    # NOT one that could continue a valid tag / identifier name. Explicitly
+    # listing ASCII tag-name chars (letters, digits, `_`, `-`, `:`) plus
+    # `>` / `/` — we can't use `\w` here because in Python's default
+    # Unicode regex mode it matches CJK characters too, which would defeat
+    # the primary fix for `<think广场…` leaks.
+    text = re.sub(r"<think(?![A-Za-z0-9_\-:>/])", "", text)
+    text = re.sub(r"<thought(?![A-Za-z0-9_\-:>/])", "", text)
+    # Edge-only orphan closing tags (start or end of text).
+    text = re.sub(r"^\s*</think>\s*", "", text)
+    text = re.sub(r"\s*</think>\s*$", "", text)
+    text = re.sub(r"^\s*</thought>\s*", "", text)
+    text = re.sub(r"\s*</thought>\s*$", "", text)
+    # Edge-only channel markers (harmony / Gemma 4 variant leaks).
+    text = re.sub(r"^\s*<\|?channel\|?>\s*", "", text)
+    # Stream chunks may end in the middle of a control tag. Strip only known
+    # control-token prefixes at the very end.
+    partial_control_tag = (
+        r"</?(?:t|th|thi|thin|think|tho|thou|thoug|though|thought)>?"
+        r"|<\|?(?:c|ch|cha|chan|chann|channe|channel)(?:\|?>?)?"
+    )
+    text = re.sub(rf"(?:{partial_control_tag})$", "", text)
+    text = re.sub(r"^\s*<\|?$", "", text)
     return text.strip()
 
 
@@ -251,9 +215,6 @@ _TOOL_RESULT_MAX_BUCKETS = 32
 
 def safe_filename(name: str) -> str:
     """Replace unsafe path characters with underscores."""
-    # 显式过滤 ".." 以防止路径穿越(正则逐字符替换无法识别 ".." 序列)
-    if ".." in name:
-        name = name.replace("..", "_")
     return _UNSAFE_CHARS.sub("_", name).strip()
 
 
@@ -459,7 +420,7 @@ def estimate_prompt_tokens(
     reasoning_content, tool_call_id, name, plus per-message framing overhead.
     """
     try:
-        enc = _get_tiktoken_encoding("cl100k_base")
+        enc = tiktoken.get_encoding("cl100k_base")
         parts: list[str] = []
         for msg in messages:
             content = msg.get("content")
@@ -526,7 +487,7 @@ def estimate_message_tokens(message: dict[str, Any]) -> int:
     if not payload:
         return 4
     try:
-        enc = _get_tiktoken_encoding("cl100k_base")
+        enc = tiktoken.get_encoding("cl100k_base")
         return max(4, len(enc.encode(payload)) + 4)
     except Exception:
         return max(4, len(payload) // 4 + 4)
@@ -625,14 +586,6 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
     _write(tpl / "memory" / "MEMORY.md", workspace / "memory" / "MEMORY.md")
     _write(None, workspace / "memory" / "history.jsonl")
     (workspace / "skills").mkdir(exist_ok=True)
-
-    # Seed sample subagent definitions (templates/agents/*.md → workspace/agents/).
-    # Only creates files that don't exist; user edits are preserved.
-    agents_tpl = tpl / "agents"
-    if agents_tpl.is_dir():
-        for item in agents_tpl.iterdir():
-            if item.name.endswith(".md") and not item.name.startswith("."):
-                _write(item, workspace / "agents" / item.name)
 
     if added and not silent:
         from rich.console import Console

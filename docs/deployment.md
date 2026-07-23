@@ -3,12 +3,12 @@
 ## Docker
 
 > [!TIP]
-> The `-v ~/.miniUnicorn:/home/miniUnicorn/.miniUnicorn` flag mounts your local config directory into the container, so your config and workspace persist across container restarts.
-> The container runs as the non-root user `miniUnicorn` (UID 1000) and reads config from `/home/miniUnicorn/.miniUnicorn`. Always mount your host config directory to `/home/miniUnicorn/.miniUnicorn`, not `/root/.miniUnicorn`.
-> If you get **Permission denied**, fix ownership on the host first: `sudo chown -R 1000:1000 ~/.miniUnicorn`, or pass `--user $(id -u):$(id -g)` to match your host UID. Podman users can use `--userns=keep-id` instead.
+> The `-v ~/.MiniUnicorn:/home/miniUnicorn/.miniUnicorn` flag mounts your local config directory into the container, so your config and workspace persist across container restarts.
+> The container runs as the non-root user `MiniUnicorn` (UID 1000) and reads config from `/home/miniUnicorn/.miniUnicorn`. Always mount your host config directory to `/home/miniUnicorn/.miniUnicorn`, not `/root/.MiniUnicorn`.
+> If you get **Permission denied**, fix ownership on the host first: `sudo chown -R 1000:1000 ~/.MiniUnicorn`, or pass `--user $(id -u):$(id -g)` to match your host UID. Podman users can use `--userns=keep-id` instead.
 >
 > [!IMPORTANT]
-> Official Docker usage currently means building from this repository with the included `Dockerfile`. Docker Hub images under third-party namespaces are not maintained or verified by HKUDS/miniUnicorn; do not mount API keys or bot tokens into them unless you trust the publisher.
+> Official Docker usage currently means building from this repository with the included `Dockerfile`. Docker Hub images under third-party namespaces are not maintained or verified by HKUDS/MiniUnicorn; do not mount API keys or bot tokens into them unless you trust the publisher.
 
 > [!IMPORTANT]
 > The gateway and WebSocket channel default to `host: "127.0.0.1"` in `config.json` (set in `miniUnicorn/config/schema.py`). Docker `-p` port forwarding cannot reach a container's loopback interface, so for the host or LAN to reach the exposed ports you must set both binds to `0.0.0.0` in `~/.miniUnicorn/config.json` before starting the container:
@@ -43,7 +43,7 @@ docker compose down                                      # stop
 docker build -t miniUnicorn .
 
 # Initialize config (first time only)
-docker run -v ~/.miniUnicorn:/home/miniUnicorn/.miniUnicorn --rm miniUnicorn onboard
+docker run -v ~/.MiniUnicorn:/home/miniUnicorn/.miniUnicorn --rm miniUnicorn onboard
 
 # Edit config on host to add API keys
 vim ~/.miniUnicorn/config.json
@@ -58,23 +58,23 @@ docker run \
   --cap-drop ALL --cap-add SYS_ADMIN \
   --security-opt apparmor=unconfined \
   --security-opt seccomp=unconfined \
-  -v ~/.miniUnicorn:/home/miniUnicorn/.miniUnicorn \
+  -v ~/.MiniUnicorn:/home/miniUnicorn/.miniUnicorn \
   -p 8765:8765 \
   miniUnicorn gateway
 
 # Or run a single command
-docker run -v ~/.miniUnicorn:/home/miniUnicorn/.miniUnicorn --rm miniUnicorn agent -m "Hello!"
-docker run -v ~/.miniUnicorn:/home/miniUnicorn/.miniUnicorn --rm miniUnicorn status
+docker run -v ~/.MiniUnicorn:/home/miniUnicorn/.miniUnicorn --rm miniUnicorn agent -m "Hello!"
+docker run -v ~/.MiniUnicorn:/home/miniUnicorn/.miniUnicorn --rm miniUnicorn status
 ```
 
 ## Linux Service
 
 Run the gateway as a systemd user service so it starts automatically and restarts on failure.
 
-**1. Find the miniUnicorn binary path:**
+**1. Find the MiniUnicorn binary path:**
 
 ```bash
-which miniUnicorn   # e.g. /home/user/.local/bin/miniUnicorn
+which MiniUnicorn   # e.g. /home/user/.local/bin/MiniUnicorn
 ```
 
 **2. Create the service file** at `~/.config/systemd/user/miniUnicorn-gateway.service` (replace `ExecStart` path if needed):
@@ -124,10 +124,10 @@ If you edit the `.service` file itself, run `systemctl --user daemon-reload` bef
 
 Use a LaunchAgent when you want `miniUnicorn gateway` to stay online after you log in, without keeping a terminal open.
 
-**1. Get the absolute `miniUnicorn` path:**
+**1. Get the absolute `MiniUnicorn` path:**
 
 ```bash
-which miniUnicorn   # e.g. /Users/youruser/.local/bin/miniUnicorn
+which MiniUnicorn   # e.g. /Users/youruser/.local/bin/MiniUnicorn
 ```
 
 Use that exact path in the plist. It keeps the Python environment from your install method.
@@ -144,14 +144,14 @@ Use that exact path in the plist. It keeps the Python environment from your inst
 
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/youruser/.local/bin/miniUnicorn</string>
+    <string>/Users/youruser/.local/bin/MiniUnicorn</string>
     <string>gateway</string>
     <string>--workspace</string>
-    <string>/Users/youruser/.miniUnicorn/workspace</string>
+    <string>/Users/youruser/.MiniUnicorn/workspace</string>
   </array>
 
   <key>WorkingDirectory</key>
-  <string>/Users/youruser/.miniUnicorn/workspace</string>
+  <string>/Users/youruser/.MiniUnicorn/workspace</string>
 
   <key>RunAtLoad</key>
   <true/>
@@ -163,10 +163,10 @@ Use that exact path in the plist. It keeps the Python environment from your inst
   </dict>
 
   <key>StandardOutPath</key>
-  <string>/Users/youruser/.miniUnicorn/logs/gateway.log</string>
+  <string>/Users/youruser/.MiniUnicorn/logs/gateway.log</string>
 
   <key>StandardErrorPath</key>
-  <string>/Users/youruser/.miniUnicorn/logs/gateway.error.log</string>
+  <string>/Users/youruser/.MiniUnicorn/logs/gateway.error.log</string>
 </dict>
 </plist>
 ```

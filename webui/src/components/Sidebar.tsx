@@ -2,10 +2,12 @@ import { useState, type ReactNode } from "react";
 import {
   Archive,
   CalendarClock,
+  LayoutGrid,
   Menu,
   MessageSquare,
   Package,
   PlugZap,
+  Search,
   Settings,
   Sparkles,
   SquarePen,
@@ -43,6 +45,8 @@ interface SidebarProps {
   onOpenCron: () => void;
   onOpenTools: () => void;
   onOpenChannels: () => void;
+  onOpenApps: () => void;
+  onOpenSearch: () => void;
   onToggleArchived: () => void;
   onCollapse: () => void;
   onExpand?: () => void;
@@ -111,6 +115,12 @@ export function Sidebar(props: SidebarProps) {
         />
         <SidebarActionButton
           collapsed={collapsed}
+          label={t("sidebar.search")}
+          onClick={props.onOpenSearch}
+          icon={<Search className="h-4 w-4" />}
+        />
+        <SidebarActionButton
+          collapsed={collapsed}
           label={t("sidebar.skills")}
           onClick={props.onOpenSkills}
           icon={<Sparkles className="h-4 w-4" />}
@@ -138,6 +148,12 @@ export function Sidebar(props: SidebarProps) {
           label={t("sidebar.channels")}
           onClick={props.onOpenChannels}
           icon={<MessageSquare className="h-4 w-4" />}
+        />
+        <SidebarActionButton
+          collapsed={collapsed}
+          label={t("sidebar.apps")}
+          onClick={props.onOpenApps}
+          icon={<LayoutGrid className="h-4 w-4" />}
         />
         <SidebarActionButton
           collapsed={collapsed}

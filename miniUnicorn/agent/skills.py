@@ -201,7 +201,7 @@ class SkillsLoader:
             return content[match.end():].strip()
         return content
 
-    def _parse_miniUnicorn_metadata(self, raw: object) -> dict:
+    def _parse_miniUnicorn_metadata(self, raw: object) -> dict:  # noqa: N802
         """Extract MiniUnicorn/openclaw metadata from a frontmatter field.
 
         ``raw`` may be a dict (already parsed by yaml.safe_load) or a JSON str.

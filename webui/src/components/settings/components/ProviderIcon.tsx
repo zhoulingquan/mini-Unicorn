@@ -1,7 +1,7 @@
 // Provider 图标组件:ProviderIcon / ProviderPickerIcon 与共享的 PROVIDER_ICONS 映射。
 // 从 SettingsView.tsx 拆分,供 ProvidersSettings / ProviderPicker / ModelPresetPicker 复用。
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Brain,
   Bot,
@@ -22,7 +22,40 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { providerBrand } from "@/lib/provider-brand";
+import { providerBrand, faviconUrls, type ProviderBrand } from "@/lib/provider-brand";
+
+/** 从 api_base URL 提取 host(用于 custom provider 动态生成 brand)。
+ *  返回去除通用前缀(www/api/apihub/gateway)后的域名,如 apihub.agnes-ai.com → agnes-ai.com */
+function hostFromApiBase(apiBase: string | null | undefined): string | null {
+  if (!apiBase) return null;
+  try {
+    const parsed = new URL(apiBase);
+    let host = parsed.hostname.toLowerCase();
+    // 去掉通用前缀
+    host = host.replace(/^(www|api|apihub|api-gateway|gateway)\./, "");
+    return host || null;
+  } catch {
+    return null;
+  }
+}
+
+/** 从 host 生成首字母(取第一段非通用前缀的首字母,大写) */
+function initialsFromHost(host: string | null): string {
+  if (!host) return "C";
+  const firstPart = host.split(".")[0];
+  return firstPart.charAt(0).toUpperCase() || "C";
+}
+
+/** 从 host 生成稳定颜色(基于域名 hash → HSL) */
+function colorFromHost(host: string | null): string {
+  if (!host) return "#6B7280";
+  let hash = 0;
+  for (let i = 0; i < host.length; i++) {
+    hash = host.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 55%, 50%)`;
+}
 
 export const PROVIDER_ICONS: Record<string, LucideIcon> = {
   custom: Hexagon,
@@ -56,7 +89,6 @@ export const PROVIDER_ICONS: Record<string, LucideIcon> = {
   jina: Search,
   kagi: Search,
   olostep: Search,
-  searxng: Search,
   tavily: Search,
   vllm: Cpu,
   ollama: Cpu,
@@ -70,33 +102,54 @@ export function ProviderIcon({
   provider,
   showBrandLogos,
   label,
+  apiBase,
 }: {
   provider: string;
   showBrandLogos: boolean;
   label?: string | null;
+  apiBase?: string | null;
 }) {
   const [logoIndex, setLogoIndex] = useState(0);
   // preset 虚拟卡片(<provider>__<preset_name>):用真实 provider 的 brand 显示图标。
-  // - custom preset (custom__<name>): 只用 custom brand 的颜色 + label 首字母,
-  //   清空 logoUrls 避免尝试加载 localhost/duckduckgo/google favicon(国内连不通)
+  // - custom preset (custom__<name>): 与 custom 单例一致,根据 api_base 动态生成
+  //   favicon + 首字母 + 稳定颜色;无 api_base 时回退到 custom brand 颜色 + label 首字母
   // - 非 custom preset (如 opencode__<name>): 用真实 provider 的 brand,正常显示 logo
   const isPresetCard = provider.includes("__");
   const isCustomPreset = provider.startsWith("custom__");
   const lookupKey = isPresetCard ? provider.split("__", 2)[0] : provider;
   const baseBrand = providerBrand(lookupKey);
-  const brand =
-    isCustomPreset && baseBrand
-      ? {
-          logoUrl: "",
-          logoUrls: [],
-          color: baseBrand.color,
-          initials: (label?.trim().charAt(0).toUpperCase() || baseBrand.initials),
-        }
-      : baseBrand;
+  // custom provider(单例或虚拟 preset 卡片):根据 api_base 动态生成 brand,
+  // 用域名 favicon 作为 logo、首字母作为 initials、hash 域名生成稳定颜色。
+  const customHost = useMemo(
+    () => (lookupKey === "custom" ? hostFromApiBase(apiBase) : null),
+    [lookupKey, apiBase],
+  );
+  const brand: ProviderBrand | null = useMemo(() => {
+    // custom(单例或虚拟卡片)有 api_base:用域名生成 favicon + 颜色 + 首字母
+    if (lookupKey === "custom" && customHost) {
+      const urls = faviconUrls(customHost);
+      return {
+        logoUrl: urls[0] ?? "",
+        logoUrls: urls,
+        color: colorFromHost(customHost),
+        initials: initialsFromHost(customHost),
+      };
+    }
+    // custom preset 无 api_base:回退到 custom brand 颜色 + label 首字母
+    if (isCustomPreset && baseBrand) {
+      return {
+        logoUrl: "",
+        logoUrls: [],
+        color: baseBrand.color,
+        initials: (label?.trim().charAt(0).toUpperCase() || baseBrand.initials),
+      };
+    }
+    return baseBrand;
+  }, [isCustomPreset, baseBrand, lookupKey, customHost, label]);
   const Icon = PROVIDER_ICONS[lookupKey] ?? Hexagon;
   const logoUrl = brand?.logoUrls[logoIndex];
 
-  useEffect(() => setLogoIndex(0), [provider]);
+  useEffect(() => setLogoIndex(0), [provider, customHost]);
 
   if (showBrandLogos && logoUrl) {
     return (

@@ -31,9 +31,7 @@ from miniUnicorn.channels.feishu._feishu_ws import get_feishu_ws_runner
 from miniUnicorn.channels.feishu._registration import (
     _LOGIN_CONSOLE,
     _feishu_app_identity_key,
-    poll_registration_once,
     qr_register,
-    refresh_saved_feishu_identities,
     save_registration_result,
     sync_saved_feishu_identity_boundary,
 )

@@ -9,12 +9,18 @@ import {
   EyeOff,
   Loader2,
   Pencil,
-  Search,
+  Plus,
   Trash2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,10 +34,13 @@ import {
   OPENAI_API_TYPE_OPTIONS,
   orderUnconfiguredProviders,
   type ProviderForm,
+  type ModelConfigurationDraft,
 } from "../types";
 import { ClearableInput, StatusPill } from "../components/SettingsRow";
+import { InlineAddModelForm } from "../components/InlineAddModelForm";
 import { ProviderIcon } from "../components/ProviderIcon";
 import { ProviderSection } from "../components/ProviderSection";
+import { ProviderPresetList } from "../components/ProviderPresetList";
 
 export function ProvidersSettings({
   settings,
@@ -41,8 +50,6 @@ export function ProvidersSettings({
   editingProviderKeys,
   providerSaving,
   providerSaved,
-  providerModels,
-  providerModelsLoading,
   learningProvider,
   timeoutProvider,
   showBrandLogos,
@@ -51,13 +58,31 @@ export function ProvidersSettings({
   onToggleProviderKeyEditing,
   onChangeProviderForm,
   onSaveProvider,
-  onFetchProviderModels,
   onProviderOAuthLogin,
   onProviderOAuthLogout,
   onRequestDeleteProvider,
-  customPresetLabel,
-  onChangeCustomPresetLabel,
-  onSaveCustomConfiguration,
+  onAddModelToProvider,
+  onActivatePreset,
+  onDeletePreset,
+  inlineAddModelProvider,
+  inlineAddModelDraft,
+  inlineAddModelModels,
+  inlineAddModelModelsLoading,
+  inlineAddModelSaving,
+  onChangeInlineAddModelDraft,
+  onCancelInlineAddModel,
+  onSaveInlineAddModel,
+  onFetchInlineAddModelModels,
+  customConfigOpen,
+  customConfigDraft,
+  customConfigSaving,
+  customConfigModels,
+  customConfigModelsLoading,
+  onOpenCustomConfig,
+  onChangeCustomConfigDraft,
+  onCancelCustomConfig,
+  onSaveCustomConfig,
+  onFetchCustomConfigModels,
 }: {
   settings: SettingsPayload;
   expandedProvider: string | null;
@@ -66,8 +91,6 @@ export function ProvidersSettings({
   editingProviderKeys: Record<string, boolean>;
   providerSaving: string | null;
   providerSaved: Record<string, boolean>;
-  providerModels: Record<string, string[]>;
-  providerModelsLoading: string | null;
   learningProvider: string | null;
   timeoutProvider: string | null;
   showBrandLogos: boolean;
@@ -76,28 +99,74 @@ export function ProvidersSettings({
   onToggleProviderKeyEditing: (provider: string) => void;
   onChangeProviderForm: (provider: string, value: Partial<ProviderForm>) => void;
   onSaveProvider: (provider: string) => void;
-  onFetchProviderModels: (provider: string) => void;
   onProviderOAuthLogin: (provider: string) => void;
   onProviderOAuthLogout: (provider: string) => void;
   onRequestDeleteProvider: (provider: string) => void;
-  customPresetLabel: string;
-  onChangeCustomPresetLabel: (value: string) => void;
-  onSaveCustomConfiguration: () => void;
+  onAddModelToProvider: (providerName: string) => void;
+  onActivatePreset: (presetName: string) => void;
+  onDeletePreset: (presetName: string) => void;
+  /** 当前正在 inline 添加模型的 provider 名(null 表示无)。 */
+  inlineAddModelProvider: string | null;
+  /** inline 添加模型表单的 draft。 */
+  inlineAddModelDraft: ModelConfigurationDraft;
+  /** inline 表单拉取的模型列表。 */
+  inlineAddModelModels: string[];
+  /** inline 表单是否正在拉取模型列表。 */
+  inlineAddModelModelsLoading: boolean;
+  /** inline 表单是否正在保存。 */
+  inlineAddModelSaving: boolean;
+  /** inline 表单 draft 变更回调。 */
+  onChangeInlineAddModelDraft: (draft: ModelConfigurationDraft) => void;
+  /** 取消 inline 添加模型(收起表单)。 */
+  onCancelInlineAddModel: () => void;
+  /** 保存 inline 添加模型。 */
+  onSaveInlineAddModel: () => void;
+  /** 为 inline 表单拉取模型列表。 */
+  onFetchInlineAddModelModels: () => void;
+  /** custom 自定义配置 Dialog 是否打开。 */
+  customConfigOpen: boolean;
+  /** custom 配置 Dialog 的 draft。 */
+  customConfigDraft: ModelConfigurationDraft;
+  /** custom 配置 Dialog 是否正在保存。 */
+  customConfigSaving: boolean;
+  /** custom 配置 Dialog 拉取的模型列表。 */
+  customConfigModels: string[];
+  /** custom 配置 Dialog 是否正在拉取模型列表。 */
+  customConfigModelsLoading: boolean;
+  /** 打开 custom 自定义配置 Dialog。 */
+  onOpenCustomConfig: () => void;
+  /** custom 配置 Dialog draft 变更回调。 */
+  onChangeCustomConfigDraft: (draft: ModelConfigurationDraft) => void;
+  /** 取消 custom 配置(关闭 Dialog)。 */
+  onCancelCustomConfig: () => void;
+  /** 保存 custom 配置(触发上下文查询,成功后在已配置区域生成新卡片)。 */
+  onSaveCustomConfig: () => void;
+  /** 为 custom 配置 Dialog 拉取模型列表。 */
+  onFetchCustomConfigModels: () => void;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
-  // custom preset 虚拟条目(name=custom__xxx)configured=true,会自动进入已配置区域。
-  // 真正的 "custom" 单例 configured=false,作为未配置区域的添加入口。
+  // custom provider 始终保留在未配置区域作为"添加 provider"入口(configured=false)。
+  // 有 preset 时同时在已配置区域显示(展示 preset 列表)。
+  // 两个区域的 custom 卡片用 entryKey(provider.name + configured)区分,避免 expanded 冲突。
   const configuredProviders = useMemo(
     () => settings.providers.filter((provider) => provider.configured),
     [settings.providers],
   );
+  // 未配置区域:排除 custom(custom 改为虚线框 + 号入口,不显示常规卡片)
   const unconfiguredProviders = useMemo(
-    () => orderUnconfiguredProviders(settings.providers.filter((provider) => !provider.configured)),
+    () => orderUnconfiguredProviders(
+      settings.providers.filter((provider) => !provider.configured && provider.name !== "custom"),
+    ),
     [settings.providers],
   );
+  // 生成 entryKey:同一 provider 在已配置/未配置区域用不同 key 区分 expanded 状态。
+  const entryKey = (provider: SettingsPayload["providers"][number]) =>
+    `${provider.name}__${provider.configured ? "cfg" : "add"}`;
   const renderProviderRow = (provider: SettingsPayload["providers"][number]) => {
-    const expanded = expandedProvider === provider.name;
+    const ekey = entryKey(provider);
+    const expanded = expandedProvider === ekey;
+    const isConfigured = provider.configured;
     const form = providerForms[provider.name] ?? {
       apiKey: "",
       apiBase: provider.api_base ?? provider.default_api_base ?? "",
@@ -106,22 +175,20 @@ export function ProvidersSettings({
     };
     const saving = providerSaving === provider.name;
     const saved = !!providerSaved[provider.name];
-    const modelsLoading = providerModelsLoading === provider.name;
-    const fetchedModels = providerModels[provider.name] ?? [];
     const isOauthProvider = provider.auth_type === "oauth";
     const keyVisible = !!visibleProviderKeys[provider.name];
-    const editingKey = !provider.configured || !!editingProviderKeys[provider.name];
+    const editingKey = !isConfigured || !!editingProviderKeys[provider.name];
     const apiKeyRequired = provider.api_key_required ?? true;
     const apiKey = form.apiKey.trim();
     const apiBase = form.apiBase.trim();
-    const missingRequiredApiKey = !isOauthProvider && apiKeyRequired && !provider.configured && !apiKey;
+    const missingRequiredApiKey = !isOauthProvider && apiKeyRequired && !isConfigured && !apiKey;
     const missingOptionalCredential =
-      !isOauthProvider && !apiKeyRequired && !provider.configured && !apiKey && !apiBase;
+      !isOauthProvider && !apiKeyRequired && !isConfigured && !apiKey && !apiBase;
     return (
-      <div key={provider.name} className="divide-y divide-border/45">
+      <div key={entryKey(provider)} className="divide-y divide-border/45">
         <button
           type="button"
-          onClick={() => onToggleProvider(provider.name)}
+          onClick={() => onToggleProvider(entryKey(provider))}
           className="flex min-h-[70px] w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-muted/35 sm:px-5"
         >
           <span className="flex min-w-0 items-center gap-3">
@@ -129,6 +196,7 @@ export function ProvidersSettings({
               provider={provider.name}
               showBrandLogos={showBrandLogos}
               label={provider.label}
+              apiBase={provider.api_base || provider.default_api_base}
             />
             <span className="min-w-0">
               <span className="block truncate text-[15px] font-semibold leading-5 text-foreground">
@@ -139,12 +207,12 @@ export function ProvidersSettings({
               </span>
             </span>
           </span>
-          <StatusPill tone={provider.configured ? "success" : "neutral"}>
+          <StatusPill tone={isConfigured ? "success" : "neutral"}>
             {isOauthProvider
-              ? provider.configured
+              ? isConfigured
                 ? tx("settings.oauth.signedIn", "Signed in")
                 : tx("settings.oauth.notSignedIn", "Not signed in")
-              : provider.configured
+              : isConfigured
                 ? t("settings.byok.configured")
                 : t("settings.byok.notConfigured")}
           </StatusPill>
@@ -197,21 +265,8 @@ export function ProvidersSettings({
               </div>
             ) : (
               <>
-            {/* custom provider:配置名称(每个 custom 配置是独立 model_preset,label 用于区分) */}
-            {provider.name === "custom" ? (
-              <label className="block space-y-1.5">
-                <span className="text-[12px] font-medium text-muted-foreground">
-                  {tx("settings.byok.customLabel", "Label")}
-                </span>
-                <ClearableInput
-                  value={customPresetLabel}
-                  onChange={(event) => onChangeCustomPresetLabel(event.target.value)}
-                  onClear={() => onChangeCustomPresetLabel("")}
-                  placeholder={tx("settings.byok.customLabelPlaceholder", "e.g. agnes, my-service")}
-                  className="h-9 rounded-full text-[13px]"
-                />
-              </label>
-            ) : null}
+            {/* API Key / API Base:所有 provider 一致显示(含 custom)。
+                custom 的 preset 自带凭证会覆盖单例值,单例凭证作为新 preset 的默认预填。 */}
             <label className="block space-y-1.5">
               <span className="text-[12px] font-medium text-muted-foreground">
                 {t("settings.byok.apiKey")}
@@ -226,7 +281,7 @@ export function ProvidersSettings({
                     }
                     onClear={() => onChangeProviderForm(provider.name, { apiKey: "" })}
                     placeholder={
-                      provider.configured
+                      isConfigured
                         ? t("settings.byok.apiKeyConfiguredPlaceholder")
                         : t("settings.byok.apiKeyPlaceholder")
                     }
@@ -285,62 +340,8 @@ export function ProvidersSettings({
                 className="h-9 rounded-full text-[13px]"
               />
             </label>
-            <label className="block space-y-1.5">
-              <span className="text-[12px] font-medium text-muted-foreground">
-                {tx("settings.byok.modelId", "Model ID")}
-              </span>
-              <div className="flex gap-2">
-                <ClearableInput
-                  value={form.model}
-                  onChange={(event) =>
-                    onChangeProviderForm(provider.name, { model: event.target.value })
-                  }
-                  onClear={() => onChangeProviderForm(provider.name, { model: "" })}
-                  placeholder={tx("settings.byok.modelIdPlaceholder", "e.g. gpt-4o, deepseek-chat")}
-                  className="h-9 flex-1 rounded-full text-[13px]"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onFetchProviderModels(provider.name)}
-                  disabled={modelsLoading}
-                  className="h-9 shrink-0 rounded-full px-3 text-[12px]"
-                >
-                  {modelsLoading ? (
-                    <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden />
-                  ) : (
-                    <Search className="mr-1 h-3 w-3" aria-hidden />
-                  )}
-                  {modelsLoading
-                    ? tx("settings.byok.fetchingModels", "Fetching...")
-                    : tx("settings.byok.fetchModels", "Fetch models")}
-                </Button>
-              </div>
-              <span className="block text-[11px] text-muted-foreground/80">
-                {tx("settings.byok.modelIdHelp", "Set as active model when saving.")}
-              </span>
-              {fetchedModels.length > 0 ? (
-                <div className="mt-1 max-h-[160px] overflow-y-auto rounded-lg border border-border/45 bg-background/60">
-                  {fetchedModels.map((modelId) => (
-                    <button
-                      key={modelId}
-                      type="button"
-                      onClick={() => onChangeProviderForm(provider.name, { model: modelId })}
-                      className={cn(
-                        "block w-full truncate px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-muted/50",
-                        form.model === modelId
-                          ? "font-semibold text-foreground"
-                          : "text-muted-foreground",
-                      )}
-                      title={modelId}
-                    >
-                      {modelId}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </label>
+            {/* Model ID 输入栏已移除:模型配置统一通过"添加模型"按钮(InlineAddModelForm)管理,
+                已配置的模型显示在下方 ProviderPresetList 中。 */}
             {provider.name === "openai" ? (
               <label className="block space-y-1.5">
                 <span className="text-[12px] font-medium text-muted-foreground">
@@ -373,27 +374,43 @@ export function ProvidersSettings({
                 </DropdownMenu>
               </label>
             ) : null}
-            {provider.name === "custom" &&
-              (!customPresetLabel.trim() ||
-                !form.apiBase.trim() ||
-                !form.model.trim()) ? (
-              <p className="text-right text-[11px] text-muted-foreground">
-                {tx("settings.byok.customRequiredHint", "Label, API base and model are required")}
-              </p>
+            {/* 已配置 provider 卡片:展示该 provider 下挂载的 preset 列表(多模型支持)。
+                所有 provider(含 custom)一致显示。 */}
+            {isConfigured ? (
+              <ProviderPresetList
+                presets={provider.presets ?? []}
+                saving={saving || providerSaving === "__preset_activate__"}
+                onDelete={(presetName) => onDeletePreset(presetName)}
+                onActivate={(presetName) => onActivatePreset(presetName)}
+                onAdd={() => onAddModelToProvider(provider.name)}
+              />
+            ) : null}
+            {/* inline 折叠展开式添加模型表单(替代弹窗):
+                当 inlineAddModelProvider 等于当前 provider 名时展开。 */}
+            {inlineAddModelProvider === provider.name ? (
+              <InlineAddModelForm
+                draft={inlineAddModelDraft}
+                fetchedModels={inlineAddModelModels}
+                modelsLoading={inlineAddModelModelsLoading}
+                saving={inlineAddModelSaving}
+                isCustom={provider.name === "custom"}
+                onChangeDraft={onChangeInlineAddModelDraft}
+                onFetchModels={onFetchInlineAddModelModels}
+                onSave={onSaveInlineAddModel}
+                onCancel={onCancelInlineAddModel}
+              />
             ) : null}
             <div className="flex items-center justify-end gap-2">
+              {/* 保存按钮:所有 provider 一致显示 */}
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() =>
-                  provider.name === "custom"
-                    ? onSaveCustomConfiguration()
-                    : onSaveProvider(provider.name)
-                }
+                onClick={() => onSaveProvider(provider.name)}
                 disabled={
                   saving ||
                   saved ||
-                  (provider.name !== "custom" && (missingRequiredApiKey || missingOptionalCredential))
+                  missingRequiredApiKey ||
+                  missingOptionalCredential
                 }
                 className={cn(
                   "rounded-full",
@@ -414,8 +431,8 @@ export function ProvidersSettings({
                           : tx("settings.providers.saveProvider", "Save provider"))}
               </Button>
               {/* 已配置卡片:显示删除按钮(清除凭证 + 关联 model_preset,移回未配置)。
-                  custom 是添加入口,不显示删除(已创建的 preset 在 Models 区域管理) */}
-              {provider.configured && provider.name !== "custom" ? (
+                  所有 provider(含 custom)一致显示。 */}
+              {isConfigured ? (
                 <Button
                   size="sm"
                   variant="outline"
@@ -445,6 +462,7 @@ export function ProvidersSettings({
         title={t("settings.byok.configuredSection")}
         count={configuredProviders.length}
         empty={t("settings.byok.noConfiguredProviders")}
+        showCount
       >
         {configuredProviders.map(renderProviderRow)}
       </ProviderSection>
@@ -454,7 +472,44 @@ export function ProvidersSettings({
         empty={t("settings.byok.noConfiguredProviders")}
       >
         {unconfiguredProviders.map(renderProviderRow)}
+        {/* 自定义 provider 入口:虚线框 + 号,点击弹出 LLM 配置 Dialog。
+            保存后触发上下文查询,成功后在已配置区域生成新卡片(如 Agnes-ai)。 */}
+        <button
+          type="button"
+          onClick={onOpenCustomConfig}
+          className="flex min-h-[70px] w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-border/60 px-4 py-3 text-muted-foreground transition-colors hover:border-foreground/40 hover:bg-muted/30 hover:text-foreground sm:px-5"
+        >
+          <Plus className="h-5 w-5" aria-hidden />
+          <span className="text-[14px] font-medium">
+            {tx("settings.byok.addCustomProvider", "Add custom provider")}
+          </span>
+        </button>
       </ProviderSection>
+      {/* custom 自定义配置 Dialog:与 InlineAddModelForm 字段一致(Model ID + API Key + API Base),
+          保存逻辑复用 handleCreateModelConfiguration,触发上下文查询并在已配置区域生成新卡片。 */}
+      <Dialog open={customConfigOpen} onOpenChange={(open) => { if (!open) onCancelCustomConfig(); }}>
+        <DialogContent className="max-w-[520px] p-0">
+          <DialogHeader className="px-5 pb-0 pt-5 text-left">
+            <DialogTitle className="text-[18px] font-semibold tracking-[-0.01em]">
+              {tx("settings.byok.addCustomProvider", "Add custom provider")}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="px-5 pb-5 pt-3">
+            <InlineAddModelForm
+              draft={customConfigDraft}
+              fetchedModels={customConfigModels}
+              modelsLoading={customConfigModelsLoading}
+              saving={customConfigSaving}
+              isCustom
+              variant="dialog"
+              onChangeDraft={onChangeCustomConfigDraft}
+              onFetchModels={onFetchCustomConfigModels}
+              onSave={onSaveCustomConfig}
+              onCancel={onCancelCustomConfig}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

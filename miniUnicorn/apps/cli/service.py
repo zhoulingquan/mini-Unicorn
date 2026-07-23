@@ -886,7 +886,7 @@ If the user attached `@{name}` in chat, treat that as the selected app for the c
 Prefer machine-readable output when the CLI supports `--json`.
 """
 
-    def _with_miniUnicorn_skill_note(self, content: str, app: dict[str, Any]) -> str:
+    def _with_miniUnicorn_skill_note(self, content: str, app: dict[str, Any]) -> str:  # noqa: N802
         marker = "<!-- miniUnicorn-cli-app-note -->"
         if marker in content:
             return content

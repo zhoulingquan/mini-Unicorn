@@ -21,7 +21,7 @@ def _resolve_version() -> str:
     try:
         return _pkg_version("miniUnicorn-ai")
     except PackageNotFoundError:
-        return _read_pyproject_version() or "unknown"
+        return _read_pyproject_version() or "0.2.0"
 
 
 __version__ = _resolve_version()

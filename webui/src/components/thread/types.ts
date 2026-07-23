@@ -17,6 +17,12 @@ export interface ThreadComposerProps {
   modelLabel?: string | null;
   modelProvider?: string | null;
   modelProviderLabel?: string | null;
+  /** 当前 provider 的 api_base(用于 custom 动态 brand 图标生成)。 */
+  modelApiBase?: string | null;
+  /** 当前 provider 下可用模型列表(用于多模型下拉选择)。 */
+  models?: string[];
+  /** 用户在 composer 模型徽章弹出菜单中选择其他模型时触发。 */
+  onSelectModel?: (model: string) => void;
   variant?: "thread" | "hero";
   slashCommands?: SlashCommand[];
   onStop?: () => void;

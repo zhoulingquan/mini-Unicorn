@@ -124,6 +124,9 @@ function modelSettings(model: string, provider: string): SettingsPayload {
       temperature: 0.7,
       reasoning_effort: null,
       tool_hint_max_length: 40,
+      use_planner: false,
+      planner_model: null,
+      planner_max_replans: 3,
     },
     model_presets: [{
       name: "default",
@@ -153,7 +156,6 @@ function modelSettings(model: string, provider: string): SettingsPayload {
       max_results: 5,
       timeout: 30,
       proxy: null,
-      user_agent: null,
       backends: {},
     },
     runtime: {

@@ -46,6 +46,7 @@
     "expand": "展开侧边栏",
     "newChat": "新建对话",
     "recent": "最近对话",
+    "search": "搜索会话",
     "settings": "设置",
     "mcp": "MCP",
     "skills": "技能",
@@ -57,7 +58,7 @@
       "label": "语言",
       "ariaLabel": "切换语言"
     },
-    "apps": "应用"
+    "apps": "CLI 应用"
   },
   "settings": {
     "backToChat": "返回对话",
@@ -72,11 +73,11 @@
       "appearance": "外观",
       "models": "模型",
       "providers": "提供商",
-      "browser": "搜索",
+      "browser": "搜网",
       "cliApps": "CLI 应用",
       "mcp": "MCP",
       "advanced": "安全",
-      "apps": "应用"
+      "apps": "CLI 应用"
     },
     "sections": {
       "interface": "界面",
@@ -93,7 +94,7 @@
       "webSearchBasic": "网页搜索",
       "webSearchCache": "网络",
       "webSearchBackends": "后端凭证",
-      "apps": "应用",
+      "apps": "CLI 应用",
       "nativeHost": "App",
       "hostSafety": "App 安全"
     },
@@ -102,6 +103,8 @@
       "addConfiguration": "添加配置",
       "newConfiguration": "新建模型配置",
       "newConfigurationHelp": "把服务商和模型保存为一个可直接切换的选项。",
+      "editConfiguration": "编辑模型配置",
+      "editConfigurationHelp": "修改该配置的名称、模型或凭证。",
       "configurationName": "名称",
       "configurationNameHelp": "重命名这个已保存的模型配置。",
       "configurationNamePlaceholder": "快速写作",
@@ -171,14 +174,13 @@
       "localServiceAccess": "允许完全访问模式下的 shell 命令访问 localhost 服务。",
       "webuiDefaultAccess": "用于没有单独选择权限的网页端对话。",
       "securityManagedControls": "网页抓取始终保护本机、内网和元数据服务。核心渠道安全仍由 config.json 管理。",
-      "webSearchEnable": "开启或关闭 web_search 工具。默认并发调用全部已注册后端并合并去重，国内+海外结果都尽量覆盖。",
+      "webSearchEnable": "开启或关闭 web_search 工具。默认并发调用 searxng + tavily + bing_cn 三个后端并合并去重。",
       "webSearchMaxResults": "单次查询返回的最大结果数（1-10）。",
       "webSearchTimeout": "单次请求超时秒数。",
-      "webSearchProxy": "海外后端的 HTTP 代理（如 duckduckgo）。留空则用系统环境变量。",
+      "webSearchProxy": "海外后端的 HTTP 代理（如 tavily）。留空则自动读取系统 HTTP_PROXY/HTTPS_PROXY 环境变量。",
       "webSearchUserAgent": "抓取型后端用的 User-Agent。留空使用默认值。",
-      "webSearchBackend_bocha": "博查 AI Search API（国内，需 Key，有免费额度）",
-      "webSearchBackend_tencent": "腾讯云搜索（国内，需 secret_id:secret_key）",
-      "webSearchBackend_duckduckgo": "DuckDuckGo（海外，免 Key，国内需代理）",
+      "webSearchBackend_searxng": "SearXNG 自托管元搜索（需配置 base_url，聚合 100+ 引擎，免费）",
+      "webSearchBackend_tavily": "Tavily AI Search API（需 Key，返回 LLM 摘要，每月 1000 次免费）",
       "logs": "打开App引擎日志文件夹。",
       "diagnostics": "导出一份用于支持排查的运行时报告。",
       "localServiceAccessNative": "允许完全访问模式下的 shell 命令访问这台 Mac 上的服务。",
@@ -309,6 +311,17 @@
       "apiBaseRequired": "请填写 API base",
       "modelIdRequired": "请填写模型 ID",
       "customRequiredHint": "需填写配置名称、API base 和模型 ID",
+      "modelsUnderProvider": "该服务商下的模型",
+      "noPresets": "继续配置添加其他模型",
+      "addModelToProvider": "添加模型",
+      "addCustomProvider": "添加自定义服务商",
+      "customProviderHelp": "配置 OpenAI 兼容的自定义端点,保存后会作为独立服务商卡片显示。",
+      "activate": "激活",
+      "activePreset": "使用中",
+      "editPreset": "编辑模型",
+      "affectedPresets": "将一并删除以下 {{count}} 个模型配置:",
+      "apiKey": "API Key",
+      "apiBase": "API Base",
       "tabs": {
         "ariaLabel": "BYOK 凭证类型",
         "llm": "LLM"
@@ -370,6 +383,14 @@
       "configuredHint": "使用:{{model}}",
       "defaultHint": "当前复用主对话模型。",
       "useMain": "主模型"
+    },
+    "planner": {
+      "title": "Plan & Execute 双模型",
+      "useMain": "主模型",
+      "disabledHint": "仅 ReAct 模式。打开开关以启用 Plan & Execute。",
+      "singleModelHint": "规划:主模型 · 执行:主模型",
+      "dualModelHint": "规划:{{model}} · 执行:主模型",
+      "toggleAria": "切换 Plan & Execute 双模型"
     },
     "providers": {
       "saveProvider": "保存服务商",
@@ -498,7 +519,12 @@
       "newChat": "从顶部新建对话",
       "toggleTheme": "从顶部切换主题",
       "toggleLanguage": "切换语言",
-      "settings": "打开设置"
+      "settings": "打开设置",
+      "provider": {
+        "label": "选择服务商",
+        "ariaLabel": "切换 LLM 服务商",
+        "empty": "未配置服务商"
+      }
     },
     "composer": {
       "placeholderThread": "输入消息…",
@@ -1007,8 +1033,8 @@
       "run_cli_app": "运行用户在设置中安装的 CLI 应用",
       "spawn": "在后台生成子代理处理任务",
       "web_fetch": "抓取 URL 并提取可读内容",
-      "web_search": "用关键词搜索网页，集成 Bing/百度/搜狗/博查/腾讯/DuckDuckGo 等 6 个国内外主流引擎，自动降级与缓存，返回标题、链接和摘要",
-      "deep_research": "多步研究工作流（规划→搜索→反思→成文），调度 6 个国内外搜索引擎并发检索，自动反思补查，产出带引用的 Markdown 研究报告",
+      "web_search": "用关键词搜索网页，以 SearXNG 自托管元搜索为主力（聚合 Google/Bing 等 100+ 引擎），辅以 Tavily AI 摘要和 Bing 国内兜底，并发检索合并去重，自动缓存，返回标题、链接和摘要",
+      "deep_research": "多步研究工作流（规划→搜索→抓取→反思→重排→成文），以 SearXNG 为主力并发检索，自动抓取全文、反思补查，产出带引用的 Markdown 研究报告",
       "write_file": "创建新文件或整体替换文件内容",
       "write_stdin": "向运行中的 exec 会话写入 stdin 或控制进程"
     }

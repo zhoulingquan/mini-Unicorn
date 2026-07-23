@@ -143,7 +143,7 @@ export function ToolsView({ onBack, token }: ToolsViewProps) {
   return (
     <ViewShell
       onBack={onBack}
-      icon={<Package className="h-4.5 w-4.5 text-foreground/80" />}
+      icon={<Package className="h-4 w-4 text-foreground/80" />}
       title={t("tools.title")}
       actions={
         <>

@@ -2,10 +2,9 @@
 // 从 SettingsView.tsx 拆分而来。
 
 import type { Dispatch, SetStateAction } from "react";
-import { Activity, Bot, HardDrive, Loader2, Moon, RotateCcw } from "lucide-react";
+import { Activity, Bot, HardDrive, Moon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { RuntimeSettingsUpdate, SettingsPayload } from "@/lib/types";
 
@@ -17,6 +16,7 @@ import { BootstrapFileRow } from "../components/BootstrapFileRow";
 import { DreamFilesButton } from "../components/DreamFilesButton";
 import { HeartbeatLlmConfig } from "../components/HeartbeatLlmConfig";
 import { NumberInput } from "../components/SegmentedControl";
+import { PlannerConfig } from "../components/PlannerConfig";
 import { RestartSettingsFooter } from "../components/RestartSettingsFooter";
 import {
   OverviewListRow,
@@ -38,6 +38,8 @@ export function OverviewSettings({
   runtimeSaving,
   onChangeRuntimeForm,
   onSaveRuntime,
+  plannerSaving,
+  onSavePlanner,
 }: {
   settings: SettingsPayload;
   requiresRestart: boolean;
@@ -50,16 +52,20 @@ export function OverviewSettings({
   runtimeSaving: boolean;
   onChangeRuntimeForm: Dispatch<SetStateAction<RuntimeSettingsUpdate>>;
   onSaveRuntime: () => void;
+  plannerSaving: boolean;
+  onSavePlanner: (update: { usePlanner?: boolean; plannerModel?: string | null }) => Promise<void>;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
   const activePreset = settings.agent.model_preset || "default";
   const activeProvider = settings.agent.resolved_provider ?? settings.agent.provider;
+  const usePlanner = settings.agent.use_planner;
+  const plannerPreset = settings.agent.planner_model;
   return (
     <div className="space-y-7">
       <section>
         <div className="overflow-hidden rounded-[22px] border border-border/45 bg-card/86 shadow-[0_18px_65px_rgba(15,23,42,0.075)] backdrop-blur-xl dark:border-white/10 dark:shadow-[0_18px_65px_rgba(0,0,0,0.24)]">
-          <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-row items-center justify-between gap-4 px-5 py-5">
             <div className="flex min-w-0 items-center gap-3">
               <div className="min-w-0">
                 <div className="text-[12px] font-medium text-muted-foreground">MiniUnicorn</div>
@@ -77,22 +83,6 @@ export function OverviewSettings({
                   ? tx("settings.values.restartPending", "Restart pending")
                   : tx("settings.values.ready", "Ready")}
               </StatusPill>
-              {requiresRestart && onRestart ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={onRestart}
-                  disabled={isRestarting}
-                  className="rounded-full"
-                >
-                  {isRestarting ? (
-                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
-                  ) : (
-                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                  )}
-                  {isRestarting ? t("app.system.restarting") : t("app.system.restart")}
-                </Button>
-              ) : null}
             </div>
           </div>
         </div>
@@ -109,6 +99,18 @@ export function OverviewSettings({
             caption={`${activeProvider} · ${activePreset}`}
             showBrandLogos={showBrandLogos}
             onClick={() => onSelectSection("models")}
+          />
+          <PlannerConfig
+            settings={settings}
+            usePlanner={usePlanner}
+            plannerPreset={plannerPreset}
+            saving={plannerSaving}
+            onToggle={(enabled) => {
+              void onSavePlanner({ usePlanner: enabled });
+            }}
+            onSelectPreset={(presetName) => {
+              void onSavePlanner({ plannerModel: presetName });
+            }}
           />
         </SettingsGroup>
       </section>

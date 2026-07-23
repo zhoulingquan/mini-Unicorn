@@ -225,10 +225,11 @@ def test_execution_rules_in_system_prompt(tmp_path) -> None:
     builder = ContextBuilder(workspace)
 
     prompt = builder.build_system_prompt()
-    assert "single-step tasks" in prompt
-    assert "multi-step tasks" in prompt
-    assert "Read before you write" in prompt
-    assert "verify the result" in prompt
+    # SOUL.md 模板已翻译为中文，断言改为中文短语
+    assert "单步任务" in prompt
+    assert "多步任务" in prompt
+    assert "先读后写" in prompt
+    assert "验证结果" in prompt
 
 
 def test_identity_has_no_behavioral_instructions(tmp_path) -> None:
@@ -256,9 +257,10 @@ def test_system_prompt_does_not_warn_about_message_time_markers(tmp_path) -> Non
 def test_default_soul_template_contains_execution_rules() -> None:
     """Default SOUL.md template must contain execution rules with act/plan layering."""
     soul = (pkg_files("miniUnicorn") / "templates" / "SOUL.md").read_text(encoding="utf-8")
-    assert "## Execution Rules" in soul
-    assert "single-step tasks" in soul
-    assert "multi-step tasks" in soul
+    # SOUL.md 模板已翻译为中文
+    assert "## 执行规则" in soul
+    assert "单步任务" in soul
+    assert "多步任务" in soul
 
 
 def test_channel_format_hint_telegram(tmp_path) -> None:

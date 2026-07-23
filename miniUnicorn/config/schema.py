@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from miniUnicorn.agent.tools.deep_research.config import DeepResearchConfig
     from miniUnicorn.agent.tools.self import MyToolConfig
     from miniUnicorn.agent.tools.shell import ExecToolConfig
-    from miniUnicorn.agent.tools.web import WebFetchConfig, WebToolsConfig
+    from miniUnicorn.agent.tools.web import WebToolsConfig
     from miniUnicorn.agent.tools.web_search.config import WebSearchConfig
 
 
@@ -158,7 +158,14 @@ class AgentDefaults(Base):
     temperature: float = 0.1
     fallback_models: list[FallbackCandidate] = Field(default_factory=list)
     max_tool_iterations: int = 200
-    max_concurrent_subagents: int = Field(default=1, ge=1)
+    # None = 自适应：根据 provider.is_local 选择默认值（本地 1，云端 4）。
+    # 显式指定 int 时，按用户配置生效（向下兼容旧配置）。
+    max_concurrent_subagents: int | None = Field(default=None, ge=1)
+    # 递归深度限制：子代理可以再 delegate 的层数。
+    # 0 = 子代理不能 delegate（主代理仍可，等同原 _scopes={"core"} 硬限制行为）
+    # 1 = 允许一层递归（子代理可再 delegate 一次，孙代理不可）— 默认值
+    # 2+ = 允许更多层递归
+    max_subagent_recursion_depth: int = Field(default=1, ge=0)
     max_tool_result_chars: int = 16_000
     provider_retry_mode: Literal["standard", "persistent"] = "standard"
     tool_hint_max_length: int = Field(
@@ -191,6 +198,13 @@ class AgentDefaults(Base):
         validation_alias=AliasChoices("consolidationRatio"),
         serialization_alias="consolidationRatio",
     )  # Consolidation target ratio (0.5 = 50% of budget retained after compression)
+    checkpoint_ratio: float = Field(
+        default=0.7,
+        ge=0.3,
+        le=1.0,
+        validation_alias=AliasChoices("checkpointRatio"),
+        serialization_alias="checkpointRatio",
+    )  # 提前 checkpoint 触发比例 (0.7 = 70% 预算时触发归档，借鉴 MiMo Code 提前提取思想；1.0 = 旧行为)
     vector_recall: bool = Field(
         default=False,
         validation_alias=AliasChoices("vectorRecall"),
@@ -329,6 +343,9 @@ class ApiConfig(Base):
     host: str = "127.0.0.1"  # Safer default: local-only bind.
     port: int = 8900
     timeout: float = 120.0  # Per-request timeout in seconds.
+    # Bearer token required for /v1/* endpoints. Empty = no auth (dev only).
+    # When set, clients must send ``Authorization: Bearer <api_key>``.
+    api_key: str = ""
 
 
 class GatewayConfig(Base):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import html
 import re
-from urllib.parse import urljoin, quote_plus
+from urllib.parse import quote_plus, urljoin
 
 
 def strip_tags(text: str) -> str:

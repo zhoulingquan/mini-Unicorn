@@ -2,10 +2,10 @@
 
 不挂在 WebToolsConfig 下,与 web_fetch 平级,便于独立升级维护。
 
-后端选择策略:
+后端选择策略(以 SearXNG 为主力):
 - provider="auto" (默认): 并发调用所有已注册后端,合并去重后返回最全面的结果。
-  国内后端(bocha/bing_cn/sogou/baidu/tencent)和国外后端(duckduckgo)同时尝试,
-  有代理时国外后端走代理,无代理时国外后端自然失败被跳过,不影响国内结果。
+  searxng(主力,需配置 base_url) + tavily(AI 摘要,需 Key) + bing_cn(免 Key 兜底)。
+  海外后端通过系统代理或 config.proxy 走代理;无代理时自然失败被跳过。
 - provider="<name>": 仅调用指定后端,用于调试或特定场景。
 
 结果缓存:默认启用,TTL 固定 1 小时,不暴露给用户配置(默认值已足够,
@@ -14,12 +14,9 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic import Field
 
 from miniUnicorn.config.schema import Base
-
 
 # 结果缓存内部常量(不暴露到 UI)。如需调整,改这里或 config.json 的同名字段。
 DEFAULT_CACHE_TTL_S: int = 3600
@@ -42,11 +39,15 @@ class WebSearchConfig(Base):
     enable: bool = True
     # auto = 并发调用所有已注册后端,合并去重;指定具体名 = 只调该后端
     provider: str = "auto"
+    # 聚合模式(仅 provider=auto 时生效):
+    # - "fast" (默认): 首个成功后端返回,其余后台补缓存(低延迟)
+    # - "full": 等所有后端返回或超时,全量合并去重(高质量,适合 deep_research)
+    # - "hybrid": 首成功返回初步结果,后台继续聚合,下次查询返回增强结果
+    aggregate_mode: str = "fast"
     max_results: int = 5
     timeout: int = 30
     # 国外后端专用代理;None 时复用系统环境变量
     proxy: str | None = None
-    user_agent: str | None = None
     # 每个后端独立配置,Key 优先级:backends[name].api_key > 环境变量
     backends: dict[str, WebSearchBackendConfig] = Field(default_factory=dict)
 

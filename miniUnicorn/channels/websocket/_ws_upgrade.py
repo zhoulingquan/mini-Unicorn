@@ -14,7 +14,6 @@ focused on the channel class itself.
 from __future__ import annotations
 
 import re
-import ssl
 import time
 from pathlib import Path
 from typing import Any, Self

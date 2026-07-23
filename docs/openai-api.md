@@ -4,7 +4,7 @@ MiniUnicorn can expose a minimal OpenAI-compatible endpoint for local integratio
 
 ```bash
 pip install "miniUnicorn-ai[api]"
-miniUnicorn serve
+MiniUnicorn serve
 ```
 
 By default, the API binds to `127.0.0.1:8900`. You can change this in `config.json`.

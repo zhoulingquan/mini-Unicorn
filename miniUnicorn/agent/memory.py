@@ -55,6 +55,33 @@ class MemoryStore:
         r"^\[\d{4}-\d{2}-\d{2}[^\]]*\]\s+[A-Z][A-Z0-9_]*(?:\s+\[tools:\s*[^\]]+\])?:"
     )
 
+    # Single-Writer 路径白名单（借鉴 MiMo Code）：
+    # 每个文件只有一个允许的 writer 角色，其他角色不应直接写入。
+    # 这是文档化的不变量（invariant），MemoryStore 自身的写入方法已通过
+    # __init__ 固定路径天然满足；此处记录用于审计、未来工具层强制校验、
+    # 以及防止 Consolidator/Dream/主 Agent 之间职责混淆。
+    #
+    # 角色说明：
+    #   - "main_agent": 主 Agent 通过 EditFileTool 间接写入（唯一允许的文件是 notes.md）
+    #   - "consolidator": Consolidator 归档时写入 history.jsonl + 清空 notes.md
+    #   - "dream": Dream 提炼后通过 EditFileTool 写入 MEMORY/SOUL/USER + 推进 cursor
+    #   - "memory_store": MemoryStore 内部迁移/截断逻辑（_maybe_migrate_legacy_history 等）
+    _WRITER_WHITELIST: dict[str, set[str]] = {
+        "notes.md": {"main_agent", "consolidator"},
+        "memory/MEMORY.md": {"dream", "memory_store"},
+        "SOUL.md": {"dream", "memory_store"},
+        "USER.md": {"dream", "memory_store"},
+        "memory/history.jsonl": {"consolidator", "memory_store"},
+        "memory/.cursor": {"consolidator", "memory_store"},
+        "memory/.dream_cursor": {"dream", "memory_store"},
+        "memory/.reflections_cursor": {"dream", "memory_store"},
+        "memory/episodic.jsonl": {"dream", "memory_store"},
+        "memory/procedural.jsonl": {"dream", "memory_store"},
+        "memory/reflections.jsonl": {"dream", "memory_store"},
+        "memory/shared/MEMORY_SHARED.md": {"dream", "memory_store"},
+        "memory/shared/procedural_shared.jsonl": {"dream", "memory_store"},
+    }
+
     def __init__(self, workspace: Path, max_history_entries: int = _DEFAULT_MAX_HISTORY):
         self.workspace = workspace
         self.max_history_entries = max_history_entries
@@ -64,6 +91,11 @@ class MemoryStore:
         self.legacy_history_file = self.memory_dir / "HISTORY.md"
         self.soul_file = workspace / "SOUL.md"
         self.user_file = workspace / "USER.md"
+        # notes.md: 主 Agent 唯一被允许的持久化写入通道（借鉴 MiMo Code）。
+        # 主 Agent 用 write_file/edit_file 往这里 append 零散发现，Consolidator
+        # 在每次归档时读取内容路由到 summary、然后清空文件。这样主 Agent
+        # 不需要自己维护结构化记忆，但仍能记录跨 turn 的临时笔记。
+        self.notes_file = workspace / "notes.md"
         self._cursor_file = self.memory_dir / ".cursor"
         self._dream_cursor_file = self.memory_dir / ".dream_cursor"
         # Layered memory stores (P1-1): episodic events and procedural lessons.
@@ -86,7 +118,7 @@ class MemoryStore:
         # 通过 mtime+size 校验避免重复磁盘 IO。写入时调用 _invalidate_cache。
         self._file_cache: dict[Path, tuple[int, int, str]] = {}
         self._git = GitStore(workspace, tracked_files=[
-            "SOUL.md", "USER.md", "memory/MEMORY.md", "memory/.dream_cursor",
+            "SOUL.md", "USER.md", "notes.md", "memory/MEMORY.md", "memory/.dream_cursor",
             "memory/episodic.jsonl", "memory/procedural.jsonl",
         ])
         # Vector store for embedding-based retrieval. Lazy-initialized via
@@ -99,6 +131,53 @@ class MemoryStore:
     @property
     def git(self) -> GitStore:
         return self._git
+
+    # -- Single-Writer 路径校验（借鉴 MiMo Code 的 path whitelist）----------
+    # 防御 path traversal：所有写入方法的路径必须解析后仍在 workspace 内。
+    # 这层校验是 defense-in-depth —— MemoryStore 的写入路径在 __init__ 固化，
+    # 但 workspace 本身可能被配置成符号链接或包含 ../ 等危险路径。
+    # _assert_path_in_workspace 在每次写入前做 resolve() + 边界检查。
+
+    def _assert_path_in_workspace(self, path: Path) -> None:
+        """断言 *path* 解析后仍在 workspace 内，防御 path traversal / symlink 攻击。
+
+        借鉴 MiMo Code 的 single-writer path whitelist：所有持久化写入必须
+        落在 workspace 边界内，避免恶意/误操作写到 workspace 之外的敏感文件。
+        """
+        try:
+            resolved = path.resolve()
+            ws = self.workspace.resolve()
+            # 检查 resolved 是否等于 ws 或在 ws 之下
+            if resolved != ws and ws not in resolved.parents:
+                raise PermissionError(
+                    f"MemoryStore write blocked: path {path} resolves to {resolved}, "
+                    f"outside workspace {ws}"
+                )
+        except (OSError, RuntimeError) as e:
+            # resolve 失败（broken symlink 等）也拒绝写入
+            raise PermissionError(
+                f"MemoryStore write blocked: cannot resolve {path}: {e}"
+            ) from e
+
+    @classmethod
+    def _assert_writer_allowed(cls, role: str, relative_path: str) -> None:
+        """断言 *role* 角色被允许写入 *relative_path*（single-writer invariant）。
+
+        借鉴 MiMo Code：每个文件只有一个允许的 writer 角色。这里只做
+        文档化校验（不抛异常），用于审计和未来在工具层强制执行。
+        若 *relative_path* 不在白名单中，则视为 unrestricted（兼容新文件）。
+        若 *role* 不在白名单中，记录 warning 但不阻塞（避免破坏现有流程）。
+        """
+        allowed_roles = cls._WRITER_WHITELIST.get(relative_path)
+        if allowed_roles is None:
+            # 不在白名单中的文件视为 unrestricted
+            return
+        if role not in allowed_roles:
+            logger.warning(
+                "Single-Writer invariant violation: role '{}' is not in allowed writers {} "
+                "for path '{}' (allowed: {})",
+                role, allowed_roles, relative_path, allowed_roles,
+            )
 
     def attach_vector_store(self, vector_store: Any) -> None:
         """Attach a VectorMemoryStore for embedding-based retrieval."""
@@ -150,6 +229,8 @@ class MemoryStore:
         """
         if not content:
             return None
+        self._assert_path_in_workspace(self._episodic_file)
+        self._assert_writer_allowed("dream", "memory/episodic.jsonl")
         try:
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
             entry = {
@@ -175,6 +256,8 @@ class MemoryStore:
         and ``source`` keys — mirroring history.jsonl's on-disk format so the
         same read/dedup tooling applies.
         """
+        self._assert_path_in_workspace(self.procedural_file)
+        self._assert_writer_allowed("dream", "memory/procedural.jsonl")
         cursor = self._next_procedural_cursor()
         entry = {
             "cursor": cursor,
@@ -194,7 +277,7 @@ class MemoryStore:
         """Get next cursor for procedural file (1-based, monotonic)."""
         try:
             text = self.procedural_file.read_text(encoding="utf-8")
-            lines = [l for l in text.strip().split("\n") if l.strip()]
+            lines = [line for line in text.strip().split("\n") if line.strip()]
             if not lines:
                 return 1
             last = json.loads(lines[-1])
@@ -339,6 +422,8 @@ class MemoryStore:
 
     def set_last_reflections_cursor(self, cursor: int) -> None:
         """Set the reflections cursor (line number of last processed entry)."""
+        self._assert_path_in_workspace(self._reflections_cursor_file)
+        self._assert_writer_allowed("dream", "memory/.reflections_cursor")
         try:
             self._reflections_cursor_file.write_text(str(cursor), encoding="utf-8")
         except Exception:
@@ -614,6 +699,8 @@ class MemoryStore:
         return self._cached_read(self.memory_file)
 
     def write_memory(self, content: str) -> None:
+        self._assert_path_in_workspace(self.memory_file)
+        self._assert_writer_allowed("memory_store", "memory/MEMORY.md")
         self.memory_file.write_text(content, encoding="utf-8")
         self._invalidate_cache(self.memory_file)
 
@@ -623,6 +710,8 @@ class MemoryStore:
         return self._cached_read(self.soul_file)
 
     def write_soul(self, content: str) -> None:
+        self._assert_path_in_workspace(self.soul_file)
+        self._assert_writer_allowed("memory_store", "SOUL.md")
         self.soul_file.write_text(content, encoding="utf-8")
         self._invalidate_cache(self.soul_file)
 
@@ -632,8 +721,59 @@ class MemoryStore:
         return self._cached_read(self.user_file)
 
     def write_user(self, content: str) -> None:
+        self._assert_path_in_workspace(self.user_file)
+        self._assert_writer_allowed("memory_store", "USER.md")
         self.user_file.write_text(content, encoding="utf-8")
         self._invalidate_cache(self.user_file)
+
+    # -- notes.md (主 Agent scratchpad，借鉴 MiMo Code) ---------------------
+    # 主 Agent 对其他结构化文件（MEMORY/SOUL/USER）只有读权限，但 notes.md
+    # 是唯一允许的写入通道。主 Agent 用 write_file/edit_file 往这里 append
+    # 零散发现，Consolidator 在归档时读取并路由到 summary、然后清空。
+    # 这避免了"让正在调 bug 的模型同时维护结构化日志"的双任务冲突。
+
+    def read_notes(self) -> str:
+        """读取 notes.md 全部内容（不存在时返回空串）。"""
+        return self._cached_read(self.notes_file)
+
+    def append_notes(self, content: str) -> None:
+        """追加一行到 notes.md。主 Agent 调用。
+
+        自动加时间戳前缀，便于 Consolidator 路由和审计。
+        空内容不写入。
+        """
+        if not content or not content.strip():
+            return
+        # Single-Writer 路径校验（防御 path traversal）
+        self._assert_path_in_workspace(self.notes_file)
+        self._assert_writer_allowed("main_agent", "notes.md")
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+        line = f"- [{ts}] {content.rstrip()}\n"
+        try:
+            with open(self.notes_file, "a", encoding="utf-8") as f:
+                f.write(line)
+            self._invalidate_cache(self.notes_file)
+        except OSError:
+            logger.exception("append_notes failed")
+
+    def clear_notes(self) -> str:
+        """清空 notes.md 并返回清空前的内容。
+
+        由 Consolidator 在归档后调用：先把 notes 内容路由到 summary，
+        再清空文件，释放主 Agent 的 scratchpad 空间。
+        """
+        content = self.read_notes()
+        if not content:
+            return ""
+        # Single-Writer 路径校验
+        self._assert_path_in_workspace(self.notes_file)
+        self._assert_writer_allowed("consolidator", "notes.md")
+        try:
+            self.notes_file.write_text("", encoding="utf-8")
+            self._invalidate_cache(self.notes_file)
+        except OSError:
+            logger.exception("clear_notes failed")
+        return content
 
     # -- context injection (used by context.py) ------------------------------
 
@@ -680,6 +820,11 @@ class MemoryStore:
                 cursor,
             )
         record = {"cursor": cursor, "timestamp": ts, "content": content}
+        # Single-Writer 路径校验
+        self._assert_path_in_workspace(self.history_file)
+        self._assert_path_in_workspace(self._cursor_file)
+        self._assert_writer_allowed("consolidator", "memory/history.jsonl")
+        self._assert_writer_allowed("consolidator", "memory/.cursor")
         with open(self.history_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
         self._cursor_file.write_text(str(cursor), encoding="utf-8")
@@ -809,6 +954,8 @@ class MemoryStore:
         return 0
 
     def set_last_dream_cursor(self, cursor: int) -> None:
+        self._assert_path_in_workspace(self._dream_cursor_file)
+        self._assert_writer_allowed("dream", "memory/.dream_cursor")
         self._dream_cursor_file.write_text(str(cursor), encoding="utf-8")
 
     # -- message formatting utility ------------------------------------------
@@ -864,6 +1011,14 @@ class Consolidator:
     # 20 次 ≈ 每隔数十轮对话清理一次，开销可忽略。
     _HYGIENE_THROTTLE = 20
 
+    # 提前 checkpoint 触发比例（借鉴 MiMo Code 的"提前提取"思想）。
+    # 旧逻辑：estimated >= budget（100%）才触发，此时模型能力已因
+    # "lost in the middle" 衰减，压缩质量下降。
+    # 新行为：estimated >= budget * checkpoint_ratio（默认 70%）即触发，
+    # 在模型仍有充足注意力时完成归档。rebuild target 仍由 consolidation_ratio
+    # 控制（默认压到 50%），循环逻辑不变。
+    _CHECKPOINT_RATIO = 0.7
+
     def __init__(
         self,
         store: MemoryStore,
@@ -875,6 +1030,7 @@ class Consolidator:
         get_tool_definitions: Callable[[], list[dict[str, Any]]],
         max_completion_tokens: int = 4096,
         consolidation_ratio: float = 0.5,
+        checkpoint_ratio: float | None = None,
     ):
         self.store = store
         self.provider = provider
@@ -883,6 +1039,11 @@ class Consolidator:
         self.context_window_tokens = context_window_tokens
         self.max_completion_tokens = max_completion_tokens
         self.consolidation_ratio = consolidation_ratio
+        # checkpoint_ratio=None 走类默认 _CHECKPOINT_RATIO；显式传入可覆盖。
+        # 传 1.0 可恢复旧行为（只在 100% 时触发）。
+        self.checkpoint_ratio = (
+            checkpoint_ratio if checkpoint_ratio is not None else self._CHECKPOINT_RATIO
+        )
         self._build_messages = build_messages
         self._get_tool_definitions = get_tool_definitions
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
@@ -997,11 +1158,53 @@ class Consolidator:
         self.sessions.save(session)
         return summary
 
+    # 逐字切片保留的最近用户消息条数（借鉴 MiMo Code 的 rebuild 注入设计）。
+    # Consolidator 生成的 summary 是 LLM 改写后的自由文本，可能偏离用户原意。
+    # 保留最近 N 条用户消息原文，在 AutoCompact 注入时与 summary 拼接，
+    # 让主 Agent 能直接看到用户最近的真实表述，防止 writer 误读意图。
+    _VERBATIM_RECENT_USER_MSGS = 2
+
+    def _extract_verbatim_recent(self, session: Session) -> list[str]:
+        """提取最近 N 条用户消息的原文（用于防 summary 改写偏离）。
+
+        从 session 当前消息尾部向前扫描，只取 role=user 的 content，
+        跳过空内容和工具注入的 runtime context 块。
+        """
+        result: list[str] = []
+        for msg in reversed(session.messages):
+            if msg.get("role") != "user":
+                continue
+            content = msg.get("content")
+            if not content:
+                continue
+            # content 可能是 str 或 list[block]；统一取文本
+            if isinstance(content, list):
+                text = " ".join(
+                    b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
+                )
+            else:
+                text = str(content)
+            text = text.strip()
+            if not text:
+                continue
+            # 跳过纯 runtime context 标记的消息（无实际用户输入）
+            if text.startswith("[Runtime Context"):
+                continue
+            result.append(text)
+            if len(result) >= self._VERBATIM_RECENT_USER_MSGS:
+                break
+        # 反转回时间顺序
+        return list(reversed(result))
+
     def _persist_last_summary(self, session: Session, summary: str | None) -> None:
         if summary and summary != "(nothing)":
             session.metadata["_last_summary"] = {
                 "text": summary,
                 "last_active": session.updated_at.isoformat(),
+                # 逐字切片：保留最近几条用户消息原文，防止 summary 改写偏离。
+                # AutoCompact 注入时会拼接在 summary 之后，让主 Agent 能
+                # 直接看到用户最近的真实表述。
+                "verbatim_recent": self._extract_verbatim_recent(session),
             }
             self.sessions.save(session)
 
@@ -1054,11 +1257,25 @@ class Consolidator:
         """Summarize messages via LLM and append to history.jsonl.
 
         Returns the summary text on success, None if nothing to archive.
+
+        归档时会一并读取 notes.md（主 Agent 的 scratchpad 笔记），将其作为
+        额外上下文喂给 LLM，让 summary 能整合主 Agent 主动记录的零散发现。
+        归档成功后清空 notes.md，释放 scratchpad 空间（借鉴 MiMo Code 的
+        notes.md 设计：主 Agent 唯一写入通道，Consolidator 定期路由+清空）。
         """
         if not messages:
             return None
         try:
             formatted = MemoryStore._format_messages(messages)
+            # 读取主 Agent 的 scratchpad 笔记，附加到归档输入。
+            # 这样 LLM 生成 summary 时能整合主 Agent 主动记录的发现，
+            # 而不只是被动压缩对话历史。
+            notes_content = self.store.read_notes()
+            if notes_content:
+                formatted = (
+                    f"{formatted}\n\n"
+                    f"## Agent Scratchpad Notes (from notes.md)\n{notes_content}"
+                )
             formatted = self._truncate_to_token_budget(formatted)
             response = await self.provider.chat_with_retry(
                 model=self.model,
@@ -1079,6 +1296,10 @@ class Consolidator:
                 raise RuntimeError(f"LLM returned error: {response.content}")
             summary = response.content or "[no summary]"
             cursor = self.store.append_history(summary, max_chars=_ARCHIVE_SUMMARY_MAX_CHARS)
+            # 归档成功后清空 notes.md：内容已被 LLM 整合进 summary，
+            # 释放主 Agent 的 scratchpad 空间供下一轮使用。
+            if notes_content:
+                self.store.clear_notes()
             # Vector index the summary for future retrieval (no-op if vector store not attached)
             try:
                 await self.store.index_text(
@@ -1106,6 +1327,16 @@ class Consolidator:
             self.store.raw_archive(messages)
             return None
 
+    @property
+    def _checkpoint_threshold(self) -> int:
+        """提前 checkpoint 触发阈值。
+
+        低于此值时不触发归档；达到或超过时进入归档循环。
+        默认为输入预算的 70%（_CHECKPOINT_RATIO），比旧行为（100%）
+        更早介入，避免模型在高利用率下能力衰减时做关键压缩。
+        """
+        return int(self._input_token_budget * self.checkpoint_ratio)
+
     async def maybe_consolidate_by_tokens(
         self,
         session: Session,
@@ -1116,6 +1347,11 @@ class Consolidator:
 
         The budget reserves space for completion tokens and a safety buffer
         so the LLM request never exceeds the context window.
+
+        触发阈值由 ``checkpoint_ratio`` 控制（默认 0.7），即当估算 token
+        达到输入预算的 70% 时就提前归档，而非等到 100% 满载。这是借鉴
+        MiMo Code 的"提前提取"思想：模型在高利用率下能力衰减，不应
+        在它压缩能力最差时让它做最关键的压缩。
         """
         if self.context_window_tokens <= 0:
             return
@@ -1131,6 +1367,7 @@ class Consolidator:
 
             budget = self._input_token_budget
             target = int(budget * self.consolidation_ratio)
+            checkpoint_threshold = self._checkpoint_threshold
             last_summary = await self._consolidate_replay_overflow(
                 session,
                 replay_max_messages,
@@ -1145,13 +1382,14 @@ class Consolidator:
             if estimated <= 0:
                 self._persist_last_summary(session, last_summary)
                 return
-            if estimated < budget:
+            if estimated < checkpoint_threshold:
                 unconsolidated_count = len(session.messages) - session.last_consolidated
                 logger.debug(
-                    "Token consolidation idle {}: {}/{} via {}, msgs={}",
+                    "Token consolidation idle {}: {}/{} (checkpoint@{}%, {}) msgs={}",
                     session.key,
                     estimated,
                     self.context_window_tokens,
+                    int(self.checkpoint_ratio * 100),
                     source,
                     unconsolidated_count,
                 )
@@ -1262,9 +1500,12 @@ class Consolidator:
                 summary = await self.archive(archive_msgs)
 
             if summary and summary != "(nothing)":
+                # 在清空 messages 前提取 verbatim_recent（基于当前 session.messages），
+                # 这样保留的是归档前的最近用户消息原文。
                 session.metadata["_last_summary"] = {
                     "text": summary,
                     "last_active": last_active.isoformat(),
+                    "verbatim_recent": self._extract_verbatim_recent(session),
                 }
 
             session.messages = kept

@@ -1,23 +1,23 @@
-# Agent Instructions
+# Agent 指引
 
-## Workspace Guidance
+## 工作区说明
 
-Use this file for project-specific preferences, recurring workflow conventions, and instructions you want the agent to remember for this workspace. Keep durable facts about the user in `USER.md`, personality/style guidance in `SOUL.md`, and long-term memory in `memory/MEMORY.md`.
+本文件用于记录项目专属偏好、常用工作流约定，以及希望 agent 在本工作区记住的指令。关于用户的长期信息放在 `USER.md`，人格/风格指引放在 `SOUL.md`，长期记忆放在 `memory/MEMORY.md`。
 
-## Scheduled Reminders
+## 定时提醒
 
-Before scheduling reminders, check available skills and follow skill guidance first.
-Use the built-in `cron` tool to create/list/remove jobs (do not call `miniUnicorn cron` via `exec`).
-Get USER_ID and CHANNEL from the current session (e.g., `8281248569` and `telegram` from `telegram:8281248569`).
+在创建定时提醒前，先检查可用技能（skills）并优先遵循技能指引。
+使用内置 `cron` 工具创建/列出/删除任务（不要通过 `exec` 调用 `miniUnicorn cron`）。
+从当前会话获取 USER_ID 和 CHANNEL（例如 `telegram:8281248569` 中的 `8281248569` 和 `telegram`）。
 
-**Do NOT just write reminders to MEMORY.md** — that won't trigger actual notifications.
+**不要只把提醒写到 MEMORY.md**——那样不会触发真正的通知。
 
-## Heartbeat Tasks
+## 心跳任务
 
-`HEARTBEAT.md` is checked periodically when registered as a cron job. Use the built-in `cron` tool to schedule it (e.g. `cron add --name heartbeat --schedule "every 30m" --message "Check HEARTBEAT.md"`).
+`HEARTBEAT.md` 在注册为 cron 任务后会定期被检查。使用内置 `cron` 工具调度（例如 `cron add --name heartbeat --schedule "every 30m" --message "Check HEARTBEAT.md"`）。
 
-- Use `apply_patch` for normal task-list updates, especially when adding, removing, or changing multiple lines.
-- Use `edit_file` only for small exact replacements copied from the current `HEARTBEAT.md`.
-- Use `write_file` for first creation or intentional full-file rewrites.
+- 对常规任务列表更新，尤其是新增、删除或修改多行时，使用 `apply_patch`。
+- `edit_file` 仅用于从当前 `HEARTBEAT.md` 中复制的小范围精确替换。
+- `write_file` 用于首次创建或有意整文件重写。
 
-When the user asks for a recurring/periodic task, update `HEARTBEAT.md` and register it via `cron` instead of creating a one-time reminder.
+当用户请求周期性/定时任务时，更新 `HEARTBEAT.md` 并通过 `cron` 注册，而不是创建一次性提醒。

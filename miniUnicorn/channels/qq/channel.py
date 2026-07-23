@@ -37,6 +37,8 @@ from miniUnicorn.bus.events import OutboundMessage
 from miniUnicorn.bus.queue import MessageBus
 from miniUnicorn.channels._media_common import (
     _IMAGE_EXTS,
+)
+from miniUnicorn.channels._media_common import (
     sanitize_filename as _sanitize_filename,
 )
 from miniUnicorn.channels.base import BaseChannel

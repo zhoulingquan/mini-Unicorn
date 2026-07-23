@@ -139,7 +139,7 @@ def output_csv(tables: list[dict], input_stem: str) -> None:
         return
     for i, table in enumerate(tables, 1):
         loc = table.get("sheet") or table.get("page") or table.get("slide") or i
-        filename = f"{input_stem}_table_{i}.csv"
+        filename = f"{input_stem}_table_{loc}.csv"
         all_rows = [table["headers"]] + table["rows"]
         with open(filename, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)

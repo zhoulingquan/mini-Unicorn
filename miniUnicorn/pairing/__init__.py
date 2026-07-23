@@ -1,8 +1,8 @@
 """Pairing module for DM sender approval."""
 
 from miniUnicorn.pairing.store import (
-    clear_channel,
     approve_code,
+    clear_channel,
     deny_code,
     format_expiry,
     format_pairing_reply,

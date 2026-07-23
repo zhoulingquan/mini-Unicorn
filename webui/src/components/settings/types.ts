@@ -4,6 +4,7 @@
 import {
   Activity,
   Globe2,
+  LayoutGrid,
   Palette,
   ShieldCheck,
   SlidersHorizontal,
@@ -24,7 +25,8 @@ export type SettingsSectionKey =
   | "appearance"
   | "models"
   | "browser"
-  | "advanced";
+  | "advanced"
+  | "apps";
 
 export type LocalDensity = "comfortable" | "compact";
 export type LocalActivityMode = "auto" | "expanded";
@@ -48,6 +50,11 @@ export interface ModelConfigurationDraft {
   label: string;
   provider: string;
   model: string;
+  // Per-preset 凭证(仅 custom provider 使用):允许每个 preset 自带独立 endpoint
+  apiKey?: string;
+  apiBase?: string;
+  // 编辑模式时记录原始 preset 名,保存时走 updateModelConfiguration API
+  editingPresetName?: string;
 }
 
 export type PendingRestartSection = "runtime" | "browser";
@@ -120,6 +127,7 @@ export const SETTINGS_NAV_ITEMS: Array<{
   { key: "models", icon: SlidersHorizontal, fallback: "Models" },
   { key: "browser", icon: Globe2, fallback: "Search" },
   { key: "advanced", icon: ShieldCheck, fallback: "Security" },
+  { key: "apps", icon: LayoutGrid, fallback: "Apps" },
 ];
 
 export function readLocalPreferences(): LocalPreferences {

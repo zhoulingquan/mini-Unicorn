@@ -34,7 +34,7 @@ from miniUnicorn.channels.feishu._feishu_instances import (
 from miniUnicorn.pairing import clear_channel
 
 if TYPE_CHECKING:
-    from miniUnicorn.channels.feishu.channel import FeishuChannel
+    pass
 
 _LOGIN_CONSOLE = Console()
 
@@ -229,10 +229,9 @@ def sync_saved_feishu_identity_boundary(
     if not current_identity_key:
         return False
 
-    from miniUnicorn.config.loader import load_config, save_config
-
     # Lazy import to avoid circular dependency with channel.py.
     from miniUnicorn.channels.feishu.channel import FeishuChannel
+    from miniUnicorn.config.loader import load_config, save_config
 
     full_config = load_config()
     feishu_cfg = getattr(full_config.channels, "feishu", None) or {}
@@ -275,13 +274,12 @@ def save_registration_result(
     name: str | None = None,
 ) -> None:
     """Persist a successful Feishu/Lark registration result to config.json."""
-    from miniUnicorn.config.loader import load_config, save_config
-
     # Lazy import to avoid circular dependency with channel.py.
     from miniUnicorn.channels.feishu.channel import (
         FeishuChannel,
         fetch_feishu_app_identity,
     )
+    from miniUnicorn.config.loader import load_config, save_config
 
     full_config = load_config()
     feishu_cfg = getattr(full_config.channels, "feishu", None) or {}

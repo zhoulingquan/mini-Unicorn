@@ -1,49 +1,49 @@
-# User Profile
+# 用户画像
 
-Information about the user to help personalize interactions.
+用于个性化交互的用户信息。
 
-## Basic Information
+## 基本信息
 
-- **Name**: (your name)
-- **Timezone**: (your timezone, e.g., UTC+8)
-- **Language**: (preferred language)
+- **姓名**：（你的姓名）
+- **时区**：（你的时区，例如：UTC+8）
+- **语言**：（首选语言）
 
-## Preferences
+## 偏好
 
-### Communication Style
+### 沟通风格
 
-- [ ] Casual
-- [ ] Professional
-- [ ] Technical
+- [ ] 日常随性
+- [ ] 专业正式
+- [ ] 技术导向
 
-### Response Length
+### 回答长度
 
-- [ ] Brief and concise
-- [ ] Detailed explanations
-- [ ] Adaptive based on question
+- [ ] 简短精炼
+- [ ] 详细解释
+- [ ] 根据问题自适应
 
-### Technical Level
+### 技术水平
 
-- [ ] Beginner
-- [ ] Intermediate
-- [ ] Expert
+- [ ] 初学者
+- [ ] 中级
+- [ ] 专家
 
-## Work Context
+## 工作背景
 
-- **Primary Role**: (your role, e.g., developer, researcher)
-- **Main Projects**: (what you're working on)
-- **Tools You Use**: (IDEs, languages, frameworks)
+- **主要角色**：（你的角色，例如：开发者、研究员）
+- **主要项目**：（正在做的事情）
+- **使用工具**：（IDE、编程语言、框架）
 
-## Topics of Interest
+## 感兴趣的话题
 
-- 
-- 
-- 
+-
+-
+-
 
-## Special Instructions
+## 特殊指令
 
-(Any specific instructions for how the assistant should behave)
+（关于助手应如何行事的任何特定指令）
 
 ---
 
-*Edit this file to customize MiniUnicorn's behavior for your needs.*
+*编辑此文件，以便根据你的需求定制 MiniUnicorn 的行为。*

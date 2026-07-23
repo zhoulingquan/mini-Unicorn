@@ -70,6 +70,7 @@ def _make_mock_manager() -> MagicMock:
     mgr = MagicMock()
     mgr.get_running_count.return_value = 0
     mgr.max_concurrent_subagents = 8
+    mgr.max_subagent_recursion_depth = 1
     mgr.spawn_and_wait = AsyncMock(return_value=("ok", "result"))
     return mgr
 
@@ -569,6 +570,7 @@ async def test_full_chain_mock(tmp_path):
     mock_manager = MagicMock()
     mock_manager.get_running_count.return_value = 0
     mock_manager.max_concurrent_subagents = 8
+    mock_manager.max_subagent_recursion_depth = 1
 
     # Per-step results to assert chaining in serial mode would also work,
     # but here we use parallel to keep the test focused on aggregation.

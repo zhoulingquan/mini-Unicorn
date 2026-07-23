@@ -9,29 +9,5 @@ build/
 .env
 .assets
 node_modules/
-bridge/
 bridge/dist/
 workspace/
-
-# Test, docs, and CI artifacts not needed in the image
-tests/
-docs/
-images/
-case/
-.github/
-agents/
-.agent/
-.ruff_cache/
-.pytest_cache/
-htmlcov/
-coverage.xml
-
-# WebUI source tree — miniUnicorn/web/dist/ is prebuilt and shipped in the wheel
-webui/node_modules/
-webui/dist/
-
-# Markdown docs (README.md / THIRD_PARTY_NOTICES.md still reach the builder via
-# the explicit ! exceptions below so hatchling metadata stays available)
-*.md
-!README.md
-!THIRD_PARTY_NOTICES.md

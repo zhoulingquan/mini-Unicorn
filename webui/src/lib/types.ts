@@ -244,6 +244,9 @@ export interface SettingsPayload {
     temperature: number;
     reasoning_effort: string | null;
     tool_hint_max_length: number;
+    use_planner: boolean;
+    planner_model: string | null;
+    planner_max_replans: number;
   };
   model_presets: Array<{
     name: string;
@@ -285,6 +288,15 @@ export interface SettingsPayload {
     // 用于前端图标渲染和保存逻辑判断
     provider?: string;
     model?: string;
+    // 该 provider 下挂载的命名 preset 列表(不含 default)。
+    // 后端 _payload.py 注入,用于在已配置卡片展开区显示"多模型"子列表。
+    preset_count?: number;
+    presets?: Array<{
+      name: string;
+      label: string;
+      model: string;
+      active: boolean;
+    }>;
   }>;
   web: {
     enable: boolean;
@@ -300,7 +312,6 @@ export interface SettingsPayload {
     max_results: number;
     timeout: number;
     proxy: string | null;
-    user_agent: string | null;
     backends: Record<
       string,
       {
@@ -565,6 +576,8 @@ export interface SettingsUpdate {
   modelPreset?: string | null;
   contextWindowTokens?: number;
   toolHintMaxLength?: number;
+  usePlanner?: boolean;
+  plannerModel?: string | null;
 }
 
 export interface ModelConfigurationCreate {
@@ -611,7 +624,6 @@ export interface WebSearchSettingsUpdate {
   max_results: number;
   timeout: number;
   proxy: string;
-  user_agent: string;
   backends: Record<string, WebSearchBackendDraft>;
 }
 

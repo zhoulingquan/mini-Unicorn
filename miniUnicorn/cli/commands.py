@@ -26,12 +26,10 @@ patch ``commands._PROMPT_SESSION`` and the helpers reach it through
 """
 
 import asyncio
-import functools
 import os
-import select
 import signal
 import sys
-from contextlib import nullcontext, suppress
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -62,54 +60,31 @@ _log_handler_id = logger.add(
     filter=lambda record: record["extra"].setdefault("channel", "-") or True,
 )
 
-from prompt_toolkit import PromptSession, print_formatted_text
-from prompt_toolkit.application import run_in_terminal
-from prompt_toolkit.formatted_text import ANSI, HTML
-from prompt_toolkit.history import FileHistory
-from prompt_toolkit.patch_stdout import patch_stdout
-from rich.console import Console
-from rich.markdown import Markdown
+from prompt_toolkit import PromptSession
 from rich.table import Table
-from rich.text import Text
 
 from miniUnicorn import __logo__, __version__
 from miniUnicorn.agent.loop import AgentLoop
-
-from miniUnicorn.cli._heartbeat import (
-    _HEARTBEAT_PREAMBLE,
-    _build_heartbeat_provider,
-    _heartbeat_template,
-)
+from miniUnicorn.cli._gateway_runner import _run_gateway
 from miniUnicorn.cli._terminal_render import (
-    EXIT_COMMANDS,
-    _REASONING_FLUSH_CHARS,
-    _REASONING_SENTENCE_ENDINGS,
-    _ReasoningBuffer,
     _flush_cli_reasoning,
     _flush_pending_tty_input,
     _init_prompt_session,
     _is_exit_command,
-    _make_console,
     _maybe_print_interactive_progress,
     _print_agent_response,
     _print_cli_progress_line,
     _print_cli_reasoning,
-    _print_interactive_line,
-    _print_interactive_progress_line,
     _print_interactive_response,
     _read_interactive_input_async,
-    _render_interactive_ansi,
-    _response_renderable,
+    _ReasoningBuffer,
     _restore_terminal,
     _sanitize_surrogates,
-    SafeFileHistory,
     console,
 )
-from miniUnicorn.cli._gateway_runner import _run_gateway
 from miniUnicorn.cli.stream import StreamRenderer, ThinkingSpinner
 from miniUnicorn.config.paths import get_workspace_path, is_default_workspace
 from miniUnicorn.config.schema import Config
-from miniUnicorn.utils.evaluator import evaluate_response
 from miniUnicorn.utils.helpers import sync_workspace_templates
 from miniUnicorn.utils.restart import (
     consume_restart_notice_from_env,
@@ -405,19 +380,35 @@ def serve(
         raise typer.Exit(1) from exc
 
     model_name, preset_tag = _model_display(runtime_config)
+    api_key = (api_cfg.api_key or "").strip()
     console.print(f"{__logo__} Starting OpenAI-compatible API server")
     console.print(f"  [cyan]Endpoint[/cyan] : http://{host}:{port}/v1/chat/completions")
     console.print(f"  [cyan]Model[/cyan]    : {model_name}{preset_tag}")
     console.print("  [cyan]Session[/cyan]  : api:default")
     console.print(f"  [cyan]Timeout[/cyan]  : {timeout}s")
+    if api_key:
+        console.print("  [cyan]Auth[/cyan]     : Bearer token required for /v1/*")
+    else:
+        console.print("  [yellow]Auth[/yellow]     : disabled (set api.api_key to require Bearer token)")
     if host in {"0.0.0.0", "::"}:
-        console.print(
-            "[yellow]Warning:[/yellow] API is bound to all interfaces. "
-            "Only do this behind a trusted network boundary, firewall, or reverse proxy."
-        )
+        if not api_key:
+            console.print(
+                "[red]Danger:[/red] API is bound to all interfaces WITHOUT authentication. "
+                "Set api.api_key in config before exposing to a network."
+            )
+        else:
+            console.print(
+                "[yellow]Warning:[/yellow] API is bound to all interfaces. "
+                "Only do this behind a trusted network boundary, firewall, or reverse proxy."
+            )
     console.print()
 
-    api_app = create_app(agent_loop, model_name=model_name, request_timeout=timeout)
+    api_app = create_app(
+        agent_loop,
+        model_name=model_name,
+        request_timeout=timeout,
+        api_key=api_key,
+    )
 
     async def on_startup(_app):
         await agent_loop._connect_mcp()

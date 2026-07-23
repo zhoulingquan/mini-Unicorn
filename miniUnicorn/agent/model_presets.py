@@ -7,7 +7,11 @@ from typing import Any
 
 from miniUnicorn.config.schema import ModelPresetConfig
 from miniUnicorn.providers.base import LLMProvider
-from miniUnicorn.providers.factory import ProviderSignature, ProviderSnapshot, build_provider_snapshot
+from miniUnicorn.providers.factory import (
+    ProviderSignature,
+    ProviderSnapshot,
+    build_provider_snapshot,
+)
 
 PresetSnapshotLoader = Callable[[str], ProviderSnapshot]
 

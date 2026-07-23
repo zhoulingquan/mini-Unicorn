@@ -33,9 +33,17 @@ if TYPE_CHECKING:
 class DelegateTool(Tool, ContextAware):
     """Delegate a task to a specialized subagent by name."""
 
-    _scopes = {"core"}  # Only main agent can delegate (no recursion)
+    # 允许主代理（core）和子代理（subagent）都加载此工具。
+    # 递归深度由 execute() 中的 _current_depth ContextVar 在运行时动态检查，
+    # 而非通过 scope 硬性限制。这样 max_subagent_recursion_depth 配置项可以
+    # 在不重启的情况下灵活调整递归层数。
+    _scopes = {"core", "subagent"}
 
-    def __init__(self, manager: "SubagentManager" = None, registry: "SubagentRegistry" = None):
+    def __init__(
+        self,
+        manager: "SubagentManager | None" = None,
+        registry: "SubagentRegistry | None" = None,
+    ):
         self._manager = manager
         self._registry = registry
         self._origin_channel: ContextVar[str] = ContextVar("dl_origin_channel", default="cli")
@@ -44,9 +52,12 @@ class DelegateTool(Tool, ContextAware):
 
     @classmethod
     def create(cls, ctx: Any) -> Tool:
-        # registry is attached to ToolContext by the loop
+        # registry/manager are attached to ToolContext by the loop; use getattr
+        # so contexts that don't carry them (e.g. minimal test contexts) don't
+        # crash with AttributeError at tool construction time.
         registry = getattr(ctx, "subagent_registry", None)
-        return cls(manager=ctx.subagent_manager, registry=registry)
+        manager = getattr(ctx, "subagent_manager", None)
+        return cls(manager=manager, registry=registry)
 
     def set_context(self, ctx: RequestContext) -> None:
         self._origin_channel.set(ctx.channel)
@@ -78,6 +89,23 @@ class DelegateTool(Tool, ContextAware):
             return "Error: subagent manager not available"
         if self._registry is None:
             return "Error: no subagent registry configured (no agents/ directory)"
+
+        # 递归深度检查：current_depth > max_subagent_recursion_depth 时禁止。
+        # 语义：max_subagent_recursion_depth = 子代理可以再 delegate 的层数
+        #   主代理 depth=0：0 > max 永远为 False（除非 max<0），总是允许
+        #   子代理 depth=1：max=0 禁止（1>0），max=1 允许（1>1=False）
+        #   孙代理 depth=2：max=1 禁止（2>1）
+        # 即 max=1 表示"允许一层递归"——子代理可以再 delegate 一次。
+        from miniUnicorn.agent.subagent import get_current_subagent_depth
+
+        current_depth = get_current_subagent_depth()
+        max_depth = self._manager.max_subagent_recursion_depth
+        if current_depth > max_depth:
+            return (
+                f"Cannot delegate: recursion depth limit reached "
+                f"(current depth {current_depth}, max allowed {max_depth}). "
+                f"Complete the current task and return the result to the caller."
+            )
 
         defn = self._registry.get(subagent)
         if defn is None:

@@ -6,7 +6,6 @@ import hashlib
 import importlib.util
 import os
 from collections import OrderedDict
-from pathlib import Path
 from typing import Any
 
 from pydantic import Field
@@ -15,6 +14,8 @@ from miniUnicorn.bus.events import OutboundMessage
 from miniUnicorn.bus.queue import MessageBus
 from miniUnicorn.channels._media_common import (
     classify_media_type,
+)
+from miniUnicorn.channels._media_common import (
     sanitize_filename as _sanitize_filename,
 )
 from miniUnicorn.channels.base import BaseChannel

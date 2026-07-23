@@ -208,7 +208,7 @@ export function CronView({ onBack, token }: CronViewProps) {
   return (
     <ViewShell
       onBack={onBack}
-      icon={<CalendarClock className="h-4.5 w-4.5 text-foreground/80" />}
+      icon={<CalendarClock className="h-4 w-4 text-foreground/80" />}
       title={t("cron.title")}
       actions={
         <>

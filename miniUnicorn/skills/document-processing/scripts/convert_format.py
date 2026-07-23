@@ -109,7 +109,7 @@ def docx_to_pdf(path: Path, output: Path) -> None:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import cm
-        from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
     except ImportError:
         print("错误:需要 reportlab 库。安装:pip install reportlab", file=sys.stderr)
         sys.exit(1)

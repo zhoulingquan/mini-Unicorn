@@ -6,7 +6,6 @@ Bing 提供 `format=rss` 参数返回结构化 XML,比解析 HTML 稳定得多,
 
 from __future__ import annotations
 
-import re
 from xml.etree import ElementTree as ET
 
 from loguru import logger

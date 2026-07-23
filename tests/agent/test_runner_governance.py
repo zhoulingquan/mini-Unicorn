@@ -161,7 +161,7 @@ def test_snip_history_reserves_budget_for_tool_definitions(monkeypatch):
 
 async def test_backfill_missing_tool_results_inserts_error():
     """Orphaned tool_use (no matching tool_result) should get a synthetic error."""
-    from miniUnicorn.agent.runner import AgentRunner, _BACKFILL_CONTENT
+    from miniUnicorn.agent.runner_strategies import backfill_missing_tool_results, _BACKFILL_CONTENT
 
     messages = [
         {"role": "user", "content": "hi"},
@@ -175,7 +175,7 @@ async def test_backfill_missing_tool_results_inserts_error():
         },
         {"role": "tool", "tool_call_id": "call_a", "name": "exec", "content": "ok"},
     ]
-    result = AgentRunner._backfill_missing_tool_results(messages)
+    result = backfill_missing_tool_results(messages)
     tool_msgs = [m for m in result if m.get("role") == "tool"]
     assert len(tool_msgs) == 2
     backfilled = [m for m in tool_msgs if m.get("tool_call_id") == "call_b"]
@@ -185,7 +185,7 @@ async def test_backfill_missing_tool_results_inserts_error():
 
 
 def test_drop_orphan_tool_results_removes_unmatched_tool_messages():
-    from miniUnicorn.agent.runner import AgentRunner
+    from miniUnicorn.agent.runner_strategies import drop_orphan_tool_results
 
     messages = [
         {"role": "system", "content": "system"},
@@ -202,7 +202,7 @@ def test_drop_orphan_tool_results_removes_unmatched_tool_messages():
         {"role": "assistant", "content": "after tool"},
     ]
 
-    cleaned = AgentRunner._drop_orphan_tool_results(messages)
+    cleaned = drop_orphan_tool_results(messages)
 
     assert cleaned == [
         {"role": "system", "content": "system"},
@@ -222,7 +222,7 @@ def test_drop_orphan_tool_results_removes_unmatched_tool_messages():
 @pytest.mark.asyncio
 async def test_backfill_noop_when_complete():
     """Complete message chains should not be modified."""
-    from miniUnicorn.agent.runner import AgentRunner
+    from miniUnicorn.agent.runner_strategies import backfill_missing_tool_results
 
     messages = [
         {"role": "user", "content": "hi"},
@@ -236,7 +236,7 @@ async def test_backfill_noop_when_complete():
         {"role": "tool", "tool_call_id": "call_x", "name": "exec", "content": "done"},
         {"role": "assistant", "content": "all good"},
     ]
-    result = AgentRunner._backfill_missing_tool_results(messages)
+    result = backfill_missing_tool_results(messages)
     assert result is messages  # same object — no copy
 
 
@@ -283,7 +283,7 @@ async def test_runner_drops_orphan_tool_results_before_model_request():
 async def test_backfill_repairs_model_context_without_shifting_save_turn_boundary(tmp_path):
     """Historical backfill should not duplicate old tail messages on persist."""
     from miniUnicorn.agent.loop import AgentLoop
-    from miniUnicorn.agent.runner import _BACKFILL_CONTENT
+    from miniUnicorn.agent.runner_strategies import _BACKFILL_CONTENT
     from miniUnicorn.bus.events import InboundMessage
     from miniUnicorn.bus.queue import MessageBus
 
@@ -367,7 +367,8 @@ async def test_backfill_repairs_model_context_without_shifting_save_turn_boundar
 @pytest.mark.asyncio
 async def test_runner_backfill_only_mutates_model_context_not_returned_messages():
     """Runner should repair orphaned tool calls for the model without rewriting result.messages."""
-    from miniUnicorn.agent.runner import AgentRunSpec, AgentRunner, _BACKFILL_CONTENT
+    from miniUnicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniUnicorn.agent.runner_strategies import _BACKFILL_CONTENT
 
     provider = MagicMock()
     captured_messages: list[dict] = []
@@ -450,7 +451,7 @@ async def test_runner_backfill_only_mutates_model_context_not_returned_messages(
 @pytest.mark.asyncio
 async def test_microcompact_replaces_old_tool_results():
     """Tool results beyond _MICROCOMPACT_KEEP_RECENT should be summarized."""
-    from miniUnicorn.agent.runner import AgentRunner, _MICROCOMPACT_KEEP_RECENT
+    from miniUnicorn.agent.runner_strategies import microcompact, _MICROCOMPACT_KEEP_RECENT
 
     total = _MICROCOMPACT_KEEP_RECENT + 5
     long_content = "x" * 600
@@ -466,9 +467,7 @@ async def test_microcompact_replaces_old_tool_results():
             "content": long_content,
         })
 
-    runner = AgentRunner(MagicMock())
-    runner._microcompact_cache = None  # force full scan (no incremental cache)
-    result = runner._microcompact(messages)
+    result = microcompact(messages)
     tool_msgs = [m for m in result if m.get("role") == "tool"]
     stale_count = total - _MICROCOMPACT_KEEP_RECENT
     compacted = [m for m in tool_msgs if "omitted from context" in str(m.get("content", ""))]
@@ -480,7 +479,7 @@ async def test_microcompact_replaces_old_tool_results():
 @pytest.mark.asyncio
 async def test_microcompact_preserves_short_results():
     """Short tool results (< _MICROCOMPACT_MIN_CHARS) should not be replaced."""
-    from miniUnicorn.agent.runner import AgentRunner, _MICROCOMPACT_KEEP_RECENT
+    from miniUnicorn.agent.runner_strategies import microcompact, _MICROCOMPACT_KEEP_RECENT
 
     total = _MICROCOMPACT_KEEP_RECENT + 5
     messages: list[dict] = []
@@ -495,16 +494,14 @@ async def test_microcompact_preserves_short_results():
             "content": "short",
         })
 
-    runner = AgentRunner(MagicMock())
-    runner._microcompact_cache = None  # force full scan (no incremental cache)
-    result = runner._microcompact(messages)
+    result = microcompact(messages)
     assert result is messages  # no copy needed — all stale results are short
 
 
 @pytest.mark.asyncio
 async def test_microcompact_skips_non_compactable_tools():
     """Non-compactable tools (e.g. 'message') should never be replaced."""
-    from miniUnicorn.agent.runner import AgentRunner, _MICROCOMPACT_KEEP_RECENT
+    from miniUnicorn.agent.runner_strategies import microcompact, _MICROCOMPACT_KEEP_RECENT
 
     total = _MICROCOMPACT_KEEP_RECENT + 5
     long_content = "y" * 1000
@@ -520,16 +517,14 @@ async def test_microcompact_skips_non_compactable_tools():
             "content": long_content,
         })
 
-    runner = AgentRunner(MagicMock())
-    runner._microcompact_cache = None  # force full scan (no incremental cache)
-    result = runner._microcompact(messages)
+    result = microcompact(messages)
     assert result is messages  # no compactable tools found
 
 
 def test_governance_repairs_orphans_after_snip():
     """After _snip_history clips an assistant+tool_calls, the second
     _drop_orphan_tool_results pass must clean up the resulting orphans."""
-    from miniUnicorn.agent.runner import AgentRunner
+    from miniUnicorn.agent.runner_strategies import drop_orphan_tool_results
 
     messages = [
         {"role": "system", "content": "system"},
@@ -553,7 +548,7 @@ def test_governance_repairs_orphans_after_snip():
         {"role": "user", "content": "new msg"},
     ]
 
-    cleaned = AgentRunner._drop_orphan_tool_results(snipped)
+    cleaned = drop_orphan_tool_results(snipped)
     # The orphan tool result should be removed.
     assert not any(
         m.get("role") == "tool" and m.get("tool_call_id") == "tc_old"
@@ -564,7 +559,7 @@ def test_governance_repairs_orphans_after_snip():
 def test_governance_fallback_still_repairs_orphans():
     """When full governance fails, the fallback must still run
     _drop_orphan_tool_results and _backfill_missing_tool_results."""
-    from miniUnicorn.agent.runner import AgentRunner
+    from miniUnicorn.agent.runner_strategies import backfill_missing_tool_results, drop_orphan_tool_results
 
     # Messages with an orphan tool result (no matching assistant tool_call).
     messages = [
@@ -574,8 +569,8 @@ def test_governance_fallback_still_repairs_orphans():
         {"role": "assistant", "content": "hi"},
     ]
 
-    repaired = AgentRunner._drop_orphan_tool_results(messages)
-    repaired = AgentRunner._backfill_missing_tool_results(repaired)
+    repaired = drop_orphan_tool_results(messages)
+    repaired = backfill_missing_tool_results(repaired)
     # Orphan tool result should be gone.
     assert not any(m.get("tool_call_id") == "orphan_tc" for m in repaired)
 def test_snip_history_preserves_user_message_after_truncation(monkeypatch):

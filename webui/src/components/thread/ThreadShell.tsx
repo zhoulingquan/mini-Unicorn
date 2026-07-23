@@ -8,7 +8,7 @@ import { ThreadViewport } from "@/components/thread/ThreadViewport";
 import { useMiniUnicornStream, type SendImage, type SendOptions } from "@/hooks/useMiniUnicornStream";
 import type { ThemeMode } from "@/hooks/useTheme";
 import { useSessionHistory } from "@/hooks/useSessions";
-import { fetchAgents, fetchSettings, listSlashCommands, rewindSession } from "@/lib/api";
+import { fetchAgents, fetchSettings, listSlashCommands, rewindSession, updateSettings } from "@/lib/api";
 import { inferProviderFromModelName, providerDisplayLabel } from "@/lib/provider-brand";
 import type {
   AgentInfo,
@@ -109,6 +109,7 @@ interface ModelBadgeInfo {
   label: string | null;
   provider: string | null;
   providerLabel: string | null;
+  apiBase: string | null;
 }
 
 function activeModelPreset(settings: SettingsPayload | null): SettingsPayload["model_presets"][number] | null {
@@ -127,16 +128,24 @@ function resolvedModelProvider(settings: SettingsPayload | null, modelName: stri
   if (rawProvider === "auto") {
     return settings?.agent.resolved_provider || inferProviderFromModelName(modelName) || null;
   }
+  // custom 命名 preset:返回虚拟 row name(custom__<preset_name>),
+  // 让 header 下拉和设置页匹配到对应的独立虚拟卡片
+  if (rawProvider === "custom" && preset && !preset.is_default) {
+    return `custom__${preset.name}`;
+  }
   return rawProvider || inferProviderFromModelName(modelName);
 }
 
 function toModelBadgeInfo(modelName: string | null, settings: SettingsPayload | null): ModelBadgeInfo {
   const label = toModelBadgeLabel(modelName || settings?.agent.model || null);
   const provider = resolvedModelProvider(settings, modelName || settings?.agent.model || null);
+  // 从 providers 找到匹配 row 的 api_base(用于 custom 动态 brand 图标生成)
+  const row = provider ? settings?.providers?.find((p) => p.name === provider) : null;
   return {
     label,
     provider,
     providerLabel: provider ? providerDisplayLabel(settings?.providers ?? [], provider) : null,
+    apiBase: row?.api_base ?? null,
   };
 }
 
@@ -321,6 +330,95 @@ export function ThreadShell({
       void refreshModelSettings();
     });
   }, [client, refreshModelSettings]);
+
+  // 当前激活的 provider(用于 header 切换器与 composer 模型列表拉取)
+  const currentProvider = useMemo(
+    () => resolvedModelProvider(settings, modelName),
+    [settings, modelName],
+  );
+
+  // 已配置的模型列表:
+  // - 虚拟 row(如 custom__xxx):单 preset,只显示该 preset 的 model(徽章静态)
+  // - 常规 provider:显示该 provider 下所有命名 preset 的 model,选中切换到对应 preset
+  const availableModels = useMemo(() => {
+    if (!settings || !currentProvider) return [];
+    // 虚拟 preset row:只显示该 preset 的 model
+    if (currentProvider.includes("__")) {
+      const row = settings.providers.find((p) => p.name === currentProvider);
+      const presetName = row?.preset_name;
+      if (!presetName) return [];
+      const preset = settings.model_presets.find((p) => p.name === presetName);
+      return preset ? [preset.model] : [];
+    }
+    // 常规 provider:显示该 provider 下所有命名 preset(非 default)的 model
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const preset of settings.model_presets) {
+      if (preset.is_default) continue;
+      if (preset.provider !== currentProvider) continue;
+      const model = preset.model?.trim();
+      if (!model || seen.has(model)) continue;
+      seen.add(model);
+      result.push(model);
+    }
+    return result;
+  }, [settings, currentProvider]);
+
+  // 用户在 header 切换 provider。
+  // 后端 model_preset/provider/model 是三个独立字段,但运行时 resolve_preset()
+  // 在 model_preset 指向命名 preset 时完全使用该 preset 的 provider/model,
+  // 忽略 defaults.provider。因此切换策略:
+  //  1. 目标 provider 下有命名 preset → 切到第一个 preset(preset 自带 provider/model/凭证)
+  //  2. 目标 provider 下无命名 preset → 切回 default preset 并设置 provider
+  //     (只有 model_preset=default/None 时 defaults.provider 才会生效)
+  const handleSelectProvider = useCallback(
+    async (provider: string) => {
+      if (!token || provider === currentProvider) return;
+      try {
+        const targetRow = settings?.providers?.find((p) => p.name === provider);
+        // 虚拟 preset row(如 custom__xxx):直接切到对应 preset(preset 自带 provider/model/凭证)
+        if (targetRow?.preset_name) {
+          const next = await updateSettings(token, { modelPreset: targetRow.preset_name });
+          setSettings(next);
+          return;
+        }
+        // 常规 provider:
+        //  1. 目标 provider 下有命名 preset → 切到第一个 preset
+        //  2. 目标 provider 下无命名 preset → 切回 default preset 并设置 provider
+        const providerPresets = targetRow?.presets ?? [];
+        let next: SettingsPayload;
+        if (providerPresets.length > 0) {
+          next = await updateSettings(token, { modelPreset: providerPresets[0].name });
+        } else {
+          next = await updateSettings(token, { modelPreset: "default", provider });
+        }
+        setSettings(next);
+      } catch (err) {
+        console.error("[ThreadShell] switch provider failed", err);
+      }
+    },
+    [token, currentProvider, settings],
+  );
+
+  // 用户在 composer 模型徽章弹出菜单选择其他模型。
+  // 列表显示的是当前 provider 下已配置的命名 preset,选中即切换到对应 preset
+  // (preset 自带 provider/model/凭证),通过 updateSettings({ modelPreset }) 切换。
+  const handleSelectModel = useCallback(
+    async (model: string) => {
+      if (!token || !model || model === modelBadge.label) return;
+      const target = settings?.model_presets.find(
+        (p) => !p.is_default && p.provider === currentProvider && p.model === model,
+      );
+      if (!target) return;
+      try {
+        const next = await updateSettings(token, { modelPreset: target.name });
+        setSettings(next);
+      } catch (err) {
+        console.error("[ThreadShell] switch model preset failed", err);
+      }
+    },
+    [token, modelBadge.label, settings, currentProvider],
+  );
 
   // Canonical history hydration — merges fetched history into the live thread.
   // Reads: messageCacheRef, appliedHistoryVersionRef, pendingCanonicalHydrateRef.
@@ -571,6 +669,9 @@ export function ThreadShell({
           modelLabel={modelBadge.label}
           modelProvider={modelBadge.provider}
           modelProviderLabel={modelBadge.providerLabel}
+          modelApiBase={modelBadge.apiBase}
+          models={availableModels}
+          onSelectModel={handleSelectModel}
           variant={showHeroComposer ? "hero" : "thread"}
           slashCommands={slashCommands}
           onStop={stop}
@@ -606,6 +707,9 @@ export function ThreadShell({
           modelLabel={modelBadge.label}
           modelProvider={modelBadge.provider}
           modelProviderLabel={modelBadge.providerLabel}
+          modelApiBase={modelBadge.apiBase}
+          models={availableModels}
+          onSelectModel={handleSelectModel}
           variant="hero"
           slashCommands={slashCommands}
           runStartedAt={runStartedAt}
@@ -652,8 +756,9 @@ export function ThreadShell({
           onToggleLanguage={onToggleLanguage}
           hideSidebarToggleForHostChrome={hideSidebarToggleForHostChrome}
           minimal={!session && !loading}
-          modelLabel={modelBadge.label}
-          modelProvider={modelBadge.provider}
+          providers={settings?.providers}
+          currentProvider={currentProvider}
+          onSelectProvider={handleSelectProvider}
         />
       ) : null}
       <ThreadViewport

@@ -6,11 +6,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
+import threading
 import typing
 from typing import Any, get_args, get_origin
-
-from pydantic import ValidationError
 
 from miniUnicorn.config.loader import load_config, save_config
 from miniUnicorn.config.schema import Base, ChannelsConfig
@@ -263,7 +263,7 @@ def list_channels() -> dict[str, Any]:
     channels_cfg: ChannelsConfig = config.channels
 
     # 支持扫码登录的频道集合 = 已注册 handler 的频道（feishu/weixin/wecom/dingtalk/qq）
-    _QR_LOGIN_SUPPORTED = frozenset(QRCODE_AUTH_HANDLERS.keys())
+    _QR_LOGIN_SUPPORTED = frozenset(QRCODE_AUTH_HANDLERS.keys())  # noqa: N806
 
     items: list[dict[str, Any]] = []
     for name in sorted(available.keys()):
@@ -426,33 +426,81 @@ def _run_async(coro):
 
     gateway 主线程通常已经有一个运行中的 asyncio loop（websocket channel
     的 dispatcher），直接调 ``loop.run_until_complete`` 会抛
-    ``RuntimeError: This event loop is already running``。因此在独立线程
-    中创建新 loop 运行协程，彻底避开主 loop 冲突。
+    ``RuntimeError: This event loop is already running``。因此提交到独立的
+    长期工作线程的持久 loop 上执行，彻底避开主 loop 冲突。
+
+    历史实现每次调用都 ``threading.Thread + new_event_loop + close`` — 现在
+    改为模块级单例 worker 线程持有持久 loop，避免每调一次都付 loop 创建 /
+    销毁的 ~5ms 开销，对于 QR 登录的轮询场景（每秒一次）尤其明显。
     """
-    import asyncio
-    import threading
-    from concurrent.futures import Future
+    return _ASYNC_WORKER.submit(coro)
 
-    result: "Future[Any]" = Future()
 
-    def _runner() -> None:
+class _AsyncWorker:
+    """长期工作线程 + 持久 asyncio loop 单例。
+
+    通过 ``asyncio.run_coroutine_threadsafe`` 提交协程到独立 loop，
+    主线程同步等待结果。loop 在进程生命周期内复用，daemon=True 保证
+    进程退出时自动清理。
+    """
+
+    def __init__(self) -> None:
+        self._loop: Any = None  # asyncio.AbstractEventLoop
+        self._thread: Any = None  # threading.Thread
+        self._lock = threading.Lock()
+        self._ready = threading.Event()
+
+    def _ensure_started(self) -> Any:
+        """懒启动 worker 线程（幂等、线程安全）。"""
+        if self._loop is not None and self._loop.is_running():
+            return self._loop
+        with self._lock:
+            if self._loop is not None and self._loop.is_running():
+                return self._loop
+            self._ready.clear()
+            self._thread = threading.Thread(
+                target=self._run_loop,
+                name="channels-async-worker",
+                daemon=True,
+            )
+            self._thread.start()
+            # 等待 loop 真正运行起来再返回，避免 submit 时 loop 还没就绪
+            if not self._ready.wait(timeout=5.0):
+                raise RuntimeError("channels async worker thread failed to start")
+            if self._loop is None:
+                raise RuntimeError("channels async worker loop not initialized")
+            return self._loop
+
+    def _run_loop(self) -> None:
+        """Worker 线程入口：创建并运行持久 loop。"""
         loop = asyncio.new_event_loop()
         try:
             asyncio.set_event_loop(loop)
-            value = loop.run_until_complete(coro)
-            result.set_result(value)
-        except BaseException as exc:  # noqa: BLE001 - 透传给调用方
-            result.set_exception(exc)
+            self._loop = loop
+            self._ready.set()
+            loop.run_forever()
         finally:
             try:
-                loop.close()
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    loop.run_until_complete(
+                        asyncio.gather(*pending, return_exceptions=True)
+                    )
             finally:
-                asyncio.set_event_loop(None)
+                loop.close()
+                self._loop = None
 
-    worker = threading.Thread(target=_runner, daemon=True)
-    worker.start()
-    worker.join()
-    return result.result()
+    def submit(self, coro: Any) -> Any:
+        """提交协程到持久 loop 并阻塞等待结果。"""
+        loop = self._ensure_started()
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result()  # 阻塞至 coro 完成，异常透传
+
+
+# 模块级单例：进程生命周期内复用同一 worker 线程与 loop。
+_ASYNC_WORKER = _AsyncWorker()
 
 
 def _persist_qr_credentials(name: str, credentials: dict[str, Any]) -> dict[str, Any]:

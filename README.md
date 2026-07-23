@@ -1,345 +1,288 @@
-![cover-v5-optimized](./images/GitHub_README.png)
+# 🧙 MiniUnicorn
 
 <div align="center">
-  <p>
-    <a href="https://miniUnicorn.wiki/docs/latest/getting-started/miniUnicorn-overview">English</a> |
-    <a href="https://miniUnicorn.wiki/cn/docs/latest/getting-started/miniUnicorn-overview">简体中文</a> |
-    <a href="https://miniUnicorn.wiki/zh-Hant/docs/latest/getting-started/miniUnicorn-overview">繁體中文</a> |
-    <a href="https://miniUnicorn.wiki/es/docs/latest/getting-started/miniUnicorn-overview">Español</a> |
-    <a href="https://miniUnicorn.wiki/fr/docs/latest/getting-started/miniUnicorn-overview">Français</a> |
-    <a href="https://miniUnicorn.wiki/id/docs/latest/getting-started/miniUnicorn-overview">Bahasa Indonesia</a> |
-    <a href="https://miniUnicorn.wiki/ja/docs/latest/getting-started/miniUnicorn-overview">日本語</a> |
-    <a href="https://miniUnicorn.wiki/ko/docs/latest/getting-started/miniUnicorn-overview">한국어</a> |
-    <a href="https://miniUnicorn.wiki/ru/docs/latest/getting-started/miniUnicorn-overview">Русский</a> |
-    <a href="https://miniUnicorn.wiki/vi/docs/latest/getting-started/miniUnicorn-overview">Tiếng Việt</a>
-  </p>
-  <p>
-    <a href="https://pypi.org/project/miniUnicorn-ai/"><img src="https://img.shields.io/pypi/v/miniUnicorn-ai" alt="PyPI"></a>
-    <a href="https://pepy.tech/project/miniUnicorn-ai"><img src="https://static.pepy.tech/badge/miniUnicorn-ai" alt="Downloads"></a>
-    <img src="https://img.shields.io/badge/python-≥3.11-blue" alt="Python">
-    <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-    <a href="https://github.com/HKUDS/miniUnicorn/graphs/commit-activity" target="_blank">
-        <img alt="Commits last month" src="https://img.shields.io/github/commit-activity/m/HKUDS/miniUnicorn?labelColor=%20%2332b583&color=%20%2312b76a"></a>
-    <a href="https://github.com/HKUDS/miniUnicorn/issues?q=is%3Aissue%20is%3Aclosed" target="_blank">
-        <img alt="Issues closed" src="https://img.shields.io/github/issues-search?query=repo%3AHKUDS%2FminiUnicorn%20is%3Aissue%20is%3Aclosed&label=issues%20closed&labelColor=%20%237d89b0&color=%20%235d6b98"></a>
-    <a href="https://twitter.com/intent/follow?screen_name=miniUnicorn_project" target="_blank">
-        <img src="https://img.shields.io/twitter/follow/miniUnicorn_project?logo=X&color=%20%23f5f5f5" alt="follow on X(Twitter)"></a>
-    <a href="https://miniUnicorn.wiki/docs/latest/getting-started/miniUnicorn-overview"><img src="https://img.shields.io/badge/Docs-miniUnicorn.wiki-blue?style=flat&logo=readthedocs&logoColor=white" alt="Docs"></a>
-    <a href="./COMMUNICATION.md"><img src="https://img.shields.io/badge/Feishu-Group-E9DBFC?style=flat&logo=feishu&logoColor=white" alt="Feishu"></a>
-    <a href="./COMMUNICATION.md"><img src="https://img.shields.io/badge/WeChat-Group-C5EAB4?style=flat&logo=wechat&logoColor=white" alt="WeChat"></a>
-    <a href="https://discord.gg/MnCvHqpUGB"><img src="https://img.shields.io/badge/Discord-Community-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
-  </p>
+
+**一个开源、超轻量级的个人 AI 代理框架**
+
+围绕一个可读的核心循环构建——消息进来，LLM 决策，工具执行，记忆按需注入。
+
+[![Python](https://img.shields.io/badge/python-≥3.11-blue)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/miniUnicorn-ai)](https://pypi.org/project/miniUnicorn-ai/)
+[![Code Lines](https://img.shields.io/badge/core%20runtime-~13K%20lines-success)](#-为什么选择-miniunicorn)
+
 </div>
 
-🧙 **MiniUnicorn** is an open-source and ultra-lightweight AI agent in the spirit of [OpenClaw](https://github.com/openclaw/openclaw), [Claude Code](https://www.anthropic.com/claude-code), and [Codex](https://www.openai.com/codex/). It keeps the core agent loop small and readable while still supporting chat channels, memory, MCP and practical deployment paths, so you can go from local setup to a long-running personal agent with minimal overhead.
+---
 
-## 📢 News
+## 这是什么
 
-- **2026-05-15** 🚀 Released **v0.2.0** — **`/goal`** holds sustained objectives across turns, WebUI now ships inside the wheel, image generation end to end, 5 new providers with `fallback_models`, and a real agent-loop refactor. Please see [release notes](https://github.com/HKUDS/miniUnicorn/releases/tag/v0.2.0) for details.
-- **2026-05-14** 🎯 **`/goal`** for long-term objectives, visible multi-step progress, long-horizon missions in chat.
-- **2026-05-13** 🧠 Streaming reasoning before answers, automatic backup models, smoother plug-in reconnects.
-- **2026-05-12** 🎛️ Saved model presets with WebUI badge, simpler plug-in tools, quieter Feishu topic threads.
-- **2026-05-11** 🖥️ NVIDIA NIM support, terminal bot name and icon, streamed reasoning and MiMo toggle clarity.
-- **2026-05-09** 🖼️ Sharper image replay, BYO web-search keys in Settings, Feishu threads routed cleanly.
-- **2026-05-08** ✨ Inline chat image, redesigned Settings and keys, Dream memory aligned with visible history.
-- **2026-05-07** 📜 Locale-aware slash palette in WebUI, LAN login, faithful HTTP streaming responses.
-- **2026-05-06** 🧩 Tunable tool hint, steadier voice and plug-in startups, schedules and reminders that stick.
-- **2026-05-05** 🛡️ Quiet deny for unknown Telegram chats, Dream cleanup, fuller automation summaries.
+MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机器人框架，也不是编排引擎——它只是一个**小的代理循环**：接收消息、调用 LLM、执行工具、返回结果。所有重的东西（频道适配、工具实现、记忆策略）都挂在循环外围，核心保持可读、可审计、可替换。
 
-<details>
-<summary>Earlier news</summary>
+基于 [Nanobot](https://github.com/marm-io/nanobot) 项目二次开发，在其轻量级代理核心基础上扩展了频道适配、记忆系统、WebUI 和多平台部署能力。
 
-- **2026-05-04** 🔐 Safer DingTalk outbound media links, durable cron persistence, DeepSeek polish.
-- **2026-05-03** ⚙️ Predictable shell allow-list behavior, isolated chats mid-reply, cleaner interactive retries.
-- **2026-05-02** 🐈 LongCat support, smarter token sizing hints, clearer bundled upgrade guidance.
-- **2026-05-01** ☁️ Native AWS Bedrock provider, tighter helper handoffs and scoped session files.
-- **2026-04-30** 💬 Feishu threads that honor replies and topics, WhatsApp bridge refresh on source edits.
-- **2026-04-29** 🚀 Released **v0.1.5.post3** — Smarter threads on Feishu, Discord, Slack, and Teams; **DeepSeek-V4**; Hugging Face & Olostep; choices, `/history`, and steadier long chats. Please see [release notes](https://github.com/HKUDS/miniUnicorn/releases/tag/v0.1.5.post3) for details.
-- **2026-04-28** 🌐 Olostep web search, Hugging Face provider, safer workspace-tool interruptions.
-- **2026-04-27** 💬 `/history` command, smarter session replay caps, smoother Discord / Slack threads.
-- **2026-04-26** 🧭 Natural cron reminders, thread-aware restarts, safer local provider and shell behavior.
-- **2026-04-25** 🧩 `ask_user` choices, macOS LaunchAgent deployment, MSTeams stale-reference cleanup.
-- **2026-04-24** 🎥 Video attachments for channels, DeepSeek thinking control, faster document startup.
-- **2026-04-23** 🧵 Discord thread sessions, Telegram inline buttons, structured tool progress updates.
-- **2026-04-22** 🔎 GitHub Copilot GPT-5 / o-series support, configurable web fetch, WebUI image uploads.
-- **2026-04-21** 🚀 Released **v0.1.5.post2** — Windows & Python 3.14 support, Office document reading, SSE streaming for the OpenAI-compatible API, and stronger reliability across sessions, memory, and channels. Please see [release notes](https://github.com/HKUDS/miniUnicorn/releases/tag/v0.1.5.post2) for details.
-- **2026-04-20** 🎨 Kimi K2.6 support, Telegram long-message split, WebUI typography & dark-mode polish.
-- **2026-04-19** 🌐 WebUI i18n locale switcher, atomic session writes with auto-repair.
-- **2026-04-18** 🧪 Initial WebUI chat, smarter setup wizard menus, WebSocket multi-chat multiplexing.
-- **2026-04-17** 🪟 Windows & Python 3.14 CI, Dream line-age memory, email self-loop guard.
-- **2026-04-16** 📡 SSE streaming for OpenAI-compatible API, Discord channel allow-list.
-- **2026-04-15** 🎛️ LM Studio & nullable API keys, MiniMax thinking endpoint, runtime SelfTool.
-- **2026-04-14** 🚀 Released **v0.1.5.post1** — Dream skill discovery, mid-turn follow-up injection, WebSocket channel, and deeper channel integrations. Please see [release notes](https://github.com/HKUDS/miniUnicorn/releases/tag/v0.1.5.post1) for details.
-- **2026-04-13** 🛡️ Agent turn hardened — user messages persisted early, auto-compact skips active tasks.
-- **2026-04-12** 🔒 Lark global domain support, Dream learns discovered skills, shell sandbox tightened.
-- **2026-04-11** ⚡ Context compact shrinks sessions on the fly; Kagi web search; QQ & WeCom full media.
-- **2026-04-10** 📓 Multiple MCP servers, Feishu streaming & done-emoji.
-- **2026-04-09** 🔌 WebSocket channel, unified cross-channel session, `disabled_skills` config.
-- **2026-04-08** 📤 API file uploads, OpenAI reasoning auto-routing with Responses fallback.
-- **2026-04-07** 🧠 Anthropic adaptive thinking, MCP resources & prompts exposed as tools.
-- **2026-04-06** 🛰️ Langfuse observability, unified Whisper transcription, email attachments.
-- **2026-04-05** 🚀 Released **v0.1.5** — sturdier long-running tasks, Dream two-stage memory, production-ready sandboxing and programming Agent SDK. Please see [release notes](https://github.com/HKUDS/miniUnicorn/releases/tag/v0.1.5) for details.
-- **2026-04-04** 🚀 Jinja2 response templates, Dream memory hardened, smarter retry handling.
-- **2026-04-03** 🧠 Xiaomi MiMo provider, chain-of-thought reasoning visible, Telegram UX polish.
-- **2026-04-02** 🧱 Long-running tasks run more reliably — core runtime hardening.
-- **2026-04-01** 🔑 GitHub Copilot auth restored; stricter workspace paths; OpenRouter Claude caching fix.
-- **2026-03-31** 🛰️ WeChat multimodal alignment, Discord/Matrix polish, Python SDK facade, MCP and tool fixes.
-- **2026-03-30** 🧩 OpenAI-compatible API tightened; composable agent lifecycle hooks.
-- **2026-03-29** 💬 WeChat voice, typing, QR/media resilience; fixed-session OpenAI-compatible API.
-- **2026-03-28** 📚 Provider docs refresh; skill template wording fix.
-- **2026-03-27** 🚀 Released **v0.1.4.post6** — architecture decoupling, litellm removal, end-to-end streaming, WeChat channel, and a security fix. Please see [release notes](https://github.com/HKUDS/miniUnicorn/releases/tag/v0.1.4.post6) for details.
-- **2026-03-26** 🏗️ Agent runner extracted and lifecycle hooks unified; stream delta coalescing at boundaries.
-- **2026-03-25** 🌏 StepFun provider, configurable timezone, Gemini thought signatures.
-- **2026-03-24** 🔧 WeChat compatibility, Feishu CardKit streaming, test suite restructured.
-- **2026-03-23** 🔧 Command routing refactored for plugins, WhatsApp/WeChat media, unified channel login CLI.
-- **2026-03-22** ⚡ End-to-end streaming, WeChat channel, Anthropic cache optimization, `/status` command.
-- **2026-03-21** 🔒 Replace `litellm` with native `openai` + `anthropic` SDKs. Please see [commit](https://github.com/HKUDS/miniUnicorn/commit/3dfdab7).
-- **2026-03-20** 🧙 Interactive setup wizard — pick your provider, model autocomplete, and you're good to go.
-- **2026-03-19** 💬 Telegram gets more resilient under load; Feishu now renders code blocks properly.
-- **2026-03-18** 📷 Telegram can now send media via URL. Cron schedules show human-readable details.
-- **2026-03-17** ✨ Feishu formatting glow-up, Slack reacts when done, custom endpoints support extra headers, and image handling is more reliable.
-- **2026-03-16** 🚀 Released **v0.1.4.post5** — a refinement-focused release with stronger reliability and channel support, and a more dependable day-to-day experience. Please see [release notes](https://github.com/HKUDS/miniUnicorn/releases/tag/v0.1.4.post5) for details.
-- **2026-03-15** 🧩 DingTalk rich media, smarter built-in skills, and cleaner model compatibility.
-- **2026-03-14** 💬 Channel plugins, Feishu replies, and steadier MCP, QQ, and media handling.
-- **2026-03-13** 🌐 Multi-provider web search, LangSmith, and broader reliability improvements.
-- **2026-03-12** 🚀 VolcEngine support, Telegram reply context, `/restart`, and sturdier memory.
-- **2026-03-11** 🔌 WeCom, Ollama, cleaner discovery, and safer tool behavior.
-- **2026-03-10** 🧠 Token-based memory, shared retries, and cleaner gateway and Telegram behavior.
-- **2026-03-09** 💬 Slack thread polish and better Feishu audio compatibility.
-- **2026-03-08** 🚀 Released **v0.1.4.post4** — a reliability-packed release with safer defaults, better multi-instance support, sturdier MCP, and major channel and provider improvements. Please see [release notes](https://github.com/HKUDS/miniUnicorn/releases/tag/v0.1.4.post4) for details.
-- **2026-03-07** 🚀 Azure OpenAI provider, WhatsApp media, QQ group chats, and more Telegram/Feishu polish.
-- **2026-03-06** 🪄 Lighter providers, smarter media handling, and sturdier memory and CLI compatibility.
-- **2026-03-05** ⚡️ Telegram draft streaming, MCP SSE support, and broader channel reliability fixes.
-- **2026-03-04** 🛠️ Dependency cleanup, safer file reads, and another round of test and Cron fixes.
-- **2026-03-03** 🧠 Cleaner user-message merging, safer multimodal saves, and stronger Cron guards.
-- **2026-03-02** 🛡️ Safer default access control, sturdier Cron reloads, and cleaner Matrix media handling.
-- **2026-03-01** 🌐 Web proxy support, smarter Cron reminders, and Feishu rich-text parsing improvements.
-- **2026-02-28** 🚀 Released **v0.1.4.post3** — cleaner context, hardened session history, and smarter agent. Please see [release notes](https://github.com/HKUDS/miniUnicorn/releases/tag/v0.1.4.post3) for details.
-- **2026-02-27** 🧠 Experimental thinking mode support, DingTalk media messages, Feishu and QQ channel fixes.
-- **2026-02-26** 🛡️ Session poisoning fix, WhatsApp dedup, Windows path guard, Mistral compatibility.
-- **2026-02-25** 🧹 New Matrix channel, cleaner session context, auto workspace template sync.
-- **2026-02-24** 🚀 Released **v0.1.4.post2** — a reliability-focused release with a redesigned heartbeat, prompt cache optimization, and hardened provider & channel stability. See [release notes](https://github.com/HKUDS/miniUnicorn/releases/tag/v0.1.4.post2) for details.
-- **2026-02-23** 🔧 Virtual tool-call heartbeat, prompt cache optimization, Slack mrkdwn fixes.
-- **2026-02-22** 🛡️ Slack thread isolation, Discord typing fix, agent reliability improvements.
-- **2026-02-21** 🎉 Released **v0.1.4.post1** — new providers, media support across channels, and major stability improvements. See [release notes](https://github.com/HKUDS/miniUnicorn/releases/tag/v0.1.4.post1) for details.
-- **2026-02-20** 🐦 Feishu now receives multimodal files from users. More reliable memory under the hood.
-- **2026-02-19** ✨ Slack now sends files, Discord splits long messages, and subagents work in CLI mode.
-- **2026-02-18** ⚡️ MiniUnicorn now supports VolcEngine, MCP custom auth headers, and Anthropic prompt caching.
-- **2026-02-17** 🎉 Released **v0.1.4** — MCP support, progress streaming, new providers, and multiple channel improvements. Please see [release notes](https://github.com/HKUDS/miniUnicorn/releases/tag/v0.1.4) for details.
-- **2026-02-16** 🦞 MiniUnicorn now integrates a [ClawHub](https://clawhub.ai) skill — search and install public agent skills.
-- **2026-02-15** 🔑 MiniUnicorn now supports OpenAI Codex provider with OAuth login support.
-- **2026-02-14** 🔌 MiniUnicorn now supports MCP! See [MCP section](#mcp-model-context-protocol) for details.
-- **2026-02-13** 🎉 Released **v0.1.3.post7** — includes security hardening and multiple improvements. **Please upgrade to the latest version to address security issues**. See [release notes](https://github.com/HKUDS/miniUnicorn/releases/tag/v0.1.3.post7) for more details.
-- **2026-02-12** 🧠 Redesigned memory system — Less code, more reliable. Join the [discussion](https://github.com/HKUDS/miniUnicorn/discussions/566) about it!
-- **2026-02-11** ✨ Enhanced CLI experience and added MiniMax support!
-- **2026-02-10** 🎉 Released **v0.1.3.post6** with improvements! Check the updates [notes](https://github.com/HKUDS/miniUnicorn/releases/tag/v0.1.3.post6) and our [roadmap](https://github.com/HKUDS/miniUnicorn/discussions/431).
-- **2026-02-09** 💬 Added Slack, Email, and QQ support — MiniUnicorn now supports multiple chat platforms!
-- **2026-02-08** 🔧 Refactored Providers—adding a new LLM provider now takes just 2 simple steps! Check [here](#providers).
-- **2026-02-07** 🚀 Released **v0.1.3.post5** with Qwen support & several key improvements! Check [here](https://github.com/HKUDS/miniUnicorn/releases/tag/v0.1.3.post5) for details.
-- **2026-02-06** ✨ Added Moonshot/Kimi provider, Discord integration, and enhanced security hardening!
-- **2026-02-05** ✨ Added Feishu channel, DeepSeek provider, and enhanced scheduled tasks support!
-- **2026-02-04** 🚀 Released **v0.1.3.post4** with multi-provider & Docker support! Check [here](https://github.com/HKUDS/miniUnicorn/releases/tag/v0.1.3.post4) for details.
-- **2026-02-03** ⚡ Integrated vLLM for local LLM support and improved natural language task scheduling!
-- **2026-02-02** 🎉 MiniUnicorn officially launched! Welcome to try 🧙 MiniUnicorn!
+## 组成结构
 
-</details>
+整个系统围绕一个异步消息总线展开，分四层：
 
+```
+┌─────────────────────────────────────────────────────┐
+│  频道层  (channels/)                                  │
+│  飞书 · 钉钉 · 企微 · 微信 · QQ · WebSocket(WebUI)    │
+└──────────────────┬──────────────────────────────────┘
+                   │ InboundMessage
+                   ▼
+┌─────────────────────────────────────────────────────┐
+│  消息总线  (bus/queue.py · ~130 行)                   │
+│  异步队列，解耦频道与代理                              │
+└──────────────────┬──────────────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────────────┐
+│  代理核心  (agent/)                                   │
+│  AgentLoop ─→ AgentRunner ─→ LLM Provider            │
+│              ├─ ToolRegistry (工具调度)               │
+│              ├─ SessionManager (会话与压缩)            │
+│              ├─ Dream (两阶段记忆整合)                 │
+│              └─ SubagentManager (子代理委派)           │
+└──────────────────┬──────────────────────────────────┘
+                   │ OutboundMessage
+                   ▼
+┌─────────────────────────────────────────────────────┐
+│  能力层  (tools/ · skills/ · providers/)              │
+│  文件系统 · Shell · 网页搜索 · MCP · 定时任务 · ...    │
+└─────────────────────────────────────────────────────┘
+```
 
-## 💡 Key Features of MiniUnicorn
+### 核心运行时（~13K 行）
 
-- **Ultra-lightweight**: stable long-running agent behavior with a small, readable core.
-- **Research-ready**: the codebase is intentionally simple enough to study, modify, and extend.
-- **Practical**: chat channels, API, memory, MCP, and deployment paths are already built in.
-- **Hackable**: you can start fast, then go deeper through repo docs instead of a monolithic landing page.
+| 模块 | 职责 | 规模 |
+|------|------|------|
+| `agent/` | AgentLoop 协调对话轮次，AgentRunner 执行 LLM 循环 | ~9.6K 行 |
+| `session/` | 会话历史持久化、自动压缩、目标状态跟踪 | ~1.3K 行 |
+| `config/` | Pydantic 配置模型，支持 `${VAR}` 环境变量 | ~0.9K 行 |
+| `cron/` | 自然语言定时任务，持久化，重启补执行 | ~0.8K 行 |
+| `bus/` | 异步消息总线 | ~0.1K 行 |
 
-## 📦 Install
+### 扩展模块（~41K 行）
 
-> [!IMPORTANT]
-> If you want the newest features and experiments, install from source. 
-> 
-> If you want the most stable day-to-day experience, install from PyPI or with `uv`.
+| 模块 | 职责 | 规模 |
+|------|------|------|
+| `channels/` | 6 个频道适配器（飞书/钉钉/企微/微信/QQ/WebSocket） | ~11.6K 行 |
+| `agent/tools/` | 17 类内置工具（文件/Shell/搜索/MCP/子代理...） | ~9.5K 行 |
+| `webui/` | 网关 HTTP/WebSocket 路由与负载构建 | ~6.3K 行 |
+| `cli/` | Typer CLI 命令、终端渲染、网关运行器 | ~4.8K 行 |
+| `utils/` | 文档解析、媒体解码、Git 存储等工具 | ~3.4K 行 |
+| `providers/` | LLM 提供商抽象与 OpenAI 兼容实现 | ~3.9K 行 |
+| `security/` | 工作区限制、SSRF 防护、Shell 沙箱 | ~1.0K 行 |
+| `api/` | OpenAI 兼容 HTTP API | ~0.6K 行 |
 
-**Install from source**
+## 技术特点
+
+### 1. 核心循环可读
+
+`AgentLoop` → `AgentRunner` 是整个系统唯一的处理路径。没有插件钩子链，没有中间件栈，没有动态编排。读这两个文件就能理解代理如何工作。
+
+### 2. 总线解耦
+
+频道与代理通过 `MessageBus`（130 行）完全解耦。频道只管发布 `InboundMessage`、消费 `OutboundMessage`，不感知代理内部状态。添加新频道不需要修改核心。
+
+### 3. 扩展在边缘
+
+新能力通过五种方式接入，**不进入核心循环**：
+
+- **频道**（`channels/`）— 接入新的聊天平台
+- **工具**（`agent/tools/`）— 暴露新能力给 LLM
+- **技能**（`skills/`）— Markdown 知识包，按需注入上下文
+- **CLI 应用**（`run_cli_app`）— 调用本机已安装的命令行程序（ffmpeg、pandoc、git 等），通过 SKILL.md 指导代理使用
+- **MCP 服务器** — 外部进程，通过 MCP 协议调用
+
+### 4. 记忆即上下文
+
+Dream 两阶段记忆将历史整合为上下文片段，按需注入而非持久编排。会话写入是原子的（临时文件 + fsync + rename），崩溃安全。自动压缩基于 Token 预算，跳过活跃任务。
+
+### 5. 安全边界明确
+
+| 边界 | 机制 |
+|------|------|
+| 文件访问 | `_resolve_path` 强制路径在工作区内 |
+| Shell 执行 | 可选 `bwrap` 沙箱，工作区限制 |
+| 出站 HTTP | `validate_url_target` 阻止 RFC1918 和云元数据端点 |
+| DM 准入 | 频道发送者配对码审批 |
+
+### 6. 工具生态
+
+17 类内置工具，覆盖代理的主要能力需求：
+
+| 类别 | 工具 |
+|------|------|
+| 文件系统 | `read_file` · `write_file` · `edit_file` · `list_dir` |
+| 执行 | `exec`（沙箱可选）· `run_cli_app`（本机 CLI） |
+| 检索 | `web_search`（5 后端聚合）· `web_fetch` · `deep_research` |
+| 编排 | `cron` · `long_task` · `execute_plan` · `delegate` |
+| 外部 | `mcp_*`（多服务器）· `message`（跨频道） |
+| 自省 | `self` · `runtime_state` · `recall` |
+
+## 适用场景
+
+### 适合
+
+- **个人 AI 助手**：接入飞书/钉钉/微信，7×24 小时在线，记忆跨会话保留
+- **开发辅助**：文件读写、Shell 执行、代码搜索、补丁应用——代理可自主完成多步任务
+- **定时自动化**：自然语言调度，`/goal` 持续目标，重启后补执行
+- **研究实验**：代码可读，核心循环可审计，适合研究工具使用、记忆策略、代理行为
+- **编程式集成**：Python SDK 或 OpenAI 兼容 API 嵌入现有系统
+- **多平台部署**：Docker、Linux 服务、macOS LaunchAgent
+
+### 不适合
+
+- 需要复杂 DAG 编排或工作流引擎的场景
+- 需要多租户隔离的 SaaS 部署
+- 不接受文件系统/Shell 访问的高沙箱要求环境
+
+## 安装
 
 ```bash
+# 从 PyPI（稳定版）
+pip install miniUnicorn-ai
+
+# 用 uv（推荐）
+uv tool install miniUnicorn-ai
+
+# 从源码（最新特性）
 git clone https://github.com/HKUDS/miniUnicorn.git
 cd miniUnicorn
 pip install -e .
 ```
 
-**Install with `uv`**
+运行时依赖 28 个 Python 包，无原生编译依赖（除 lxml 外）。
 
-```bash
-uv tool install miniUnicorn-ai
-```
+## 快速开始
 
-**Install from PyPI**
-
-```bash
-pip install miniUnicorn-ai
-```
-
-## 🚀 Quick Start
-
-**1. Initialize**
+**1. 初始化配置**
 
 ```bash
 miniUnicorn onboard
 ```
 
-**2. Configure** (`~/.miniUnicorn/config.json`)
-
-Configure these **two parts** in your config (other options have defaults). Add or merge the following blocks into your existing config instead of replacing the whole file.
-
-*Set your API key* (e.g. [OpenRouter](https://openrouter.ai/keys), recommended for global users):
+**2. 编辑 `~/.miniUnicorn/config.json`**
 
 ```json
 {
   "providers": {
-    "openrouter": {
-      "apiKey": "sk-or-v1-xxx"
-    }
-  }
-}
-```
-
-*Set your model* (optionally pin a provider — defaults to auto-detection):
-
-```json
-{
+    "openrouter": { "apiKey": "sk-or-v1-xxx" }
+  },
   "agents": {
-    "defaults": {
-      "provider": "openrouter",
-      "model": "anthropic/claude-opus-4-6"
-    }
+    "defaults": { "provider": "openrouter", "model": "anthropic/claude-opus-4-6" }
   }
 }
 ```
 
-**3. Chat**
+**3. 启动**
 
 ```bash
+# CLI 对话
 miniUnicorn agent
+
+# 网关模式（带 WebUI）
+miniUnicorn gateway
+# → 浏览器访问 http://127.0.0.1:8765
 ```
 
-
-- Want different LLM providers, web search, MCP, security settings, or more config options? See [Configuration](./docs/configuration.md)
-- Want to run locally? Use [Atomic Chat](./docs/configuration.md#atomic-chat-local), [vLLM](./docs/configuration.md#vllm-local-openai-compatible), [Ollama](./docs/configuration.md#ollama-local), and [others](./docs/configuration.md#local-providers).
-- Want to run MiniUnicorn in chat apps like Telegram, Discord, WeChat or Feishu? See [Chat Apps](./docs/chat-apps.md)
-- Want Docker or Linux service deployment? See [Deployment](./docs/deployment.md)
-
-## 🌐 WebUI
-
-The WebUI ships **inside the published wheel** — no extra build step. Just enable the WebSocket channel and open it in your browser.
-
-<p align="center">
-  <img src="images/miniUnicorn_webui.png" alt="MiniUnicorn webui preview" width="900">
-</p>
-
-**1. Enable the WebSocket channel in `~/.miniUnicorn/config.json`**
+WebUI 内置在 wheel 中，无需额外构建。启用 WebSocket 频道即可：
 
 ```json
 { "channels": { "websocket": { "enabled": true } } }
 ```
 
-**2. Start the gateway**
+## 编程式接入
 
-```bash
-miniUnicorn gateway
+### Python SDK
+
+```python
+from miniUnicorn import MiniUnicorn
+
+bot = MiniUnicorn.from_config()
+result = await bot.run("总结这个仓库的架构", hooks=[MyHook()])
+print(result.content)
+print(result.tools_used)
 ```
 
-**3. Open the WebUI**
+### OpenAI 兼容 API
 
-Visit [`http://127.0.0.1:8765`](http://127.0.0.1:8765) in your browser. To open it from another device on your LAN, see [WebUI docs → LAN access](./webui/README.md#access-from-another-device-lan).
+```bash
+curl http://127.0.0.1:8765/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "default",
+    "messages": [{"role": "user", "content": "你好"}],
+    "stream": true
+  }'
+```
 
-> [!TIP]
-> Working on the WebUI itself? Check out [`webui/README.md`](./webui/README.md) for the Vite dev server (HMR) workflow.
+端点：`/v1/chat/completions`（支持 SSE 流式）、`/v1/models`、文件上传。
 
-## 🏗️ Architecture
+## 频道接入
 
-<p align="center">
-  <img src="images/miniUnicorn_arch.png" alt="MiniUnicorn architecture" width="800">
-</p>
+| 频道 | 接入方式 | 扫码登录 |
+|------|---------|---------|
+| WebSocket | 内置 WebUI | — |
+| 飞书 | App ID + App Secret | ✓ |
+| 钉钉 | App Key + App Secret | — |
+| 企业微信 | Bot ID + Bot Secret | — |
+| 微信 | 扫码 | ✓ |
+| QQ | App ID + App Secret | — |
 
-🧙 MiniUnicorn stays lightweight by centering everything around a small agent loop: messages come in from chat apps, the LLM decides when tools are needed, and memory or skills are pulled in only as context instead of becoming a heavy orchestration layer. That keeps the core path readable and easy to extend, while still letting you add channels, tools, memory, and deployment options without turning the system into a monolith.
+频道通过 `pkgutil` 自动发现，支持入口点插件扩展。
 
-## ✨ Features
+## LLM 提供商
 
-<table align="center">
-  <tr align="center">
-    <th><p align="center">📈 24/7 Real-Time Market Analysis</p></th>
-    <th><p align="center">🚀 Full-Stack Software Engineer</p></th>
-    <th><p align="center">📅 Smart Daily Routine Manager</p></th>
-    <th><p align="center">📚 Personal Knowledge Assistant</p></th>
-  </tr>
-  <tr>
-    <td align="center"><p align="center"><img src="case/search.gif" width="180" height="400"></p></td>
-    <td align="center"><p align="center"><img src="case/code.gif" width="180" height="400"></p></td>
-    <td align="center"><p align="center"><img src="case/schedule.gif" width="180" height="400"></p></td>
-    <td align="center"><p align="center"><img src="case/memory.gif" width="180" height="400"></p></td>
-  </tr>
-  <tr>
-    <td align="center">Discovery • Insights • Trends</td>
-    <td align="center">Develop • Deploy • Scale</td>
-    <td align="center">Schedule • Automate • Organize</td>
-    <td align="center">Learn • Memory • Reasoning</td>
-  </tr>
-</table>
+基于统一基类，支持：
 
-## 📚 Docs
+- **OpenAI 兼容**：OpenRouter、DeepSeek、Moonshot/Kimi、MiniMax、VolcEngine、StepFun、LongCat、Azure、Bedrock、NVIDIA NIM、GitHub Copilot、LM Studio、Ollama、vLLM
+- **OpenAI Responses API**：GPT-5 / o-series 推理模型
+- **Anthropic**：Claude 系列，自适应思考与缓存优化
+- **Fallback**：主模型失败自动切换备用
+- **自动检测**：根据 API Key 识别提供商
 
-Browse the [repo docs](./docs/README.md) for the latest features and GitHub development version, or visit [miniUnicorn.wiki](https://miniUnicorn.wiki/docs/latest/getting-started/miniUnicorn-overview) for the stable release documentation.
+## 内置技能
 
-- Talk to your MiniUnicorn with familiar chat apps: [Chat Apps](./docs/chat-apps.md)
-- Configure providers, web search, MCP, and runtime behavior: [Configuration](./docs/configuration.md)
-- Integrate MiniUnicorn with local tools and automations: [OpenAI-Compatible API](./docs/openai-api.md) · [Python SDK](./docs/python-sdk.md)
-- Run MiniUnicorn with Docker or as a Linux service: [Deployment](./docs/deployment.md)
+Markdown + YAML frontmatter 定义，按需加载：
 
-## 🤝 Contribute & Roadmap
+`cron` · `document-processing` · `github` · `image-generation` · `long-goal` · `memory` · `my` · `skill-creator` · `summarize` · `tmux` · `update-setup` · `weather`
 
-PRs welcome! The codebase is intentionally small and readable. 🤗
+## 文档
 
-### Branching Strategy
+- [配置参考](./docs/configuration.md) — 提供商、工具、频道、MCP、安全设置
+- [聊天应用](./docs/chat-apps.md) — 频道接入详细说明
+- [部署指南](./docs/deployment.md) — Docker、Linux 服务、macOS LaunchAgent
+- [OpenAI API](./docs/openai-api.md) · [Python SDK](./docs/python-sdk.md)
+- [记忆系统](./docs/memory.md) · [频道插件](./docs/channel-plugin-guide.md)
+- [WebUI 开发](./webui/README.md) — Vite 开发服务器工作流
 
-| Branch | Purpose |
-|--------|---------|
-| `main` | Stable releases — bug fixes and minor improvements |
-| `nightly` | Experimental features — new features and breaking changes |
+## 贡献
 
-**Unsure which branch to target?** See [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
+PR 欢迎。代码库刻意保持可读。
 
-**Roadmap** — Pick an item and [open a PR](https://github.com/HKUDS/miniUnicorn/pulls)!
+| 分支 | 用途 |
+|------|------|
+| `main` | 稳定发布 |
+| `nightly` | 实验特性 |
 
-- **Multi-modal** — See and hear (images, voice, video)
-- **Long-term memory** — Never forget important context
-- **Better reasoning** — Multi-step planning and reflection
-- **More integrations** — Calendar and more
-- **Self-improvement** — Learn from feedback and mistakes
+详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
-## Contact
+## 许可证
 
-This project was started by [Xubin Ren](https://github.com/re-bin) as a personal open-source project and continues to be maintained in an individual capacity using personal resources, with contributions from the open-source community. Feel free to contact [xubinrencs@gmail.com](mailto:xubinrencs@gmail.com) for questions, ideas, or collaboration.
+MIT — 见 [LICENSE](./LICENSE)。
 
-### Contributors
+## 联系
 
-<a href="https://github.com/HKUDS/miniUnicorn/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=HKUDS/miniUnicorn&max=100&columns=12&updated=20260210" alt="Contributors" />
-</a>
+由 [Xubin Ren](https://github.com/re-bin) 发起并维护。交流：xubinrencs@gmail.com。
 
-
-## ⭐ Star History
+---
 
 <div align="center">
-  <a href="https://star-history.com/#HKUDS/miniUnicorn&Date">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=HKUDS/miniUnicorn&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=HKUDS/miniUnicorn&type=Date" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=HKUDS/miniUnicorn&type=Date" style="border-radius: 15px; box-shadow: 0 0 30px rgba(0, 217, 255, 0.3);" />
-    </picture>
-  </a>
-</div>
 
-<p align="center">
-  <em> Thanks for visiting ✨ MiniUnicorn!</em><br><br>
-  <img src="https://visitor-badge.laobi.icu/badge?page_id=HKUDS.miniUnicorn&style=for-the-badge&color=00d4ff" alt="Views">
-</p>
+<em>核心小，扩展在边缘，记忆即上下文。</em>
+
+</div>

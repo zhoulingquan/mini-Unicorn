@@ -22,6 +22,10 @@ from websockets.datastructures import Headers
 from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
 
+from miniUnicorn.channels.websocket._chunked_header import (  # noqa: F401 — re-exported for channel.py
+    _collect_chunked_header,
+    collect_chunked_header,
+)
 from miniUnicorn.webui.settings_api import WebUISettingsError
 
 # Path → action mapping for the MCP presets HTTP surface. Used by both
@@ -132,33 +136,6 @@ def _normalize_http_path(path_with_query: str) -> str:
 
 def _parse_query(path_with_query: str) -> dict[str, list[str]]:
     return _parse_request_path(path_with_query)[1]
-
-
-def _collect_chunked_header(headers: Any, base_name: str) -> str:
-    """Concatenate a chunked header transmitted as repeated headers.
-
-    The websockets HTTP layer caps each header line at 8KB. The frontend
-    splits large payloads across ``{base_name}`` (first chunk) and
-    ``{base_name}-1``, ``{base_name}-2``, ... headers. This helper reassembles
-    them in order.
-    """
-    parts: dict[int, str] = {}
-    first = headers.get(base_name)
-    if first:
-        parts[0] = first
-    for key, value in headers.raw_items():
-        lower = key.lower()
-        prefix = f"{base_name.lower()}-"
-        if lower.startswith(prefix):
-            suffix = key[len(base_name) + 1:]
-            try:
-                idx = int(suffix)
-            except ValueError:
-                continue
-            parts[idx] = value
-    if not parts:
-        return ""
-    return "".join(parts[i] for i in sorted(parts))
 
 
 def _parse_mcp_settings_query(request: WsRequest) -> dict[str, list[str]]:

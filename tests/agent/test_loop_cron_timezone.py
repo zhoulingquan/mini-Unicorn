@@ -24,4 +24,4 @@ def test_agent_loop_registers_cron_tool_with_configured_timezone(tmp_path: Path)
     cron_tool = loop.tools.get("cron")
 
     assert isinstance(cron_tool, CronTool)
-    assert cron_tool._default_timezone == "Asia/Shanghai"
+    assert cron_tool._default_timezone == "system"

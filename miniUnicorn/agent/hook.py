@@ -73,59 +73,27 @@ class CompositeHook(AgentHook):
     Error isolation: async methods catch and log per-hook exceptions
     so a faulty custom hook cannot crash the agent loop.
     ``finalize_content`` is a pipeline (no isolation — bugs should surface).
-
-    Circuit breaker: a hook that fails ``_FAILURE_THRESHOLD`` times in a row
-    is tripped (skipped) so a persistently faulty custom hook cannot keep
-    spamming exceptions and slowing the agent loop. Recoverable (transient)
-    errors are counted; ``_reraise`` hooks bypass the breaker because their
-    contract is to surface errors to the caller.
     """
 
-    __slots__ = ("_hooks", "_failure_counts", "_tripped")
-
-    # Number of consecutive failures before a hook is tripped (skipped).
-    _FAILURE_THRESHOLD = 5
+    __slots__ = ("_hooks",)
 
     def __init__(self, hooks: list[AgentHook]) -> None:
         super().__init__()
         self._hooks = list(hooks)
-        # Per-hook consecutive failure counters (hook -> count).
-        self._failure_counts: dict[AgentHook, int] = {}
-        # Hooks whose circuit breaker has tripped (skipped on future calls).
-        self._tripped: set[AgentHook] = set()
 
     def wants_streaming(self) -> bool:
         return any(h.wants_streaming() for h in self._hooks)
 
     async def _for_each_hook_safe(self, method_name: str, *args: Any, **kwargs: Any) -> None:
         for h in self._hooks:
-            # Circuit breaker: skip hooks tripped after too many consecutive
-            # failures so a persistently faulty hook cannot keep spamming.
-            if h in self._tripped:
-                continue
             if getattr(h, "_reraise", False):
                 await getattr(h, method_name)(*args, **kwargs)
-                self._failure_counts.pop(h, None)
                 continue
 
             try:
                 await getattr(h, method_name)(*args, **kwargs)
-                # Success resets the consecutive failure counter.
-                self._failure_counts.pop(h, None)
             except Exception:
-                count = self._failure_counts.get(h, 0) + 1
-                self._failure_counts[h] = count
-                logger.exception(
-                    "AgentHook.{} error in {} ({}/{})",
-                    method_name, type(h).__name__, count, self._FAILURE_THRESHOLD,
-                )
-                if count >= self._FAILURE_THRESHOLD:
-                    self._tripped.add(h)
-                    logger.error(
-                        "AgentHook {} tripped circuit breaker after {} "
-                        "consecutive failures; skipping future calls",
-                        type(h).__name__, count,
-                    )
+                logger.exception("AgentHook.{} error in {}", method_name, type(h).__name__)
 
     async def before_iteration(self, context: AgentHookContext) -> None:
         await self._for_each_hook_safe("before_iteration", context)

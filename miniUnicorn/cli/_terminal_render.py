@@ -35,7 +35,6 @@ from rich.text import Text
 from miniUnicorn import __logo__
 from miniUnicorn.cli.stream import StreamRenderer, ThinkingSpinner
 
-
 console = Console()
 EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit", ":q"}
 _REASONING_SENTENCE_ENDINGS = (".", "!", "?", "。", "！", "？")

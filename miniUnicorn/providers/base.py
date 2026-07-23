@@ -464,13 +464,7 @@ class LLMProvider(ABC):
 
     @staticmethod
     def _strip_image_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
-        """Replace image_url blocks with text placeholder. Returns None if no images found.
-
-        Returns a *new* list of (shallow-copied) message dicts; the input
-        ``messages`` list and its dicts are not mutated. Callers that need
-        the stripped version to be visible through their own reference must
-        explicitly update their list (e.g. ``messages[:] = stripped``).
-        """
+        """Replace image_url blocks with text placeholder. Returns None if no images found."""
         found = False
         result = []
         for msg in messages:
@@ -489,6 +483,26 @@ class LLMProvider(ABC):
             else:
                 result.append(msg)
         return result if found else None
+
+    @staticmethod
+    def _strip_image_content_inplace(messages: list[dict[str, Any]]) -> bool:
+        """Replace image_url blocks with text placeholder *in-place*.
+
+        Mutates the content lists of the original message dicts so that
+        callers holding references to those dicts also see the stripped
+        version.
+        """
+        found = False
+        for msg in messages:
+            content = msg.get("content")
+            if isinstance(content, list):
+                for i, b in enumerate(content):
+                    if isinstance(b, dict) and b.get("type") == "image_url":
+                        path = (b.get("_meta") or {}).get("path", "")
+                        placeholder = image_placeholder_text(path, empty="[image omitted]")
+                        content[i] = {"type": "text", "text": placeholder}
+                        found = True
+        return found
 
     async def _safe_chat(self, **kwargs: Any) -> LLMResponse:
         """Call chat() and convert unexpected exceptions to error responses."""
@@ -773,13 +787,8 @@ class LLMProvider(ABC):
                     result = await call(**retry_kw)
                     # Permanently strip images from the original messages so
                     # subsequent iterations do not repeat the error-retry cycle.
-                    # _strip_image_content returns a *copy*; we splice it into
-                    # original_messages here (rather than mutating inside the
-                    # helper) so the side effect is explicit at the call site.
                     if result.finish_reason != "error":
-                        stripped_original = self._strip_image_content(original_messages)
-                        if stripped_original is not None:
-                            original_messages[:] = stripped_original
+                        self._strip_image_content_inplace(original_messages)
                     return result
                 return response
 

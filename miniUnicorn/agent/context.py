@@ -58,6 +58,26 @@ class ContextBuilder:
     _MAX_HISTORY_CHARS = 32_000  # hard cap on recent history section size
     _RUNTIME_CONTEXT_END = "[/Runtime Context]"
 
+    # 总注入预算上限（借鉴 MiMo Code 的 65K rebuild budget）。
+    # system prompt 各部分（identity/bootstrap/memory/skills/history/notes 等）
+    # 加起来不应超过此值，否则会挤占 user message 与 model 输出空间。
+    # 超出时按优先级丢弃/截断：notes → skills list → history → memory → ...
+    _MAX_INJECTION_TOKENS = 65_000
+
+    # 优先级：数字越小越重要，越不容易被丢弃。
+    # CRITICAL（身份/bootstrap/tool_contract）永不丢弃；
+    # SUMMARY（归档 summary）高优先级保留——这是上下文连续性的关键；
+    # NOTES 最低优先级（临时 scratchpad，丢了能重建）。
+    _PRIORITY_CRITICAL = 0
+    _PRIORITY_SUMMARY = 1
+    _PRIORITY_MEMORY = 2
+    _PRIORITY_SHARED_MEMORY = 2
+    _PRIORITY_HISTORY = 3
+    _PRIORITY_SKILLS_ACTIVE = 4
+    _PRIORITY_SKILLS_LIST = 5
+    _PRIORITY_SUBAGENT = 5
+    _PRIORITY_NOTES = 6
+
     def __init__(self, workspace: Path, timezone: str | None = None, disabled_skills: list[str] | None = None, subagent_registry: Any = None):
         self.workspace = workspace
         self.timezone = None
@@ -86,6 +106,11 @@ class ContextBuilder:
         "Available Subagents" delegation list is omitted — the subagent runs
         as the primary identity for the turn.
         """
+        # parts: list of (priority, content) tuples。
+        # priority 数字越小越重要，越不容易被预算控制丢弃。
+        # 最后通过 _enforce_injection_budget 按优先级截断/丢弃。
+        parts: list[tuple[int, str]] = []
+
         root = workspace or self.workspace
         if agent_override is not None:
             # Subagent takeover mode: user selected a subagent via @. Run as
@@ -94,15 +119,16 @@ class ContextBuilder:
                 f"You are running as the '{agent_override.name}' agent. "
                 f"{agent_override.description}"
             )
-            parts = [header, agent_override.system_prompt]
+            parts.append((self._PRIORITY_CRITICAL, header))
+            parts.append((self._PRIORITY_CRITICAL, agent_override.system_prompt))
         else:
-            parts = [self._get_identity(channel=channel, workspace=root)]
+            parts.append((self._PRIORITY_CRITICAL, self._get_identity(channel=channel, workspace=root)))
 
         bootstrap = self._load_bootstrap_files(root)
         if bootstrap:
-            parts.append(bootstrap)
+            parts.append((self._PRIORITY_CRITICAL, bootstrap))
 
-        parts.append(render_template("agent/tool_contract.md"))
+        parts.append((self._PRIORITY_CRITICAL, render_template("agent/tool_contract.md")))
 
         # Memory injection: full MEMORY.md by default; top-k vector recall when enabled.
         vs = self.memory.vector_store
@@ -118,12 +144,12 @@ class ContextBuilder:
                     f"- [{r['kind']}] ({r['similarity']:.2f}) {r['text']}"
                     for r in recalled
                 )
-                parts.append("# Memory (Relevant Recall)\n\n" + recall_text)
+                parts.append((self._PRIORITY_MEMORY, "# Memory (Relevant Recall)\n\n" + recall_text))
             # No results: fall back to nothing (don't inject full memory in recall mode)
         else:
             memory = self.memory.get_memory_context()
             if memory and not self._is_template_content(self.memory.read_memory(), "memory/MEMORY.md"):
-                parts.append(f"# Memory\n\n{memory}")
+                parts.append((self._PRIORITY_MEMORY, f"# Memory\n\n{memory}"))
 
         # Inject cross-session shared memory (global facts that apply to every
         # session, written by Dream when it promotes universally-relevant
@@ -132,17 +158,25 @@ class ContextBuilder:
         # per-session memory is fetched.
         shared = self.memory.read_shared_memory()
         if shared and shared.strip():
-            parts.append(f"# Shared Memory (Cross-Session)\n\n{shared}")
+            parts.append((self._PRIORITY_SHARED_MEMORY, f"# Shared Memory (Cross-Session)\n\n{shared}"))
+
+        # 注入 notes.md（主 Agent 的 scratchpad，借鉴 MiMo Code）。
+        # 主 Agent 用 write_file/edit_file 往 notes.md append 零散发现，
+        # Consolidator 在归档时读取并清空。注入让主 Agent 能看到自己之前
+        # 记的笔记，支持跨 turn 的临时记忆。文件不存在或为空时跳过。
+        notes = self.memory.read_notes()
+        if notes and notes.strip():
+            parts.append((self._PRIORITY_NOTES, f"# Scratchpad Notes (notes.md)\n\n{notes}"))
 
         always_skills = self.skills.get_always_skills()
         if always_skills:
             always_content = self.skills.load_skills_for_context(always_skills)
             if always_content:
-                parts.append(f"# Active Skills\n\n{always_content}")
+                parts.append((self._PRIORITY_SKILLS_ACTIVE, f"# Active Skills\n\n{always_content}"))
 
         skills_summary = self.skills.build_skills_summary(exclude=set(always_skills))
         if skills_summary:
-            parts.append(render_template("agent/skills_section.md", skills_summary=skills_summary))
+            parts.append((self._PRIORITY_SKILLS_LIST, render_template("agent/skills_section.md", skills_summary=skills_summary)))
 
         # History injection: full recent history by default; vector recall when enabled.
         if (
@@ -158,7 +192,7 @@ class ContextBuilder:
                     for r in recalled_hist
                 )
                 history_text = truncate_text(history_text, self._MAX_HISTORY_CHARS)
-                parts.append("# Recent History (Relevant Recall)\n\n" + history_text)
+                parts.append((self._PRIORITY_HISTORY, "# Recent History (Relevant Recall)\n\n" + history_text))
         else:
             entries = self.memory.read_unprocessed_history(since_cursor=self.memory.get_last_dream_cursor())
             if entries:
@@ -167,10 +201,10 @@ class ContextBuilder:
                     f"- [{e['timestamp']}] {e['content']}" for e in capped
                 )
                 history_text = truncate_text(history_text, self._MAX_HISTORY_CHARS)
-                parts.append("# Recent History\n\n" + history_text)
+                parts.append((self._PRIORITY_HISTORY, "# Recent History\n\n" + history_text))
 
         if session_summary:
-            parts.append(f"[Archived Context Summary]\n\n{session_summary}")
+            parts.append((self._PRIORITY_SUMMARY, f"[Archived Context Summary]\n\n{session_summary}"))
 
         # Inject available declarative subagents (TRAE-style auto-delegation).
         # Skip in takeover mode — a subagent running as the primary identity
@@ -178,9 +212,121 @@ class ContextBuilder:
         if agent_override is None and self.subagent_registry:
             subagent_section = self.subagent_registry.build_prompt_section()
             if subagent_section:
-                parts.append(subagent_section)
+                parts.append((self._PRIORITY_SUBAGENT, subagent_section))
 
-        return "\n\n---\n\n".join(parts)
+        # 按优先级分配 65K token 注入预算（借鉴 MiMo Code 的 rebuild budget）。
+        # 超出预算时按优先级从低到高丢弃/截断：NOTES → SKILLS_LIST/SUBAGENT →
+        # HISTORY → MEMORY → SUMMARY → CRITICAL（CRITICAL 永不丢弃）。
+        parts = self._enforce_injection_budget(parts)
+
+        return "\n\n---\n\n".join(p[1] for p in parts)
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        """粗略估算 token 数（chars/4 启发式）。
+
+        精确 tiktoken 估算每次 build 都跑代价太大，这里用启发式。
+        实际 LLM tokenizer 对中文 1 字 ≈ 1-2 token，英文 4 字符 ≈ 1 token，
+        综合下来 chars/4 是个合理的下界估计，足以做预算控制。
+        """
+        return max(1, len(text) // 4)
+
+    @classmethod
+    def _enforce_injection_budget(
+        cls,
+        parts: list[tuple[int, str]],
+    ) -> list[tuple[int, str]]:
+        """按优先级分配 65K token 注入预算。
+
+        策略：
+        1. 计算总 token 估计，若未超预算直接返回。
+        2. 超预算时，从最低优先级开始处理：
+           - 优先级 >= _PRIORITY_NOTES（6）：直接丢弃（notes/subagent 列表）
+           - 优先级 == _PRIORITY_SKILLS_LIST（5）：直接丢弃（skills 列表/subagent）
+           - 优先级 == _PRIORITY_HISTORY（3）：截断到剩余预算的 50%
+           - 优先级 == _PRIORITY_MEMORY（2）：截断到剩余预算的 30%
+           - 优先级 == _PRIORITY_SUMMARY（1）：截断到剩余预算的 80%
+           - 优先级 == _PRIORITY_CRITICAL（0）：永不丢弃
+        3. 每次处理后重新计算总量，达标即停。
+        """
+        budget = cls._MAX_INJECTION_TOKENS
+
+        def total_tokens() -> int:
+            return sum(cls._estimate_tokens(p[1]) for p in parts)
+
+        if total_tokens() <= budget:
+            return parts
+
+        # 按优先级从低到高处理（数字大的先处理）
+        # 第 1 步：丢弃所有 NOTES（最低优先级，临时内容）
+        parts = [p for p in parts if p[0] != cls._PRIORITY_NOTES]
+        if total_tokens() <= budget:
+            return parts
+
+        # 第 2 步：丢弃所有 SKILLS_LIST 和 SUBAGENT（列表性质，可重建）
+        parts = [p for p in parts if p[0] not in (cls._PRIORITY_SKILLS_LIST, cls._PRIORITY_SUBAGENT)]
+        if total_tokens() <= budget:
+            return parts
+
+        # 第 3 步：截断 HISTORY 到剩余预算的 50%
+        remaining = budget - sum(cls._estimate_tokens(p[1]) for p in parts if p[0] != cls._PRIORITY_HISTORY)
+        history_quota = max(2000, remaining // 2)
+        new_parts: list[tuple[int, str]] = []
+        for p in parts:
+            if p[0] == cls._PRIORITY_HISTORY:
+                truncated = truncate_text(p[1], history_quota * 4)
+                new_parts.append((p[0], truncated))
+            else:
+                new_parts.append(p)
+        parts = new_parts
+        if total_tokens() <= budget:
+            return parts
+
+        # 第 4 步：截断 MEMORY/SHARED_MEMORY 到剩余预算的 30%
+        remaining = budget - sum(
+            cls._estimate_tokens(p[1]) for p in parts
+            if p[0] not in (cls._PRIORITY_MEMORY, cls._PRIORITY_SHARED_MEMORY)
+        )
+        memory_quota = max(1500, (remaining * 3) // 10)
+        new_parts = []
+        for p in parts:
+            if p[0] in (cls._PRIORITY_MEMORY, cls._PRIORITY_SHARED_MEMORY):
+                truncated = truncate_text(p[1], memory_quota * 4)
+                new_parts.append((p[0], truncated))
+            else:
+                new_parts.append(p)
+        parts = new_parts
+        if total_tokens() <= budget:
+            return parts
+
+        # 第 5 步：截断 SKILLS_ACTIVE 到剩余预算的 30%
+        remaining = budget - sum(cls._estimate_tokens(p[1]) for p in parts if p[0] != cls._PRIORITY_SKILLS_ACTIVE)
+        skills_quota = max(1000, (remaining * 3) // 10)
+        new_parts = []
+        for p in parts:
+            if p[0] == cls._PRIORITY_SKILLS_ACTIVE:
+                truncated = truncate_text(p[1], skills_quota * 4)
+                new_parts.append((p[0], truncated))
+            else:
+                new_parts.append(p)
+        parts = new_parts
+        if total_tokens() <= budget:
+            return parts
+
+        # 第 6 步：截断 SUMMARY 到剩余预算的 80%（summary 是上下文连续性关键）
+        remaining = budget - sum(cls._estimate_tokens(p[1]) for p in parts if p[0] != cls._PRIORITY_SUMMARY)
+        summary_quota = max(1000, (remaining * 4) // 5)
+        new_parts = []
+        for p in parts:
+            if p[0] == cls._PRIORITY_SUMMARY:
+                truncated = truncate_text(p[1], summary_quota * 4)
+                new_parts.append((p[0], truncated))
+            else:
+                new_parts.append(p)
+        parts = new_parts
+        # CRITICAL 永不丢弃；若仍超预算只能接受（说明 bootstrap 文件本身就超大，
+        # 用户应自行精简 SOUL.md/USER.md/AGENTS.md）
+        return parts
 
     def _get_identity(self, channel: str | None = None, workspace: Path | None = None) -> str:
         """Get the core identity section."""

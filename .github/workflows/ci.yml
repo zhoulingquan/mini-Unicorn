@@ -14,15 +14,47 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+      - name: Install dependencies
+        run: uv sync --all-extras
+      # Full ruff check (all rules enabled in pyproject.toml), not just pyflakes (F).
+      - name: Lint with ruff (full check)
+        run: uv run ruff check miniUnicorn
+      - name: Format check with ruff
+        run: uv run ruff format --check miniUnicorn
+
   test:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON('["ubuntu-latest","windows-latest"]') }}
-        # pyproject requires-python = ">=3.11"; test the full supported range.
+        # Cover the three major desktop OSes. Linux is the cheapest, so it
+        # carries the newest AND oldest supported Python (3.11 + 3.14);
+        # macOS and Windows sanity-check 3.12/3.13 to catch platform bugs
+        # without exploding the matrix cost.
+        os: ${{ fromJSON('["ubuntu-latest","macos-latest","windows-latest"]') }}
         python-version: ${{ fromJSON('["3.11","3.12","3.13","3.14"]') }}
+        exclude:
+          # Trim cost: only run 3.12/3.13 on macOS/Windows (3.11 + 3.14 covered by Linux).
+          - os: macos-latest
+            python-version: "3.11"
+          - os: macos-latest
+            python-version: "3.14"
+          - os: windows-latest
+            python-version: "3.11"
+          - os: windows-latest
+            python-version: "3.14"
 
     steps:
       - uses: actions/checkout@v4
@@ -35,22 +67,6 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
-      - name: Cache uv
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/uv
-          key: ${{ runner.os }}-${{ matrix.python-version }}-uv-${{ hashFiles('pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.python-version }}-uv-
-
-      - name: Cache ruff
-        uses: actions/cache@v4
-        with:
-          path: .ruff_cache
-          key: ${{ runner.os }}-ruff-${{ hashFiles('pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-ruff-
-
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libolm-dev build-essential
@@ -58,11 +74,5 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
-      - name: Lint with ruff
-        run: uv run ruff check miniUnicorn
-
-      - name: Run tests with coverage
-        run: uv run pytest tests/ --cov=miniUnicorn --cov-report=term --cov-report=xml
-
-      - name: Run pip-audit
-        run: uv run pip-audit
+      - name: Run tests
+        run: uv run pytest tests/

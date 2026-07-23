@@ -6,16 +6,23 @@ import asyncio
 import dataclasses
 import os
 import time
-from contextlib import AsyncExitStack, nullcontext
-from dataclasses import dataclass, field
-from enum import Enum, auto
+from contextlib import AsyncExitStack, nullcontext, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from weakref import WeakValueDictionary
 
 from loguru import logger
 
 from miniUnicorn.agent import context as agent_context
 from miniUnicorn.agent import model_presets as preset_helpers
+from miniUnicorn.agent._mcp_lifecycle import McpLifecycleMixin
+from miniUnicorn.agent._provider_switching import ProviderSwitchingMixin
+from miniUnicorn.agent._state_machine import (
+    StateMixin,
+    StateTraceEntry,
+    TurnContext,
+    TurnState,
+)
 from miniUnicorn.agent.autocompact import AutoCompact
 from miniUnicorn.agent.context import ContextBuilder
 from miniUnicorn.agent.hook import AgentHook, CompositeHook
@@ -32,13 +39,12 @@ from miniUnicorn.agent.tools.context import (
 from miniUnicorn.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
 from miniUnicorn.agent.tools.message import MessageTool
 from miniUnicorn.agent.tools.registry import ToolRegistry
-from miniUnicorn.agent.tools.self import MyTool
 from miniUnicorn.bus.events import InboundMessage, OutboundMessage, make_session_key
 from miniUnicorn.bus.queue import MessageBus
 from miniUnicorn.command import CommandContext, CommandRouter, register_builtin_commands
 from miniUnicorn.config.schema import AgentDefaults, ModelPresetConfig
 from miniUnicorn.providers.base import LLMProvider
-from miniUnicorn.providers.factory import ProviderSignature, ProviderSnapshot
+from miniUnicorn.providers.factory import ProviderSnapshot
 from miniUnicorn.security.workspace_access import (
     WorkspaceScopeResolver,
     bind_workspace_scope,
@@ -53,125 +59,27 @@ from miniUnicorn.session.manager import Session, SessionManager
 from miniUnicorn.session.webui_turns import (
     WebuiTurnCoordinator,
     build_bus_progress_callback,
-    mark_webui_session,
 )
-from miniUnicorn.utils.document import extract_documents, reference_non_image_attachments
+from miniUnicorn.utils.document import extract_documents  # re-export for tests/extensions
 from miniUnicorn.utils.helpers import image_placeholder_text
 from miniUnicorn.utils.helpers import truncate_text as truncate_text_fn
 from miniUnicorn.utils.llm_runtime import LLMRuntime
 from miniUnicorn.utils.runtime import (
-    EMPTY_FINAL_RESPONSE_MESSAGE,
     SUSTAINED_GOAL_CONTINUE_PROMPT,
 )
 
 if TYPE_CHECKING:
-    pass
+    from miniUnicorn.config.schema import (
+        ChannelsConfig,
+        ToolsConfig,
+    )
+    from miniUnicorn.cron.service import CronService
 
 
 UNIFIED_SESSION_KEY = "unified:default"
 
-class TurnState(Enum):
-    RESTORE = auto()
-    COMPACT = auto()
-    COMMAND = auto()
-    BUILD = auto()
-    RUN = auto()
-    SAVE = auto()
-    RESPOND = auto()
-    DONE = auto()
 
-
-@dataclass
-class StateTraceEntry:
-    state: TurnState
-    started_at: float
-    duration_ms: float
-    event: str
-    error: str | None = None
-
-
-@dataclass
-class TurnContext:
-    msg: InboundMessage
-    session_key: str
-    state: TurnState
-    turn_id: str
-    session: Session | None = None
-
-    history: list[dict[str, Any]] = field(default_factory=list)
-    initial_messages: list[dict[str, Any]] = field(default_factory=list)
-
-    final_content: str | None = None
-    tools_used: list[str] = field(default_factory=list)
-    all_messages: list[dict[str, Any]] = field(default_factory=list)
-    stop_reason: str = ""
-    had_injections: bool = False
-
-    user_persisted_early: bool = False
-    save_skip: int = 0
-
-    outbound: OutboundMessage | None = None
-
-    on_progress: Callable[..., Awaitable[None]] | None = None
-    on_stream: Callable[[str], Awaitable[None]] | None = None
-    on_stream_end: Callable[..., Awaitable[None]] | None = None
-    on_retry_wait: Callable[[str], Awaitable[None]] | None = None
-
-    pending_queue: asyncio.Queue | None = None
-    pending_summary: str | None = None
-    turn_wall_started_at: float = field(default_factory=time.time)
-    turn_latency_ms: int | None = None
-
-    trace: list[StateTraceEntry] = field(default_factory=list)
-    # Subagent takeover: when set, the turn runs as this subagent's identity
-    # (system prompt, tools whitelist, model) instead of the default agent.
-    agent_override: SubagentDefinition | None = None
-
-
-@dataclass
-class AgentLoopOptions:
-    """Optional AgentLoop parameters grouped into a dataclass.
-
-    Pass to ``AgentLoop(options=...)`` for a cleaner construction path.
-    Individual keyword arguments to ``__init__`` still work (backward
-    compat) and override values from this dataclass. Fields typed as
-    ``Any`` correspond to types only available under ``TYPE_CHECKING``
-    (CronService, ChannelsConfig, ToolsConfig).
-    """
-    model: str | None = None
-    max_iterations: int | None = None
-    max_concurrent_subagents: int | None = None
-    context_window_tokens: int | None = None
-    context_block_limit: int | None = None
-    max_tool_result_chars: int | None = None
-    provider_retry_mode: str = "standard"
-    tool_hint_max_length: int | None = None
-    cron_service: Any | None = None
-    restrict_to_workspace: bool = False
-    session_manager: SessionManager | None = None
-    mcp_servers: dict | None = None
-    channels_config: Any | None = None
-    timezone: str | None = None
-    session_ttl_minutes: int = 0
-    consolidation_ratio: float = 0.5
-    max_messages: int = 120
-    vector_recall: bool = False
-    embedding_model: str = "text-embedding-3-small"
-    hooks: list[AgentHook] | None = None
-    unified_session: bool = False
-    disabled_skills: list[str] | None = None
-    tools_config: Any | None = None
-    provider_snapshot_loader: Callable[..., ProviderSnapshot] | None = None
-    # provider_signature 既可能是 ``ProviderSignature``(由 ``provider_signature()``
-    # 产出),也可能是测试中构造的短元组;因此联合类型。
-    provider_signature: ProviderSignature | tuple[object, ...] | None = None
-    model_presets: dict[str, ModelPresetConfig] | None = None
-    model_preset: str | None = None
-    preset_snapshot_loader: preset_helpers.PresetSnapshotLoader | None = None
-    runtime_model_publisher: Callable[[str, str | None], None] | None = None
-
-
-class AgentLoop:
+class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
     """
     The agent loop is the core processing engine.
 
@@ -234,48 +142,38 @@ class AgentLoop:
         bus: MessageBus,
         provider: LLMProvider,
         workspace: Path,
-        *,
-        options: AgentLoopOptions | None = None,
-        **overrides: Any,
+        model: str | None = None,
+        max_iterations: int | None = None,
+        max_concurrent_subagents: int | None = None,
+        max_subagent_recursion_depth: int | None = None,
+        context_window_tokens: int | None = None,
+        context_block_limit: int | None = None,
+        max_tool_result_chars: int | None = None,
+        provider_retry_mode: str = "standard",
+        tool_hint_max_length: int | None = None,
+        cron_service: CronService | None = None,
+        restrict_to_workspace: bool = False,
+        session_manager: SessionManager | None = None,
+        mcp_servers: dict | None = None,
+        channels_config: ChannelsConfig | None = None,
+        timezone: str | None = None,
+        session_ttl_minutes: int = 0,
+        consolidation_ratio: float = 0.5,
+        max_messages: int = 120,
+        vector_recall: bool = False,
+        embedding_model: str = "text-embedding-3-small",
+        hooks: list[AgentHook] | None = None,
+        unified_session: bool = False,
+        disabled_skills: list[str] | None = None,
+        tools_config: ToolsConfig | None = None,
+        provider_snapshot_loader: Callable[..., ProviderSnapshot] | None = None,
+        provider_signature: tuple[object, ...] | None = None,
+        model_presets: dict[str, ModelPresetConfig] | None = None,
+        model_preset: str | None = None,
+        preset_snapshot_loader: preset_helpers.PresetSnapshotLoader | None = None,
+        runtime_model_publisher: Callable[[str, str | None], None] | None = None,
     ):
         from miniUnicorn.config.schema import ToolsConfig
-
-        # Aggregate optional params via AgentLoopOptions dataclass. Individual
-        # keyword arguments (backward-compat path) override dataclass values.
-        opts = options or AgentLoopOptions()
-        if overrides:
-            opts = dataclasses.replace(opts, **overrides)
-        # Unpack into locals so the body below is unchanged from the
-        # original per-parameter __init__.
-        model = opts.model
-        max_iterations = opts.max_iterations
-        max_concurrent_subagents = opts.max_concurrent_subagents
-        context_window_tokens = opts.context_window_tokens
-        context_block_limit = opts.context_block_limit
-        max_tool_result_chars = opts.max_tool_result_chars
-        provider_retry_mode = opts.provider_retry_mode
-        tool_hint_max_length = opts.tool_hint_max_length
-        cron_service = opts.cron_service
-        restrict_to_workspace = opts.restrict_to_workspace
-        session_manager = opts.session_manager
-        mcp_servers = opts.mcp_servers
-        channels_config = opts.channels_config
-        timezone = opts.timezone
-        session_ttl_minutes = opts.session_ttl_minutes
-        consolidation_ratio = opts.consolidation_ratio
-        max_messages = opts.max_messages
-        vector_recall = opts.vector_recall
-        embedding_model = opts.embedding_model
-        hooks = opts.hooks
-        unified_session = opts.unified_session
-        disabled_skills = opts.disabled_skills
-        tools_config = opts.tools_config
-        provider_snapshot_loader = opts.provider_snapshot_loader
-        provider_signature = opts.provider_signature
-        model_presets = opts.model_presets
-        model_preset = opts.model_preset
-        preset_snapshot_loader = opts.preset_snapshot_loader
-        runtime_model_publisher = opts.runtime_model_publisher
 
         _tc = tools_config or ToolsConfig()
         defaults = AgentDefaults()
@@ -323,11 +221,6 @@ class AgentLoop:
         # Plan-and-Execute / Reflection / TurnBudget defaults (all opt-in).
         # Read from AgentDefaults so users can enable these via YAML config;
         # all default to False/None, preserving legacy behavior.
-        #
-        # 兼容性说明:此处使用 getattr(defaults, ..., default) 而非直接属性访问,
-        # 是为了兼容旧版 AgentDefaults 子类或自定义配置对象未声明这些可选字段的
-        # 情形,避免触发 AttributeError。这些字段属于渐进添加的可选功能,旧的
-        # 配置文件或外部子类可能未同步更新 dataclass 定义。
         self.use_planner = getattr(defaults, "use_planner", False)
         self.planner_model = getattr(defaults, "planner_model", None)
         self.planner_max_replans = getattr(defaults, "planner_max_replans", 3)
@@ -336,6 +229,7 @@ class AgentLoop:
         self._max_input_tokens_per_turn = getattr(defaults, "max_input_tokens_per_turn", None)
         self._max_cost_per_turn_usd = getattr(defaults, "max_cost_per_turn_usd", None)
         self.tools_config = _tc
+        self.web_config = _tc.web
         self.exec_config = _tc.exec
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
@@ -349,7 +243,6 @@ class AgentLoop:
         self._pending_turn_latency_ms: dict[str, int] = {}
         self._extra_hooks: list[AgentHook] = hooks or []
 
-        self.timezone = timezone
         self.context = ContextBuilder(workspace, timezone=timezone, disabled_skills=disabled_skills)
         self.sessions = session_manager or SessionManager(workspace)
         self._webui_turns = WebuiTurnCoordinator(
@@ -374,6 +267,7 @@ class AgentLoop:
             max_iterations=self.max_iterations,
             max_concurrent_subagents=max_concurrent_subagents,
             llm_wall_timeout_for_session=lambda sk: runner_wall_llm_timeout_s(self.sessions, sk),
+            max_subagent_recursion_depth=max_subagent_recursion_depth,
         )
         # Declarative subagent registry (TRAE-style .md definitions in agents/).
         # Loaded once at startup; empty when no agents/ dir exists.
@@ -389,14 +283,11 @@ class AgentLoop:
         self._mcp_connecting = False
         self._active_tasks: dict[str, list[asyncio.Task]] = {}  # session_key -> tasks
         self._background_tasks: list[asyncio.Task] = []
-        self._session_locks: dict[str, asyncio.Lock] = {}
+        self._session_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
         # Per-session pending queues for mid-turn message injection.
         # When a session has an active task, new messages for that session
         # are routed here instead of creating a new task.
         self._pending_queues: dict[str, asyncio.Queue] = {}
-        # 注册 SessionManager LRU evict 回调:当会话从缓存淘汰时,清理本 loop
-        # 持有的锁和待处理队列。具体逻辑见 _on_session_evict 方法。
-        self.sessions.set_on_evict(self._on_session_evict)
         # MINIUNICORN_MAX_CONCURRENT_REQUESTS: <=0 means unlimited; default 3.
         _max = int(os.environ.get("MINIUNICORN_MAX_CONCURRENT_REQUESTS", "3"))
         self._concurrency_gate: asyncio.Semaphore | None = (
@@ -460,171 +351,12 @@ class AgentLoop:
         Extra keyword arguments are forwarded to ``AgentLoop.__init__``,
         allowing callers to override or extend the standard config-derived
         parameters (e.g. ``cron_service``, ``session_manager``).
+
+        内部委托给 ``AgentLoopBuilder.from_config`` 以保持单一的参数解析路径。
         """
-        from miniUnicorn.providers.factory import make_provider
+        from miniUnicorn.agent.loop_builder import AgentLoopBuilder
 
-        if bus is None:
-            bus = MessageBus()
-        defaults = config.agents.defaults
-        provider = extra.pop("provider", None) or make_provider(config)
-        resolved = config.resolve_preset()
-        model = extra.pop("model", None) or resolved.model
-        context_window_tokens = extra.pop("context_window_tokens", None) or resolved.context_window_tokens
-        provider_snapshot_loader = extra.pop("provider_snapshot_loader", None)
-        preset_snapshot_loader = extra.pop("preset_snapshot_loader", None) or preset_helpers.make_preset_snapshot_loader(
-            config,
-            provider_snapshot_loader,
-        )
-        return cls(
-            bus=bus,
-            provider=provider,
-            workspace=config.workspace_path,
-            model=model,
-            max_iterations=defaults.max_tool_iterations,
-            max_concurrent_subagents=defaults.max_concurrent_subagents,
-            context_window_tokens=context_window_tokens,
-            context_block_limit=defaults.context_block_limit,
-            max_tool_result_chars=defaults.max_tool_result_chars,
-            provider_retry_mode=defaults.provider_retry_mode,
-            tool_hint_max_length=defaults.tool_hint_max_length,
-            restrict_to_workspace=config.tools.restrict_to_workspace,
-            mcp_servers=config.tools.mcp_servers,
-            channels_config=config.channels,
-            timezone=defaults.timezone,
-            unified_session=defaults.unified_session,
-            disabled_skills=defaults.disabled_skills,
-            session_ttl_minutes=defaults.session_ttl_minutes,
-            consolidation_ratio=defaults.consolidation_ratio,
-            max_messages=defaults.max_messages,
-            vector_recall=defaults.vector_recall,
-            embedding_model=defaults.embedding_model,
-            tools_config=config.tools,
-            model_presets=preset_helpers.configured_model_presets(config),
-            model_preset=defaults.model_preset,
-            provider_snapshot_loader=provider_snapshot_loader,
-            preset_snapshot_loader=preset_snapshot_loader,
-            **extra,
-        )
-
-    def _sync_subagent_runtime_limits(self) -> None:
-        """Keep subagent runtime limits aligned with mutable loop settings."""
-        self.subagents.max_iterations = self.max_iterations
-
-    def _apply_provider_snapshot(
-        self,
-        snapshot: ProviderSnapshot,
-        *,
-        publish_update: bool = True,
-        model_preset: str | None = None,
-    ) -> None:
-        """Swap model/provider for future turns without disturbing an active one."""
-        provider = snapshot.provider
-        model = snapshot.model
-        context_window_tokens = snapshot.context_window_tokens
-        # Auto-detect when snapshot didn't carry a concrete value.
-        # Resolution: built-in table → cache → Hugging Face API → fail-loud.
-        if context_window_tokens is None:
-            from miniUnicorn.cli.models import get_model_context_limit
-
-            context_window_tokens = get_model_context_limit(
-                model, raise_on_unknown=True
-            )
-        old_model = self.model
-        self.provider = provider
-        self.model = model
-        self.context_window_tokens = context_window_tokens
-        self.runner.provider = provider
-        self.subagents.set_provider(provider, model)
-        self.consolidator.set_provider(provider, model, context_window_tokens)
-        self.dream.set_provider(provider, model)
-        self._provider_signature = snapshot.signature
-        if publish_update and self._runtime_model_publisher is not None:
-            self._runtime_model_publisher(
-                self.model,
-                model_preset if model_preset is not None else self.model_preset,
-            )
-        logger.info("Runtime model switched for next turn: {} -> {}", old_model, model)
-
-    def _refresh_provider_snapshot(self) -> None:
-        if self._provider_snapshot_loader is None:
-            return
-        try:
-            snapshot = self._provider_snapshot_loader()
-        except Exception:
-            logger.exception("Failed to refresh provider config")
-            return
-        default_selection = preset_helpers.default_selection_signature(snapshot.signature)
-        if self._active_preset and self._default_selection_signature in (None, default_selection):
-            self._default_selection_signature = default_selection
-            try:
-                snapshot = self._build_model_preset_snapshot(self._active_preset)
-            except Exception:
-                logger.exception("Failed to refresh active model preset")
-                return
-        else:
-            self._active_preset = None
-            self._default_selection_signature = default_selection
-        if snapshot.signature == self._provider_signature:
-            return
-        self._default_selection_signature = preset_helpers.default_selection_signature(snapshot.signature)
-        self._apply_provider_snapshot(snapshot)
-
-    @property
-    def model_preset(self) -> str | None:
-        return self._active_preset
-
-    @model_preset.setter
-    def model_preset(self, name: str | None) -> None:
-        self.set_model_preset(name)
-
-    def _build_model_preset_snapshot(self, name: str) -> ProviderSnapshot:
-        return preset_helpers.build_runtime_preset_snapshot(
-            name=name,
-            presets=self.model_presets,
-            provider=self.provider,
-            loader=self._preset_snapshot_loader,
-        )
-
-    def set_model_preset(self, name: str | None, *, publish_update: bool = True) -> None:
-        """Resolve a preset by name and apply all runtime model dependents."""
-        name = preset_helpers.normalize_preset_name(name, self.model_presets)
-        snapshot = self._build_model_preset_snapshot(name)
-        self._apply_provider_snapshot(snapshot, publish_update=publish_update, model_preset=name)
-        self._active_preset = name
-
-    def _register_default_tools(self) -> None:
-        """Register the default set of tools via plugin loader."""
-        from miniUnicorn.agent.tools.context import ToolContext
-        from miniUnicorn.agent.tools.loader import ToolLoader
-
-        ctx = ToolContext(
-            config=self.tools_config,
-            workspace=str(self.workspace),
-            bus=self.bus,
-            subagent_manager=self.subagents,
-            cron_service=self.cron_service,
-            sessions=self.sessions,
-            provider_snapshot_loader=self._provider_snapshot_loader,
-            timezone=self.timezone or "UTC",
-            workspace_sandbox=self.workspace_scopes.sandbox_status,
-            memory_store=self.context.memory if self._vector_recall else None,
-            subagent_registry=self.subagent_registry,
-        )
-        loader = ToolLoader()
-        registered = loader.load(ctx, self.tools)
-
-        # MyTool needs runtime state reference — manual registration
-        if self.tools_config.my.enable:
-            self.tools.register(
-                MyTool(runtime_state=self, modify_allowed=self.tools_config.my.allow_set)
-            )
-            registered.append("my")
-
-        logger.info("Registered {} tools: {}", len(registered), registered)
-
-    async def _connect_mcp(self) -> None:
-        """Connect configured MCP servers."""
-        await agent_context.connect_mcp(self, self.tools)
+        return AgentLoopBuilder.from_config(config, bus=bus, **extra).build()
 
     def _set_tool_context(
         self, channel: str, chat_id: str,
@@ -765,20 +497,6 @@ class AgentLoop:
         else:
             logger.warning("Command '{}' matched but dispatch returned None", raw)
 
-    def _on_session_evict(self, key: str) -> None:
-        """SessionManager LRU evict 回调:会话从缓存淘汰时清理本 loop 持有的资源。
-
-        **仅当该会话当前没有活跃任务时**才清理,否则任务结束后的 finally 块
-        仍会引用这些结构(锁和待处理队列),过早清理会导致 _dispatch 出错。
-        """
-        if self._active_tasks.get(key):
-            # 有活跃任务:保留锁和队列,让 _dispatch 的 finally 自行清理。
-            return
-        self._session_locks.pop(key, None)
-        # pending_queues 不应残留(_dispatch finally 会 pop),但保险起见仍清掉。
-        self._pending_queues.pop(key, None)
-        self._pending_turn_latency_ms.pop(key, None)
-
     async def _cancel_active_tasks(self, key: str) -> int:
         """Cancel and await all active tasks and subagents for *key*.
 
@@ -787,18 +505,8 @@ class AgentLoop:
         tasks = self._active_tasks.pop(key, [])
         cancelled = sum(1 for t in tasks if not t.done() and t.cancel())
         for t in tasks:
-            try:
+            with suppress(asyncio.CancelledError, Exception):
                 await t
-            except asyncio.CancelledError:
-                # Propagate only when the current task itself is being
-                # cancelled; otherwise this is the awaited task's own
-                # (expected) cancellation from t.cancel() above.
-                if asyncio.current_task().cancelling():
-                    raise
-            except Exception:
-                # 取消任务时的清理错误应可见 - 此前用 debug 级别会静默关键问题
-                # (例如子任务抛出非 CancelledError 异常),不利于排查。
-                logger.warning("Task cleanup error in _cancel_active_tasks", exc_info=True)
         sub_cancelled = await self.subagents.cancel_by_session(key)
         return cancelled + sub_cancelled
 
@@ -1124,85 +832,19 @@ class AgentLoop:
                 else None
             )
 
-    async def _cleanup_dispatch(
-        self,
-        session_key: str,
-        msg: InboundMessage,
-        pending: asyncio.Queue | None,
-    ) -> None:
-        """统一清理 _dispatch 资源(幂等,可多次调用不报错)。
-
-        涵盖所有退出路径(正常/cancel/exception/未获取锁)的清理工作:
-        1. 排空 pending 队列中残留消息,重新发布到 bus(仅当 pending 不为 None)
-        2. 发布 idle 状态
-        3. 移除 turn latency 记录
-        4. 丢弃 webui turn 跟踪
-
-        每个步骤用 try/except 隔离,防止单步失败影响其他清理。
-        """
-        # 1. 排空 pending 队列(只有当 pending 仍属于当前 session 时才取走,
-        # 避免 steal 后续任务的 cleanup ownership)。
-        if pending is not None:
-            try:
-                queue = None
-                if self._pending_queues.get(session_key) is pending:
-                    queue = self._pending_queues.pop(session_key, None)
-                else:
-                    queue = pending
-                if queue is not None:
-                    leftover = 0
-                    while True:
-                        try:
-                            item = queue.get_nowait()
-                        except asyncio.QueueEmpty:
-                            break
-                        await self.bus.publish_inbound(item)
-                        leftover += 1
-                    if leftover:
-                        logger.info(
-                            "Re-published {} leftover message(s) to bus for session {}",
-                            leftover, session_key,
-                        )
-            except Exception:
-                logger.debug(
-                    "Failed to drain pending queue for session {}",
-                    session_key,
-                    exc_info=True,
-                )
-        # 2. 发布 idle 状态。
-        try:
-            await self._webui_turns.publish_run_status(msg, "idle")
-        except Exception:
-            logger.debug(
-                "Failed to publish idle run status for session {}",
-                session_key,
-                exc_info=True,
-            )
-        # 3. 移除 turn latency 记录(pop 自带默认值,天然幂等)。
-        try:
-            self._pending_turn_latency_ms.pop(session_key, None)
-        except Exception:
-            logger.debug(
-                "Failed to pop pending turn latency for session {}",
-                session_key,
-                exc_info=True,
-            )
-        # 4. 丢弃 webui turn 跟踪。
-        try:
-            self._webui_turns.discard(session_key)
-        except Exception:
-            logger.debug(
-                "Failed to discard webui turn for session {}",
-                session_key,
-                exc_info=True,
-            )
-
     async def _dispatch(self, msg: InboundMessage) -> None:
         """Process a message: per-session serial, cross-session concurrent."""
         session_key = self._effective_session_key(msg)
         if session_key != msg.session_key:
             msg = dataclasses.replace(msg, session_key_override=session_key)
-        lock = self._session_locks.setdefault(session_key, asyncio.Lock())
+        # WeakValueDictionary: when a session goes idle and all in-flight
+        # tasks drop their strong refs to the lock, the entry is GC'd
+        # automatically — prevents unbounded growth of session locks for
+        # short-lived chats.
+        lock = self._session_locks.get(session_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._session_locks[session_key] = lock
         gate = self._concurrency_gate or nullcontext()
 
         pending: asyncio.Queue | None = None
@@ -1284,9 +926,7 @@ class AgentLoop:
                                 key,
                             )
                     except Exception:
-                        # checkpoint 恢复失败会导致用户丢失部分上下文(工具结果、
-                        # assistant 消息等),属于影响用户体验的关键问题,需要可见。
-                        logger.warning(
+                        logger.debug(
                             "Could not restore checkpoint for cancelled session {}",
                             session_key,
                             exc_info=True,
@@ -1299,26 +939,38 @@ class AgentLoop:
                         content="Sorry, I encountered an error.",
                     ))
                 finally:
-                    # 内层 finally:统一清理(pending 必不为 None,会排空队列)。
-                    # 详细逻辑见 _cleanup_dispatch。
-                    await self._cleanup_dispatch(session_key, msg, pending)
+                    # Drain any messages still in the pending queue and re-publish
+                    # them to the bus so they are processed as fresh inbound messages
+                    # rather than silently lost.  Only remove our own queue; a
+                    # later task waiting on the lock must not be able to steal
+                    # cleanup ownership.
+                    queue = None
+                    if self._pending_queues.get(session_key) is pending:
+                        queue = self._pending_queues.pop(session_key, None)
+                    else:
+                        queue = pending
+                    if queue is not None:
+                        leftover = 0
+                        while True:
+                            try:
+                                item = queue.get_nowait()
+                            except asyncio.QueueEmpty:
+                                break
+                            await self.bus.publish_inbound(item)
+                            leftover += 1
+                        if leftover:
+                            logger.info(
+                                "Re-published {} leftover message(s) to bus for session {}",
+                                leftover, session_key,
+                            )
+                    await self._webui_turns.publish_run_status(msg, "idle")
+                    self._pending_turn_latency_ms.pop(session_key, None)
+                    self._webui_turns.discard(session_key)
         finally:
-            # 外层 finally:仅当未获取锁(pending is None,即从未进入内层 try)
-            # 时执行清理。_cleanup_dispatch 是幂等的,即使重复调用也不会出错。
             if pending is None:
-                await self._cleanup_dispatch(session_key, msg, pending)
-
-    async def close_mcp(self) -> None:
-        """Drain pending background archives, then close MCP connections."""
-        if self._background_tasks:
-            await asyncio.gather(*self._background_tasks, return_exceptions=True)
-            self._background_tasks.clear()
-        for name, stack in self._mcp_stacks.items():
-            try:
-                await stack.aclose()
-            except (RuntimeError, BaseExceptionGroup):
-                logger.debug("MCP server '{}' cleanup error (can be ignored)", name)
-        self._mcp_stacks.clear()
+                await self._webui_turns.publish_run_status(msg, "idle")
+                self._pending_turn_latency_ms.pop(session_key, None)
+                self._webui_turns.discard(session_key)
 
     def _schedule_background(self, coro) -> None:
         """Schedule a coroutine as a tracked background task (drained on shutdown)."""
@@ -1551,180 +1203,6 @@ class AgentLoop:
             content=final_content,
             metadata=meta,
         )
-
-    async def _state_restore(self, ctx: TurnContext) -> TurnState:
-        """Restore checkpoint / pending user turn; extract documents."""
-        msg = ctx.msg
-
-        if msg.media:
-            new_content, image_only = self._prepare_message_media(msg.content, msg.media)
-            ctx.msg = dataclasses.replace(msg, content=new_content, media=image_only)
-            msg = ctx.msg
-
-        preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
-        logger.info("Processing message from {}:{}: {}", msg.channel, msg.sender_id, preview)
-
-        # Session is already fetched by the caller (_process_message) but
-        # ensure it exists in case this handler is invoked independently.
-        if ctx.session is None:
-            ctx.session = self.sessions.get_or_create(ctx.session_key)
-        mark_webui_session(ctx.session, msg.metadata)
-        self.workspace_scopes.persist_message_scope(ctx.session, msg)
-
-        if self._restore_runtime_checkpoint(ctx.session):
-            self.sessions.save(ctx.session)
-        if self._restore_pending_user_turn(ctx.session):
-            self.sessions.save(ctx.session)
-
-        return "ok"
-
-    def _prepare_message_media(self, content: str, media: list[str]) -> tuple[str, list[str]]:
-        if self._should_extract_document_text():
-            return extract_documents(content, media)
-        return reference_non_image_attachments(content, media)
-
-    def _should_extract_document_text(self) -> bool:
-        if self.channels_config is None:
-            return True
-        return self.channels_config.extract_document_text
-
-    async def _state_compact(self, ctx: TurnContext) -> str:
-        ctx.session, pending = self.auto_compact.prepare_session(ctx.session, ctx.session_key)
-        ctx.pending_summary = pending
-        return "ok"
-
-    async def _state_command(self, ctx: TurnContext) -> str:
-        raw = ctx.msg.content.strip()
-        cmd_ctx = CommandContext(
-            msg=ctx.msg, session=ctx.session, key=ctx.session_key, raw=raw, loop=self
-        )
-        result = await self.commands.dispatch(cmd_ctx)
-        if result is not None:
-            ctx.outbound = result
-            # Shortcut commands skip BUILD and SAVE, so we must persist the
-            # turn here so WebUI history hydration after _turn_end sees the
-            # message.  Mark messages with _command so get_history can filter
-            # them out of LLM context.  /new is excluded because it
-            # intentionally clears the session.
-            if raw.lower() != "/new":
-                ctx.user_persisted_early = self._persist_user_message_early(
-                    ctx.msg, ctx.session, _command=True
-                )
-                ctx.session.add_message(
-                    "assistant", result.content, _command=True
-                )
-                self.sessions.save(ctx.session)
-                self._clear_pending_user_turn(ctx.session)
-            return "shortcut"
-        return "dispatch"
-
-    async def _state_build(self, ctx: TurnContext) -> str:
-        await self.consolidator.maybe_consolidate_by_tokens(
-            ctx.session,
-            replay_max_messages=self._max_messages,
-        )
-        self._set_tool_context(
-            ctx.msg.channel,
-            ctx.msg.chat_id,
-            ctx.msg.metadata.get("message_id"),
-            ctx.msg.metadata,
-            session_key=ctx.session_key,
-        )
-        if message_tool := self.tools.get("message"):
-            if isinstance(message_tool, MessageTool):
-                message_tool.start_turn()
-
-        _hist_kwargs: dict[str, Any] = {
-            "max_messages": self._max_messages,
-            "max_tokens": self._replay_token_budget(),
-            "include_timestamps": True,
-        }
-        ctx.history = ctx.session.get_history(**_hist_kwargs)
-        self._webui_turns.capture_title_context(
-            ctx.session_key,
-            ctx.msg,
-            self.llm_runtime(),
-        )
-
-        ctx.initial_messages = await self._build_initial_messages(
-            ctx.msg,
-            ctx.session,
-            ctx.history,
-            ctx.pending_summary,
-            agent_override=ctx.agent_override,
-        )
-        ctx.user_persisted_early = self._persist_user_message_early(
-            ctx.msg, ctx.session
-        )
-
-        if ctx.on_progress is None:
-            ctx.on_progress = await self._build_bus_progress_callback(ctx.msg)
-        if ctx.on_retry_wait is None:
-            ctx.on_retry_wait = await self._build_retry_wait_callback(ctx.msg)
-
-        return "ok"
-
-    async def _state_run(self, ctx: TurnContext) -> str:
-        await self._webui_turns.publish_run_status(ctx.msg, "running")
-        result = await self._run_agent_loop(
-            ctx.initial_messages,
-            on_progress=ctx.on_progress,
-            on_stream=ctx.on_stream,
-            on_stream_end=ctx.on_stream_end,
-            on_retry_wait=ctx.on_retry_wait,
-            session=ctx.session,
-            channel=ctx.msg.channel,
-            chat_id=ctx.msg.chat_id,
-            message_id=ctx.msg.metadata.get("message_id"),
-            metadata=ctx.msg.metadata,
-            session_key=ctx.session_key,
-            pending_queue=ctx.pending_queue,
-            agent_override=ctx.agent_override,
-        )
-        final_content, tools_used, all_msgs, stop_reason, had_injections = result
-        ctx.final_content = final_content
-        ctx.tools_used = tools_used
-        ctx.all_messages = all_msgs
-        ctx.stop_reason = stop_reason
-        ctx.had_injections = had_injections
-        return "ok"
-
-    async def _state_save(self, ctx: TurnContext) -> str:
-        if ctx.final_content is None or not ctx.final_content.strip():
-            ctx.final_content = EMPTY_FINAL_RESPONSE_MESSAGE
-
-        ctx.save_skip = 1 + len(ctx.history) + (1 if ctx.user_persisted_early else 0)
-
-        ctx.turn_latency_ms = max(0, int((time.time() - ctx.turn_wall_started_at) * 1000))
-        self._save_turn(
-            ctx.session, ctx.all_messages, ctx.save_skip,
-            turn_latency_ms=ctx.turn_latency_ms,
-        )
-        if ctx.msg.channel == "websocket":
-            self._pending_turn_latency_ms[ctx.session_key] = ctx.turn_latency_ms
-        ctx.session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
-        self._clear_pending_user_turn(ctx.session)
-        self._clear_runtime_checkpoint(ctx.session)
-        self.sessions.save(ctx.session)
-        self._schedule_background(
-            self.consolidator.maybe_consolidate_by_tokens(
-                ctx.session,
-                replay_max_messages=self._max_messages,
-            )
-        )
-        return "ok"
-
-    async def _state_respond(self, ctx: TurnContext) -> str:
-        ctx.outbound = self._assemble_outbound(
-            ctx.msg,
-            ctx.final_content,
-            ctx.all_messages,
-            ctx.stop_reason,
-            ctx.had_injections,
-            ctx.on_stream,
-            turn_latency_ms=ctx.turn_latency_ms,
-        )
-        return "ok"
 
     def _sanitize_persisted_blocks(
         self,
@@ -1968,3 +1446,13 @@ class AgentLoop:
                 await self._webui_turns.publish_run_status(msg, "idle")
                 self._pending_turn_latency_ms.pop(session_key, None)
                 self._webui_turns.discard(session_key)
+
+
+# Re-export for backwards compatibility (tests/extensions may import from loop)
+__all__ = [
+    "AgentLoop",
+    "StateTraceEntry",
+    "TurnContext",
+    "TurnState",
+    "extract_documents",
+]

@@ -1,9 +1,18 @@
-import { Menu, Monitor, Moon, Sun } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, ChevronDown, Menu, Monitor, Moon, Sun } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { ThemeMode } from "@/hooks/useTheme";
-import { inferProviderFromModelName, providerBrand } from "@/lib/provider-brand";
+import { providerBrand, providerDisplayLabel, faviconUrls, type ProviderBrand } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
 
 interface ThreadHeaderProps {
@@ -15,8 +24,19 @@ interface ThreadHeaderProps {
   onToggleLanguage: () => void;
   hideSidebarToggleForHostChrome?: boolean;
   minimal?: boolean;
-  modelLabel?: string | null;
-  modelProvider?: string | null;
+  /** 可选的 provider 列表(从 settings.providers 过滤后传入)。 */
+  providers?: Array<{
+    name: string;
+    label: string;
+    configured: boolean;
+    is_custom_preset?: boolean;
+    api_base?: string | null;
+    presets?: Array<{ name: string; label: string; model: string; active: boolean }>;
+  }>;
+  /** 当前激活的 provider 名(如 "deepseek"、"custom")。 */
+  currentProvider?: string | null;
+  /** 用户在 header 选择新 provider 时触发。 */
+  onSelectProvider?: (provider: string) => void;
 }
 
 export function ThreadHeader({
@@ -28,10 +48,13 @@ export function ThreadHeader({
   onToggleLanguage,
   hideSidebarToggleForHostChrome = false,
   minimal = false,
-  modelLabel = null,
-  modelProvider = null,
+  providers = [],
+  currentProvider = null,
+  onSelectProvider,
 }: ThreadHeaderProps) {
   const { t } = useTranslation();
+  const showProviderSwitcher = !!onSelectProvider && providers.length > 0;
+
   if (minimal) {
     return (
       <div className="relative z-10 flex h-11 items-center justify-between gap-3 px-3 py-2">
@@ -47,17 +70,26 @@ export function ThreadHeader({
         >
           <Menu className="h-3.5 w-3.5" />
         </Button>
-        <div className="ml-auto flex items-center -space-x-1">
-          <LocaleButton
-            onToggleLanguage={onToggleLanguage}
-            label={t("thread.header.toggleLanguage")}
-          />
-          <ThemeButton
-            theme={theme}
-            themeMode={themeMode}
-            onToggleTheme={onToggleTheme}
-            label={t("thread.header.toggleTheme")}
-          />
+        <div className="ml-auto flex items-center gap-1.5">
+          {showProviderSwitcher ? (
+            <HeaderProviderSwitcher
+              providers={providers}
+              currentProvider={currentProvider}
+              onSelect={onSelectProvider!}
+            />
+          ) : null}
+          <div className="flex items-center -space-x-1">
+            <LocaleButton
+              onToggleLanguage={onToggleLanguage}
+              label={t("thread.header.toggleLanguage")}
+            />
+            <ThemeButton
+              theme={theme}
+              themeMode={themeMode}
+              onToggleTheme={onToggleTheme}
+              label={t("thread.header.toggleTheme")}
+            />
+          </div>
         </div>
       </div>
     );
@@ -84,8 +116,12 @@ export function ThreadHeader({
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
-        {modelLabel ? (
-          <HeaderModelBadge label={modelLabel} provider={modelProvider} />
+        {showProviderSwitcher ? (
+          <HeaderProviderSwitcher
+            providers={providers}
+            currentProvider={currentProvider}
+            onSelect={onSelectProvider!}
+          />
         ) : null}
         <div className="flex items-center -space-x-1">
           <LocaleButton
@@ -106,51 +142,193 @@ export function ThreadHeader({
   );
 }
 
-function HeaderModelBadge({
-  label,
-  provider,
+/** 顶栏左侧的 provider 切换按钮:显示当前 provider 图标 + 标签,
+ * 点击展开下拉菜单,可切换到其他已配置的 provider。 */
+function HeaderProviderSwitcher({
+  providers,
+  currentProvider,
+  onSelect,
 }: {
-  label: string;
-  provider?: string | null;
+  providers: Array<{
+    name: string;
+    label: string;
+    configured: boolean;
+    is_custom_preset?: boolean;
+    api_base?: string | null;
+    presets?: Array<{ name: string; label: string; model: string; active: boolean }>;
+  }>;
+  currentProvider: string | null;
+  onSelect: (provider: string) => void;
 }) {
-  const inferredProvider = provider || inferProviderFromModelName(label);
-  const brand = providerBrand(inferredProvider);
+  const { t } = useTranslation();
+  // 当前 provider 行(用于取 api_base 给 ProviderIcon 动态生成 custom 图标)
+  const currentRow = providers.find((p) => p.name === currentProvider) ?? null;
+  const currentLabel = currentProvider
+    ? providerDisplayLabel(providers, currentProvider)
+    : t("thread.header.provider.empty");
+
+  // 与设置页"已配置区域"保持一致:configured 为真,或 custom 有命名 preset 时显示。
+  const availableProviders = providers.filter(
+    (p) => p.configured || (p.name === "custom" && (p.presets?.length ?? 0) > 0),
+  );
+
+  // 从 api_base 提取 host(去掉通用前缀),用于 custom provider 动态生成 brand
+  const hostFromApiBase = (apiBase: string | null | undefined): string | null => {
+    if (!apiBase) return null;
+    try {
+      const parsed = new URL(apiBase);
+      let host = parsed.hostname.toLowerCase();
+      host = host.replace(/^(www|api|apihub|api-gateway|gateway)\./, "");
+      return host || null;
+    } catch {
+      return null;
+    }
+  };
+  const initialsFromHost = (host: string | null): string => {
+    if (!host) return "C";
+    return host.split(".")[0].charAt(0).toUpperCase() || "C";
+  };
+  const colorFromHost = (host: string | null): string => {
+    if (!host) return "#6B7280";
+    let hash = 0;
+    for (let i = 0; i < host.length; i++) hash = host.charCodeAt(i) + ((hash << 5) - hash);
+    return `hsl(${Math.abs(hash) % 360}, 55%, 50%)`;
+  };
+  // 解析 provider brand:custom(单例或虚拟 row custom__xxx)用 api_base 动态生成,
+  // 其余用内置 providerBrand
+  const resolveBrand = (providerName: string, apiBase: string | null | undefined): ProviderBrand | null => {
+    const isCustom = providerName === "custom" || providerName.startsWith("custom__");
+    if (isCustom) {
+      const host = hostFromApiBase(apiBase);
+      if (!host) return providerBrand("custom");
+      const urls = faviconUrls(host);
+      return {
+        logoUrl: urls[0] ?? "",
+        logoUrls: urls,
+        color: colorFromHost(host),
+        initials: initialsFromHost(host),
+      };
+    }
+    return providerBrand(providerName);
+  };
+
+  // trigger 图标:跟随 logoIndex 回退
+  const [triggerLogoIndex, setTriggerLogoIndex] = useState(0);
+  const triggerBrand = useMemo(
+    () => resolveBrand(currentProvider ?? "", currentRow?.api_base),
+    [currentProvider, currentRow?.api_base],
+  );
+  useEffect(() => setTriggerLogoIndex(0), [currentProvider, currentRow?.api_base]);
+  const triggerLogoUrl = triggerBrand?.logoUrls[triggerLogoIndex];
 
   return (
-    <span
-      className={cn(
-        "inline-flex min-w-0 items-center gap-1.5 rounded-full border border-border/45 bg-card/80 px-2.5 py-1",
-        "text-[11.5px] font-medium text-foreground/75 shadow-[0_1px_3px_rgba(15,23,42,0.04)]",
-      )}
-    >
-      <span
-        className={cn(
-          "grid h-4 w-4 shrink-0 place-items-center overflow-hidden rounded-full border bg-background",
-        )}
-        style={{
-          borderColor: brand ? `${brand.color}28` : undefined,
-        }}
-        aria-hidden
-      >
-        {brand ? (
-          brand.logoUrls[0] ? (
-            <img
-              src={brand.logoUrls[0]}
-              alt=""
-              className="h-2.5 w-2.5 object-contain"
-              onError={(e) => { e.currentTarget.style.display = "none"; }}
-            />
-          ) : (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-label={t("thread.header.provider.ariaLabel")}
+          title={t("thread.header.provider.ariaLabel")}
+          className={cn(
+            "h-8 gap-1.5 rounded-full border border-border/45 bg-card/80 px-2.5",
+            "text-[11.5px] font-medium text-foreground/75 shadow-[0_1px_3px_rgba(15,23,42,0.04)]",
+            "hover:bg-accent/40 hover:text-foreground",
+          )}
+        >
+          {triggerBrand ? (
             <span
-              className="grid h-full w-full place-items-center rounded-full text-white text-[6px]"
-              style={{ backgroundColor: brand.color }}
+              className="grid h-4 w-4 shrink-0 place-items-center overflow-hidden rounded-full border bg-background"
+              style={{ borderColor: `${triggerBrand.color}28` }}
+              aria-hidden
             >
-              {brand.initials.slice(0, 2)}
+              {triggerLogoUrl ? (
+                <img
+                  src={triggerLogoUrl}
+                  alt=""
+                  className="h-2.5 w-2.5 object-contain"
+                  onError={() => setTriggerLogoIndex((index) => index + 1)}
+                />
+              ) : (
+                <span
+                  className="grid h-full w-full place-items-center rounded-full text-white text-[6px]"
+                  style={{ backgroundColor: triggerBrand.color }}
+                >
+                  {triggerBrand.initials.slice(0, 2)}
+                </span>
+              )}
             </span>
-          )
-        ) : null}
-      </span>
-      <span className="truncate max-w-[10rem]">{label}</span>
+          ) : null}
+          <span className="max-w-[7rem] truncate">{currentLabel}</span>
+          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="max-h-[18rem] w-[220px] overflow-y-auto"
+      >
+        <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          {t("thread.header.provider.label")}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {availableProviders.length === 0 ? (
+          <div className="px-2.5 py-2 text-[12px] text-muted-foreground">
+            {t("thread.header.provider.empty")}
+          </div>
+        ) : (
+          availableProviders.map((provider) => {
+            const selected = provider.name === currentProvider;
+            const itemBrand = resolveBrand(provider.name, provider.api_base);
+            return (
+              <DropdownMenuItem
+                key={provider.name}
+                onSelect={() => onSelect(provider.name)}
+                className={cn(
+                  "flex items-center gap-2 rounded-[10px] px-2.5 py-2 text-[12.5px]",
+                  "focus:bg-muted/85 focus:text-foreground",
+                  selected && "bg-muted/80 text-foreground focus:bg-muted",
+                )}
+              >
+                <ProviderBrandIcon brand={itemBrand} />
+                <span className="min-w-0 flex-1 truncate">{provider.label}</span>
+                {selected ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
+              </DropdownMenuItem>
+            );
+          })
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** 下拉项内的小图标:h-4 w-4,支持 favicon 回退链(失败自动切下一个 logoUrl,
+ *  全部失败后显示首字母)。custom provider 的 brand 由调用方通过 resolveBrand 算好传入。 */
+function ProviderBrandIcon({ brand }: { brand: ProviderBrand | null }) {
+  const [logoIndex, setLogoIndex] = useState(0);
+  useEffect(() => setLogoIndex(0), [brand]);
+  const logoUrl = brand?.logoUrls[logoIndex];
+  if (!brand) return null;
+  return (
+    <span
+      className="grid h-4 w-4 shrink-0 place-items-center overflow-hidden rounded-full border bg-background"
+      style={{ borderColor: `${brand.color}28` }}
+      aria-hidden
+    >
+      {logoUrl ? (
+        <img
+          src={logoUrl}
+          alt=""
+          className="h-2.5 w-2.5 object-contain"
+          onError={() => setLogoIndex((index) => index + 1)}
+        />
+      ) : (
+        <span
+          className="grid h-full w-full place-items-center rounded-full text-white text-[6px]"
+          style={{ backgroundColor: brand.color }}
+        >
+          {brand.initials.slice(0, 2)}
+        </span>
+      )}
     </span>
   );
 }

@@ -618,6 +618,12 @@ export async function updateSettings(
   if (update.toolHintMaxLength !== undefined) {
     query.set("tool_hint_max_length", String(update.toolHintMaxLength));
   }
+  if (update.usePlanner !== undefined) {
+    query.set("use_planner", String(update.usePlanner));
+  }
+  if (update.plannerModel !== undefined) {
+    query.set("planner_model", update.plannerModel ?? "");
+  }
   return request<SettingsPayload>(`${base}/api/settings/update?${query}`, token);
 }
 
@@ -769,7 +775,6 @@ export async function updateWebSearchSettings(
   query.set("max_results", String(update.max_results));
   query.set("timeout", String(update.timeout));
   query.set("proxy", update.proxy);
-  query.set("user_agent", update.user_agent);
   // backends 嵌套结构通过 JSON 字符串传递
   // 空 backends 对象传 "{}" 以便后端清空;只在有非空 api_key 时包含该后端
   const backendsObj: Record<string, { api_key?: string; base_url: string; timeout: number }> = {};

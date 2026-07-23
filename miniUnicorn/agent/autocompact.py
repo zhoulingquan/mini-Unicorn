@@ -60,19 +60,10 @@ class AutoCompact:
                 session = self.sessions.get_or_create(key)
                 meta = session.metadata.get("_last_summary")
                 if isinstance(meta, dict):
-                    text = meta.get("text")
-                    last_active_raw = meta.get("last_active")
-                    if isinstance(text, str) and isinstance(last_active_raw, str):
-                        try:
-                            self._summaries[key] = (
-                                text,
-                                datetime.fromisoformat(last_active_raw),
-                            )
-                        except ValueError:
-                            logger.debug(
-                                "Auto-compact: invalid last_active {!r} for {}",
-                                last_active_raw, key,
-                            )
+                    self._summaries[key] = (
+                        meta["text"],
+                        datetime.fromisoformat(meta["last_active"]),
+                    )
         except Exception:
             logger.exception("Auto-compact: failed for {}", key)
         finally:
@@ -89,16 +80,5 @@ class AutoCompact:
         # Cold path: summary persisted in session metadata (process restarted).
         meta = session.metadata.get("_last_summary")
         if isinstance(meta, dict):
-            text = meta.get("text")
-            last_active_raw = meta.get("last_active")
-            if isinstance(text, str) and isinstance(last_active_raw, str):
-                try:
-                    return session, self._format_summary(
-                        text, datetime.fromisoformat(last_active_raw)
-                    )
-                except ValueError:
-                    logger.debug(
-                        "Auto-compact: invalid last_active {!r} for {}",
-                        last_active_raw, key,
-                    )
+            return session, self._format_summary(meta["text"], datetime.fromisoformat(meta["last_active"]))
         return session, None

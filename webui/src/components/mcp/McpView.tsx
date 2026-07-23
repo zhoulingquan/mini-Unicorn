@@ -423,7 +423,7 @@ export function McpView({ onBack, token }: McpViewProps) {
   return (
     <ViewShell
       onBack={onBack}
-      icon={<PlugZap className="h-4.5 w-4.5 text-foreground/80" />}
+      icon={<PlugZap className="h-4 w-4 text-foreground/80" />}
       title={t("mcp.title")}
       actions={<RefreshIconButton onClick={loadPresets} loading={loading} />}
       bodyClassName="flex flex-col p-0"
@@ -579,7 +579,7 @@ export function McpView({ onBack, token }: McpViewProps) {
 
       {/* Import config modal */}
       <Dialog open={showImport} onOpenChange={setShowImport}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg" showCloseButton={false}>
           <DialogHeader>
             <DialogTitle className="text-sm">{t("mcp.importConfig")}</DialogTitle>
           </DialogHeader>
@@ -620,7 +620,7 @@ export function McpView({ onBack, token }: McpViewProps) {
 
       {/* 添加自定义 MCP 服务弹窗（与 SkillsView 编辑弹窗样式一致） */}
       <Dialog open={showForm} onOpenChange={(o) => setShowForm(o)}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-3xl" showCloseButton={false}>
           <DialogHeader>
             <DialogTitle className="text-sm">{t("mcp.addServer")}</DialogTitle>
           </DialogHeader>

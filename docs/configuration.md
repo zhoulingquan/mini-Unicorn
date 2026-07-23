@@ -52,6 +52,21 @@ If a referenced variable is unset, MiniUnicorn fails fast at startup with `Value
 }
 ```
 
+**Web search providers:**
+
+```json
+{
+  "tools": {
+    "web": {
+      "search": {
+        "provider": "brave",
+        "apiKey": "${BRAVE_API_KEY}"
+      }
+    }
+  }
+}
+```
+
 ### Loading variables at startup
 
 Pick whatever fits your deployment — MiniUnicorn only reads `os.environ` at startup, so any mechanism that populates the process environment works.
@@ -59,10 +74,10 @@ Pick whatever fits your deployment — MiniUnicorn only reads `os.environ` at st
 **systemd** — use `EnvironmentFile=` in the service unit to load variables from a file that only the deploying user can read:
 
 ```ini
-# /etc/systemd/system/miniUnicorn.service (excerpt)
+# /etc/systemd/system/MiniUnicorn.service (excerpt)
 [Service]
 EnvironmentFile=/home/youruser/miniUnicorn_secrets.env
-User=miniUnicorn
+User=MiniUnicorn
 ExecStart=...
 ```
 
@@ -75,8 +90,8 @@ IMAP_PASSWORD=your-password-here
 **Docker** — pass an env file to the locally built image (one `KEY=VALUE` per line), or use `-e KEY=value`:
 
 ```bash
-docker run --rm --env-file=./miniUnicorn.env \
-  -v ~/.miniUnicorn:/home/miniUnicorn/.miniUnicorn \
+docker run --rm --env-file=./MiniUnicorn.env \
+  -v ~/.MiniUnicorn:/home/miniUnicorn/.miniUnicorn \
   miniUnicorn agent -m "Hello"
 ```
 
@@ -149,8 +164,8 @@ ANTHROPIC_API_KEY="$(bw get password api/anthropic)" miniUnicorn agent
 | `stepfun` | LLM (Step Fun/阶跃星辰) | [platform.stepfun.com](https://platform.stepfun.com) |
 | `ovms` | LLM (local, OpenVINO Model Server) | [docs.openvino.ai](https://docs.openvino.ai/2026/model-server/ovms_docs_llm_quickstart.html) |
 | `vllm` | LLM (local, any OpenAI-compatible server) | — |
-| `openai_codex` | LLM (Codex, OAuth) | `miniUnicorn provider login openai-codex` |
-| `github_copilot` | LLM (GitHub Copilot, OAuth) | `miniUnicorn provider login github-copilot` |
+| `openai_codex` | LLM (Codex, OAuth) | `MiniUnicorn provider login openai-codex` |
+| `github_copilot` | LLM (GitHub Copilot, OAuth) | `MiniUnicorn provider login github-copilot` |
 | `qianfan` | LLM (Baidu Qianfan) | [cloud.baidu.com](https://cloud.baidu.com/doc/qianfan/s/Hmh4suq26) |
 
 <details>
@@ -402,11 +417,11 @@ miniUnicorn agent -m "Reply with one short sentence."
 <summary><b>OpenAI Codex (OAuth)</b></summary>
 
 Codex uses OAuth instead of API keys. Requires a ChatGPT Plus or Pro account.
-No `providers.openaiCodex` block is needed in `config.json`; `miniUnicorn provider login` stores the OAuth session outside config.
+No `providers.openaiCodex` block is needed in `config.json`; `MiniUnicorn provider login` stores the OAuth session outside config.
 
 **1. Login:**
 ```bash
-miniUnicorn provider login openai-codex
+MiniUnicorn provider login openai-codex
 ```
 
 **2. Set model** (merge into `~/.miniUnicorn/config.json`):
@@ -440,11 +455,11 @@ miniUnicorn agent -c ~/.miniUnicorn-telegram/config.json -w /tmp/miniUnicorn-tel
 <summary><b>GitHub Copilot (OAuth)</b></summary>
 
 GitHub Copilot uses OAuth instead of API keys. Requires a [GitHub account with a plan](https://github.com/features/copilot/plans) configured.
-No `providers.githubCopilot` block is needed in `config.json`; `miniUnicorn provider login` stores the OAuth session outside config.
+No `providers.githubCopilot` block is needed in `config.json`; `MiniUnicorn provider login` stores the OAuth session outside config.
 
 **1. Login:**
 ```bash
-miniUnicorn provider login github-copilot
+MiniUnicorn provider login github-copilot
 ```
 
 **2. Set model** (merge into `~/.miniUnicorn/config.json`):
@@ -879,10 +894,10 @@ vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
 <details>
 <summary><b>Adding a New Provider (Developer Guide)</b></summary>
 
-MiniUnicorn uses a **Provider Registry** (`miniUnicorn/providers/registry.py`) as the single source of truth.
+MiniUnicorn uses a **Provider Registry** (`MiniUnicorn/providers/registry.py`) as the single source of truth.
 Adding a new provider only takes **2 steps** — no if-elif chains to touch.
 
-**Step 1.** Add a `ProviderSpec` entry to `PROVIDERS` in `miniUnicorn/providers/registry.py`:
+**Step 1.** Add a `ProviderSpec` entry to `PROVIDERS` in `MiniUnicorn/providers/registry.py`:
 
 ```python
 ProviderSpec(
@@ -1087,13 +1102,11 @@ When a channel `send()` raises, MiniUnicorn retries at the channel-manager layer
 >
 > If a channel is completely unreachable, MiniUnicorn cannot notify the user through that same channel. Watch logs for `Failed to send to {channel} after N attempts` to spot persistent delivery failures.
 
-## Web Fetch
+## Web Tools
 
-MiniUnicorn ships a built-in `web_fetch` tool that fetches a URL and extracts readable content (HTML → markdown/text). It is enabled by default, and can be configured in `~/.miniUnicorn/config.json` under `tools.web`.
+MiniUnicorn incorporates basic tools for accessing the web. These include searching via APIs, and fetching arbitrary web pages in Markdown format. They are enabled by default, and can be configured in `~/.miniUnicorn/config.json` under `tools.web`.
 
-The `web_search` tool was removed (all built-in providers were blocked in mainland China). For keyword search, route requests through an MCP search server (e.g. Tavily MCP or DashScope MCP) — see [MCP Servers](#mcp-servers) below.
-
-If you want to disable `web_fetch` (removes it from the tool list sent to the LLM), set `tools.web.enable` to `false`:
+If you want to disable them, which removes both `web_search` and `web_fetch` from the tool list sent to the LLM, set `tools.web.enable` to `false`:
 
 ```json
 {
@@ -1116,7 +1129,7 @@ If you need to allow trusted private ranges such as Tailscale / CGNAT addresses,
 ```
 
 > [!TIP]
-> Use `proxy` in `tools.web` to route all web_fetch requests through a proxy:
+> Use `proxy` in `tools.web` to route all web requests (search + fetch) through a proxy:
 > ```json
 > { "tools": { "web": { "proxy": "http://127.0.0.1:7890" } } }
 > ```
@@ -1125,11 +1138,58 @@ If you need to allow trusted private ranges such as Tailscale / CGNAT addresses,
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `enable` | boolean | `true` | Enable or disable the `web_fetch` tool |
-| `proxy` | string or null | `null` | Proxy for all web_fetch requests, for example `http://127.0.0.1:7890` |
-| `userAgent` | string or null | `null` | User-Agent header for all web_fetch requests. If null, a browser one will be used |
+| `enable` | boolean | `true` | Enable or disable all built-in web tools (`web_search` + `web_fetch`) |
+| `proxy` | string or null | `null` | Proxy for all web requests, for example `http://127.0.0.1:7890` |
+| `userAgent` | string or null | `null` | User-Agent header for all web requests. If null, a browser one will be used |
 
-### Jina Reader
+### Web Search
+
+MiniUnicorn 内置 5 个搜索后端，`provider="auto"` 时并发调用所有后端，首个成功即返回（剩余后端后台写入缓存供下次命中）。配置在 `~/.miniUnicorn/config.json` 顶层 `web_search` 字段（与 `tools.web` 平级，独立于 `web_fetch`）。
+
+| 后端 | 类型 | 需要 Key | 说明 |
+|------|------|----------|------|
+| `bocha` | AI Search API | 是（`BOCHA_API_KEY`） | 国内 AI 搜索，snippet 最完整 |
+| `bing_cn` | RSS 抓取 | 否 | Bing 国内版，稳定 |
+| `sogou` | 页面抓取 | 否 | 搜狗搜索 |
+| `baidu` | 页面抓取 | 否 | 百度搜索（易风控） |
+| `duckduckgo` | API | 否 | 海外免 Key，国内需代理 |
+
+**配置示例：**
+```json
+{
+  "web_search": {
+    "enable": true,
+    "provider": "auto",
+    "max_results": 5,
+    "timeout": 30,
+    "proxy": "http://127.0.0.1:7890",
+    "user_agent": null,
+    "backends": {
+      "bocha": {
+        "api_key": "your-bocha-api-key",
+        "base_url": "",
+        "timeout": 30
+      }
+    }
+  }
+}
+```
+
+#### `web_search` 字段
+
+| 选项 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enable` | boolean | `true` | 启用/禁用 web_search 工具 |
+| `provider` | string | `"auto"` | `"auto"` 并发聚合，或指定单个后端名 |
+| `max_results` | integer | `5` | 每次搜索返回结果数（1–10） |
+| `timeout` | integer | `30` | 单次请求超时（秒） |
+| `proxy` | string or null | `null` | 海外后端代理地址（留空使用系统环境变量） |
+| `user_agent` | string or null | `null` | 自定义 User-Agent（留空使用默认值） |
+| `backends` | object | `{}` | 各后端独立配置，Key 优先级：`backends[name].api_key` > 环境变量 |
+
+> **Brave / Tavily 搜索**：通过 MCP presets 提供，不内置为后端。在 WebUI → MCP 页面启用 `brave-search` 或 `tavily` preset 即可。
+
+### Web Fetch
 
 > [!TIP]
 > If you are having issues with JS proof-of-work or Cloudflare captchas, set a random user agent and disable Jina Reader:
@@ -1158,15 +1218,6 @@ If you want to always use the local conversion, you can force it using:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `useJinaReader` | boolean | `true` | If true, Jina Reader will be preferred over the local conversion |
-
-### SSRF Protection
-
-`web_fetch` enforces SSRF protection at two layers:
-
-1. **Pre-flight validation** in the redirect-safe fetch wrappers: each URL (initial + every redirect) is resolved and checked against a blocklist of private/internal networks (RFC1918, link-local, loopback, cloud metadata `169.254.0.0/16`).
-2. **Dial-time request hook** (Reasonix-style `ssrfGuardedTransport` design): an httpx request event hook re-validates the target IP just before the connection is opened. For IP-literal hosts this runs even when a proxy is configured; for hostname hosts without a proxy the pre-flight check is re-applied; for hostname hosts with a proxy the proxy resolves DNS (GFW-friendly) but IP-literal targets are still blocked client-side.
-
-Loopback (`127.0.0.0/8`, `::1`, `localhost`) is allowed only when every resolved address is loopback — useful for local development.
 
 ## Image Generation
 
@@ -1267,7 +1318,7 @@ For API keys, tokens, and other secrets, see [Environment Variables for Secrets]
 | `tools.exec.pathAppend` | `""` | Extra directories to append to `PATH` when running shell commands (e.g. `/usr/sbin` for `ufw`). |
 | `channels.*.allowFrom` | omitted | Access control per channel. Omit to use pairing-only mode; set `["*"]` to allow everyone; or list specific user IDs. See [Pairing](#pairing) for details. |
 
-**Docker security**: The official Docker image runs as a non-root user (`miniUnicorn`, UID 1000) with bubblewrap pre-installed. When using `docker-compose.yml`, the container drops all Linux capabilities except `SYS_ADMIN` (required for bwrap's namespace isolation).
+**Docker security**: The official Docker image runs as a non-root user (`MiniUnicorn`, UID 1000) with bubblewrap pre-installed. When using `docker-compose.yml`, the container drops all Linux capabilities except `SYS_ADMIN` (required for bwrap's namespace isolation).
 
 
 ## Pairing

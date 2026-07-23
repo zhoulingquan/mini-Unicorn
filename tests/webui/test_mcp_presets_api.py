@@ -35,9 +35,11 @@ def test_mcp_presets_payload_lists_supported_cards(tmp_path, monkeypatch: pytest
         "exa",
         "microsoft-learn",
         "aws-docs",
-        "brave-search",
         "postman",
     }.issubset(names)
+    # brave-search / tavily 已移至 web_search backends，不再作为 MCP preset 暴露
+    assert "brave-search" not in names
+    assert "tavily" not in names
     browserbase = next(preset for preset in payload["presets"] if preset["name"] == "browserbase")
     assert browserbase["installed"] is False
     assert browserbase["install_supported"] is True

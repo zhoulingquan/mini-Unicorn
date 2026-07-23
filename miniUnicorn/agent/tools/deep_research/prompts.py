@@ -71,12 +71,18 @@ Rules:
 - Keep prose concise and information-dense; avoid filler.
 - Write in the same language as the research topic.
 - End with a "## Sources" section listing [n] URL - title for each source.
+
+When a source includes both a "Summary" (search snippet) and "Content"
+(fetched full text), prefer the Content for detailed facts and the Summary
+for high-level context. If only a snippet is available, use it as-is.
 """
 
 WRITE_USER = """\
 Research topic: {topic}
 
-Search results (each item: [idx] query | title | url | snippet):
+Search results (each item: [idx] query | title | url | <summary/content>).
+Some items may include both a short Summary and a longer Content block — use
+both as appropriate:
 {results_block}
 
 Write the Markdown report now.

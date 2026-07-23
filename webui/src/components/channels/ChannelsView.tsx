@@ -229,7 +229,7 @@ export function ChannelsView({ onBack, token }: ChannelsViewProps) {
   return (
     <ViewShell
       onBack={onBack}
-      icon={<MessageSquare className="h-4.5 w-4.5 text-foreground/80" />}
+      icon={<MessageSquare className="h-4 w-4 text-foreground/80" />}
       title={t("channels.title")}
       actions={
         <RefreshIconButton

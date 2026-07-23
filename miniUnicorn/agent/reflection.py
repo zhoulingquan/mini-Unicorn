@@ -11,7 +11,6 @@ module is self-contained and does not modify the existing ReAct loop.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 from datetime import datetime
@@ -104,7 +103,7 @@ class Reflection:
                 reflection_text = reflection_text[:_REFLECTION_MAX_CHARS] + "..."
             if not reflection_text:
                 return None
-            await asyncio.to_thread(self._append_reflection, {
+            self._append_reflection({
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "trigger": trigger,
                 "iteration": iteration,

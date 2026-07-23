@@ -29,10 +29,15 @@ def resolve_path(path: str | Path, workspace: str | Path | None = None, *, stric
 
 
 def is_path_within(path: str | Path, root: str | Path) -> bool:
-    """Return True when *path* resolves to *root* or a descendant of *root*."""
+    """Return True when *path* resolves to *root* or a descendant of *root*.
+
+    使用 ``resolve(strict=True)`` 确保符号链接被完全解析到真实目标,
+    防止通过符号链接逃逸工作区边界。路径或 root 不存在时返回 False
+    (安全默认:无法确认在边界内即视为边界外)。
+    """
     try:
-        resolved_path = Path(path).expanduser().resolve(strict=False)
-        resolved_root = Path(root).expanduser().resolve(strict=False)
+        resolved_path = Path(path).expanduser().resolve(strict=True)
+        resolved_root = Path(root).expanduser().resolve(strict=True)
         resolved_path.relative_to(resolved_root)
         return True
     except (OSError, RuntimeError, TypeError, ValueError):
@@ -50,14 +55,36 @@ def require_path_within(
     *,
     message: str | None = None,
 ) -> Path:
-    """Resolve *path* and require it to be inside *root*."""
-    resolved = Path(path).expanduser().resolve(strict=False)
-    if not is_path_within(resolved, root):
+    """Resolve *path* and require it to be inside *root*.
+
+    使用 ``resolve(strict=True)`` 防止符号链接逃逸。当路径不存在
+    (如即将创建的新文件)时,回退到 ``strict=False`` 解析并验证父目录
+    在 *root* 内,兼容"创建新文件"场景同时防止通过不存在的符号链接逃逸。
+    """
+    root_resolved = Path(root).expanduser().resolve(strict=False)
+    try:
+        resolved = Path(path).expanduser().resolve(strict=True)
+    except OSError:
+        # 路径不存在(可能是即将创建的新文件)。回退到 strict=False,
+        # 但验证父目录在 root 内,防止通过不存在的符号链接逃逸。
+        resolved = Path(path).expanduser().resolve(strict=False)
+        try:
+            resolved.parent.relative_to(root_resolved)
+        except ValueError:
+            raise WorkspaceBoundaryError(
+                message
+                or f"Path {path} is outside allowed directory {Path(root).expanduser()}"
+                + WORKSPACE_BOUNDARY_NOTE
+            ) from None
+        return resolved
+    try:
+        resolved.relative_to(root_resolved)
+    except ValueError:
         raise WorkspaceBoundaryError(
             message
             or f"Path {path} is outside allowed directory {Path(root).expanduser()}"
             + WORKSPACE_BOUNDARY_NOTE
-        )
+        ) from None
     return resolved
 
 

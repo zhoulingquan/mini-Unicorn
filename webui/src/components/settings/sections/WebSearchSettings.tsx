@@ -1,9 +1,9 @@
-// Web Search section:web_search 工具配置(基础、网络、后端 API Key)
+// Web Search section:web_search 工具配置(基础、网络、后端 API Key、Jina reader)
 
 import { useMemo, type Dispatch, type SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { WebSearchSettingsUpdate } from "@/lib/types";
+import type { WebFetchSettingsUpdate, WebSearchSettingsUpdate } from "@/lib/types";
 
 import { NumberInput, ToggleButton } from "../components/SegmentedControl";
 import { RestartSettingsFooter } from "../components/RestartSettingsFooter";
@@ -14,8 +14,26 @@ import {
   ClearableInput,
 } from "../components/SettingsRow";
 
-// 可配置 API Key 的后端(只有这些需要在 UI 展示卡片)
-const KEYED_BACKENDS = ["bocha", "tencent", "duckduckgo"];
+// 可配置 API Key / Base URL 的后端(只有这些需要在 UI 展示卡片)
+// 精简为以 SearXNG 为主力的架构:searxng(主力,需 base_url) + tavily(AI 摘要,需 key)
+// bing_cn 是免 Key 兜底后端,不需要展示凭证输入框
+const KEYED_BACKENDS = [
+  "searxng", // 需 base_url(自托管实例地址)
+  "tavily",  // 需 api_key
+] as const;
+
+// 后端内部标识 → 展示名称
+const BACKEND_DISPLAY_NAMES: Record<string, string> = {
+  searxng: "SearXNG",
+  tavily: "Tavily",
+};
+
+// 后端推荐默认超时(秒);与后端 SearchBackend.default_timeout 保持一致。
+// 用户未配置时草稿显示此值,保存后覆盖为用户显式配置。
+const BACKEND_DEFAULT_TIMEOUTS: Record<string, number> = {
+  searxng: 10,  // 本地实例响应快
+  tavily: 15,   // 云端 API 需更多缓冲
+};
 
 export function WebSearchSettings({
   form,
@@ -26,6 +44,11 @@ export function WebSearchSettings({
   onSave,
   onRestart,
   isRestarting,
+  webFetchForm,
+  webFetchDirty,
+  webFetchSaving,
+  onChangeWebFetchForm,
+  onSaveWebFetch,
 }: {
   form: WebSearchSettingsUpdate;
   dirty: boolean;
@@ -35,6 +58,11 @@ export function WebSearchSettings({
   onRestart?: () => void;
   isRestarting?: boolean;
   onSave: () => void;
+  webFetchForm: WebFetchSettingsUpdate;
+  webFetchDirty: boolean;
+  webFetchSaving: boolean;
+  onChangeWebFetchForm: Dispatch<SetStateAction<WebFetchSettingsUpdate>>;
+  onSaveWebFetch: () => void;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -43,7 +71,7 @@ export function WebSearchSettings({
   const backendEntries = useMemo(() => {
     const result: Array<{ name: string; draft: WebSearchSettingsUpdate["backends"][string] }> = [];
     for (const name of KEYED_BACKENDS) {
-      const draft = form.backends[name] ?? { api_key: "", base_url: "", timeout: 30 };
+      const draft = form.backends[name] ?? { api_key: "", base_url: "", timeout: BACKEND_DEFAULT_TIMEOUTS[name] ?? 30 };
       result.push({ name, draft });
     }
     // 额外展示用户已配置但不在 KEYED_BACKENDS 列表中的后端
@@ -143,7 +171,7 @@ export function WebSearchSettings({
             title={tx("settings.rows.webSearchProxy", "Proxy")}
             description={tx(
               "settings.help.webSearchProxy",
-              "HTTP proxy for overseas backends (e.g. duckduckgo). Leave empty to use system env.",
+              "HTTP proxy for overseas backends (e.g. tavily). Leave empty to use system env.",
             )}
           >
             <ClearableInput
@@ -151,21 +179,6 @@ export function WebSearchSettings({
               onChange={(e) => setField("proxy", e.target.value)}
               onClear={() => setField("proxy", "")}
               placeholder="http://127.0.0.1:7890"
-              className="h-8 w-72 rounded-full text-[13px]"
-            />
-          </SettingsRow>
-          <SettingsRow
-            title={tx("settings.rows.webSearchUserAgent", "User-Agent")}
-            description={tx(
-              "settings.help.webSearchUserAgent",
-              "Custom User-Agent for scraping backends. Leave empty to use default.",
-            )}
-          >
-            <ClearableInput
-              value={form.user_agent}
-              onChange={(e) => setField("user_agent", e.target.value)}
-              onClear={() => setField("user_agent", "")}
-              placeholder=""
               className="h-8 w-72 rounded-full text-[13px]"
             />
           </SettingsRow>
@@ -185,7 +198,7 @@ export function WebSearchSettings({
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-[14px] font-medium leading-5 text-foreground">{name}</div>
+                  <div className="text-[14px] font-medium leading-5 text-foreground">{BACKEND_DISPLAY_NAMES[name] ?? name}</div>
                   <div className="mt-0.5 text-[12px] leading-5 text-muted-foreground">
                     {tx(`settings.help.webSearchBackend_${name}`, backendHelpFallback(name))}
                   </div>
@@ -233,12 +246,10 @@ export function WebSearchSettings({
 
 function backendHelpFallback(name: string): string {
   switch (name) {
-    case "bocha":
-      return "Bocha AI Search API (CN, requires key, free tier available)";
-    case "tencent":
-      return "Tencent Cloud Search (CN, requires secret_id:secret_key)";
-    case "duckduckgo":
-      return "DuckDuckGo (overseas, no key, requires proxy in CN)";
+    case "searxng":
+      return "SearXNG self-hosted meta search (requires base_url, aggregates 100+ engines, free)";
+    case "tavily":
+      return "Tavily AI Search API (requires key, returns LLM summary, 1000/mo free)";
     default:
       return "";
   }

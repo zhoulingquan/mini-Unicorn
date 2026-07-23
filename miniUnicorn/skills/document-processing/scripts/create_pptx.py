@@ -26,7 +26,7 @@ def create_pptx(
     """创建 .pptx 文档。"""
     try:
         from pptx import Presentation
-        from pptx.util import Inches, Pt
+        from pptx.util import Inches
     except ImportError:
         print("错误:需要 python-pptx 库。安装:pip install python-pptx", file=sys.stderr)
         sys.exit(1)

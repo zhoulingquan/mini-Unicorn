@@ -7,7 +7,7 @@
 //  - 删除 provider 确认 Dialog 留在此处(与主状态强耦合)
 //  - 重新导出 SettingsSectionKey,保证外部 import 路径不变
 
-import { Loader2 } from "lucide-react";
+import { Loader2, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,7 @@ import { SettingsSidebar } from "./components/SettingsSidebar";
 import { SettingsGroup, SettingsRow } from "./components/SettingsRow";
 import { OverviewSettings } from "./sections/OverviewSettings";
 import { AppearanceSettings } from "./sections/AppearanceSettings";
+import { AppsSettings } from "./sections/AppsSettings";
 import { ModelsSettings } from "./sections/ModelsSettings";
 import { ProvidersSettings } from "./sections/ProvidersSettings";
 import { AdvancedSettings } from "./sections/AdvancedSettings";
@@ -81,6 +82,8 @@ export function SettingsView({
             runtimeSaving={state.runtimeSaving}
             onChangeRuntimeForm={state.setRuntimeForm}
             onSaveRuntime={state.saveRuntimeSettings}
+            plannerSaving={state.plannerSaving}
+            onSavePlanner={state.savePlannerSettings}
           />
         );
       case "appearance":
@@ -116,8 +119,6 @@ export function SettingsView({
               editingProviderKeys={state.editingProviderKeys}
               providerSaving={state.providerSaving}
               providerSaved={state.providerSaved}
-              providerModels={state.providerModels}
-              providerModelsLoading={state.providerModelsLoading}
               learningProvider={state.learningProvider}
               timeoutProvider={state.timeoutProvider}
               showBrandLogos={state.localPrefs.brandLogos}
@@ -126,13 +127,31 @@ export function SettingsView({
               onToggleProviderKeyEditing={state.toggleProviderKeyEditing}
               onChangeProviderForm={state.changeProviderForm}
               onSaveProvider={state.saveProvider}
-              onFetchProviderModels={state.fetchProviderModelList}
               onProviderOAuthLogin={(provider) => state.runProviderOAuth(provider, "login")}
               onProviderOAuthLogout={(provider) => state.runProviderOAuth(provider, "logout")}
               onRequestDeleteProvider={(provider) => state.setProviderToDelete(provider)}
-              customPresetLabel={state.customPresetLabel}
-              onChangeCustomPresetLabel={state.setCustomPresetLabel}
-              onSaveCustomConfiguration={state.saveCustomConfiguration}
+              onAddModelToProvider={state.openModelConfigurationForProvider}
+              onActivatePreset={state.activateModelPreset}
+              onDeletePreset={(presetName) => state.deletePreset(presetName)}
+              inlineAddModelProvider={state.inlineAddModelProvider}
+              inlineAddModelDraft={state.inlineAddModelDraft}
+              inlineAddModelModels={state.inlineAddModelModels}
+              inlineAddModelModelsLoading={state.inlineAddModelModelsLoading}
+              inlineAddModelSaving={state.inlineAddModelSaving}
+              onChangeInlineAddModelDraft={state.setInlineAddModelDraft}
+              onCancelInlineAddModel={state.cancelInlineAddModel}
+              onSaveInlineAddModel={state.saveInlineAddModel}
+              onFetchInlineAddModelModels={state.fetchInlineAddModelModels}
+              customConfigOpen={state.customConfigOpen}
+              customConfigDraft={state.customConfigDraft}
+              customConfigSaving={state.customConfigSaving}
+              customConfigModels={state.customConfigModels}
+              customConfigModelsLoading={state.customConfigModelsLoading}
+              onOpenCustomConfig={state.openCustomConfig}
+              onChangeCustomConfigDraft={state.setCustomConfigDraft}
+              onCancelCustomConfig={state.cancelCustomConfig}
+              onSaveCustomConfig={state.saveCustomConfig}
+              onFetchCustomConfigModels={state.fetchCustomConfigModels}
             />
           </div>
         );
@@ -147,6 +166,11 @@ export function SettingsView({
             onRestart={state.restartViaSettingsSurface}
             isRestarting={isRestarting || state.hostEngineApplying}
             requiresRestartPending={state.pendingRestartSections.browser}
+            webFetchForm={state.webFetchForm}
+            webFetchDirty={state.webFetchDirty}
+            webFetchSaving={state.webFetchSaving}
+            onChangeWebFetchForm={state.setWebFetchForm}
+            onSaveWebFetch={state.saveWebFetchSettings}
           />
         );
       case "advanced":
@@ -163,6 +187,8 @@ export function SettingsView({
             requiresRestartPending={state.pendingRestartSections.runtime}
           />
         );
+      case "apps":
+        return <AppsSettings />;
       default:
         return null;
     }
@@ -197,7 +223,7 @@ export function SettingsView({
           if (!open && !state.providerDeleting) state.setProviderToDelete(null);
         }}
       >
-        <DialogContent className="max-w-[420px]">
+        <DialogContent className="max-w-[520px]">
           <DialogHeader>
             <DialogTitle>
               {t("settings.byok.deleteConfirmTitle", { defaultValue: "Delete provider configuration" })}
@@ -209,6 +235,32 @@ export function SettingsView({
               })}
             </DialogDescription>
           </DialogHeader>
+          {/* 列出将一并删除的 preset 列表,避免级联删除造成意外损失 */}
+          {(() => {
+            const provider = state.settings?.providers.find(
+              (p) => p.name === state.providerToDelete,
+            );
+            const affectedPresets = provider?.presets ?? [];
+            if (affectedPresets.length === 0) return null;
+            return (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+                <p className="mb-1.5 text-[12px] font-medium text-destructive">
+                  {t("settings.byok.affectedPresets", {
+                    defaultValue: "The following {{count}} model configuration(s) will also be deleted:",
+                    count: affectedPresets.length,
+                  })}
+                </p>
+                <ul className="space-y-1 text-[12px] text-muted-foreground">
+                  {affectedPresets.map((preset) => (
+                    <li key={preset.name} className="flex items-center gap-2">
+                      <span className="truncate font-medium text-foreground">{preset.label}</span>
+                      <span className="truncate text-muted-foreground">· {preset.model}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })()}
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
@@ -235,6 +287,50 @@ export function SettingsView({
         </DialogContent>
       </Dialog>
 
+      {/* 保存需要重启的设置后弹出询问对话框 */}
+      <Dialog
+        open={state.restartConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open && !isRestarting && !state.hostEngineApplying) state.cancelRestart();
+        }}
+      >
+        <DialogContent className="max-w-[440px]" showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>
+              {t("settings.restart.confirmTitle", { defaultValue: "Restart required" })}
+            </DialogTitle>
+            <DialogDescription>
+              {t("settings.restart.confirmDescription", {
+                defaultValue:
+                  "The configuration has been saved. Restart the engine now to apply the changes, or do it later from the status bar.",
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              variant="outline"
+              onClick={state.cancelRestart}
+              disabled={isRestarting || state.hostEngineApplying}
+              className="rounded-full"
+            >
+              {t("settings.restart.later", { defaultValue: "Later" })}
+            </Button>
+            <Button
+              onClick={state.confirmRestart}
+              disabled={isRestarting || state.hostEngineApplying}
+              className="rounded-full"
+            >
+              {(isRestarting || state.hostEngineApplying) && (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+              )}
+              {(isRestarting || state.hostEngineApplying)
+                ? t("app.system.restarting", { defaultValue: "Restarting..." })
+                : t("app.system.restart", { defaultValue: "Restart" })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <main className="min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         <div
           className={cn(
@@ -246,9 +342,33 @@ export function SettingsView({
             <p className="mb-2 text-[13px] font-medium text-muted-foreground">
               {t("settings.sidebar.title")}
             </p>
-            <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em] text-foreground sm:text-[34px]">
-              {state.text(`settings.nav.${state.activeSection}`, titleForSection(state.activeSection))}
-            </h1>
+            <div className="flex items-center justify-between gap-3">
+              <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em] text-foreground sm:text-[34px]">
+                {state.text(`settings.nav.${state.activeSection}`, titleForSection(state.activeSection))}
+              </h1>
+              {state.activeSection === "overview" ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={state.restartViaSettingsSurface}
+                  disabled={!state.hasPendingRestart || isRestarting || state.hostEngineApplying}
+                  className={cn(
+                    "shrink-0 rounded-full",
+                    !state.hasPendingRestart && "opacity-40 cursor-not-allowed hover:bg-transparent",
+                  )}
+                  title={state.hasPendingRestart ? undefined : t("settings.values.ready", { defaultValue: "Ready" })}
+                >
+                  {isRestarting || state.hostEngineApplying ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+                  ) : (
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                  )}
+                  {isRestarting || state.hostEngineApplying
+                    ? t("app.system.restarting")
+                    : t("app.system.restart")}
+                </Button>
+              ) : null}
+            </div>
           </div>
 
           {state.loading ? (

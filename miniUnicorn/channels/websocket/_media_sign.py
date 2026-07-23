@@ -15,7 +15,6 @@ live here to keep ``channel.py`` focused on the channel class itself.
 from __future__ import annotations
 
 import re
-from typing import Any
 
 # Per-message media limits. The server-side guard is a touch looser than the
 # client's ``Worker`` normalization target (6 MB) — tolerate client slop, but

@@ -13,7 +13,6 @@ from miniUnicorn.agent.tools.mcp import (
     MCPPromptWrapper,
     MCPResourceWrapper,
     MCPToolWrapper,
-    _UNTRUSTED_BANNER,
     _is_transient,
 )
 
@@ -99,7 +98,7 @@ async def test_tool_retries_on_transient_error():
     with patch("miniUnicorn.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute(foo="bar")
 
-    assert output == f"{_UNTRUSTED_BANNER}\nok"
+    assert output == "ok"
     assert session.call_tool.call_count == 2
 
 
@@ -158,7 +157,7 @@ async def test_tool_success_on_first_try_no_retry():
     wrapper = MCPToolWrapper(session, "test_server", _make_tool_def(), tool_timeout=5)
     output = await wrapper.execute()
 
-    assert output == f"{_UNTRUSTED_BANNER}\nhello"
+    assert output == "hello"
     assert session.call_tool.call_count == 1
 
 
@@ -200,7 +199,7 @@ async def test_tool_retry_on_connection_reset():
     with patch("miniUnicorn.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute()
 
-    assert output == f"{_UNTRUSTED_BANNER}\nrecovered"
+    assert output == "recovered"
     assert session.call_tool.call_count == 2
 
 
@@ -216,7 +215,7 @@ async def test_tool_retry_on_end_of_stream():
     with patch("miniUnicorn.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute()
 
-    assert output == f"{_UNTRUSTED_BANNER}\nback"
+    assert output == "back"
     assert session.call_tool.call_count == 2
 
 
@@ -252,7 +251,7 @@ async def test_resource_retries_on_transient_error():
     with patch("miniUnicorn.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute()
 
-    assert output == f"{_UNTRUSTED_BANNER}\ndata"
+    assert output == "data"
     assert session.read_resource.call_count == 2
 
 
@@ -321,7 +320,7 @@ async def test_prompt_retries_on_transient_error():
     with patch("miniUnicorn.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute()
 
-    assert output == f"{_UNTRUSTED_BANNER}\nprompt text"
+    assert output == "prompt text"
     assert session.get_prompt.call_count == 2
 
 

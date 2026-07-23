@@ -29,6 +29,7 @@ import {
   updateProviderSettings,
   updateRuntimeSettings,
   updateSettings,
+  updateWebFetchSettings,
   updateWebSearchSettings,
 } from "@/lib/api";
 import { getHostApi } from "@/lib/runtime";
@@ -37,6 +38,7 @@ import type {
   NetworkSafetySettingsUpdate,
   RuntimeSettingsUpdate,
   SettingsPayload,
+  WebFetchSettingsUpdate,
   WebSearchSettingsUpdate,
 } from "@/lib/types";
 
@@ -93,6 +95,31 @@ export function useSettingsState({
     provider: "",
     model: "",
   });
+  // provider 卡片内 inline 添加模型(折叠展开式,替代弹窗):
+  // inlineAddModelProvider 非空时,该 provider 卡片内展开 InlineAddModelForm。
+  const [inlineAddModelProvider, setInlineAddModelProvider] = useState<string | null>(null);
+  const [inlineAddModelDraft, setInlineAddModelDraft] = useState<ModelConfigurationDraft>({
+    label: "",
+    provider: "",
+    model: "",
+  });
+  const [inlineAddModelModels, setInlineAddModelModels] = useState<string[]>([]);
+  const [inlineAddModelModelsLoading, setInlineAddModelModelsLoading] = useState(false);
+  const [inlineAddModelSaving, setInlineAddModelSaving] = useState(false);
+  // custom 自定义配置入口(未配置区域的虚线框 + 号):
+  // 弹出 Dialog,与 inline 添加模型字段一致,保存后触发上下文查询,
+  // 成功后在已配置区域生成新卡片(以 api_base 域名作为 label,如 Agnes-ai)。
+  const [customConfigOpen, setCustomConfigOpen] = useState(false);
+  const [customConfigDraft, setCustomConfigDraft] = useState<ModelConfigurationDraft>({
+    label: "",
+    provider: "custom",
+    model: "",
+    apiKey: "",
+    apiBase: "",
+  });
+  const [customConfigModels, setCustomConfigModels] = useState<string[]>([]);
+  const [customConfigModelsLoading, setCustomConfigModelsLoading] = useState(false);
+  const [customConfigSaving, setCustomConfigSaving] = useState(false);
   const [providerSaving, setProviderSaving] = useState<string | null>(null);
   const [providerSaved, setProviderSaved] = useState<Record<string, boolean>>({});
   const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
@@ -110,8 +137,11 @@ export function useSettingsState({
     max_results: 5,
     timeout: 30,
     proxy: "",
-    user_agent: "",
     backends: {},
+  });
+  const [webFetchSaving, setWebFetchSaving] = useState(false);
+  const [webFetchForm, setWebFetchForm] = useState<WebFetchSettingsUpdate>({
+    useJinaReader: true,
   });
   const [runtimeSaving, setRuntimeSaving] = useState(false);
   const [runtimeForm, setRuntimeForm] = useState<RuntimeSettingsUpdate>({
@@ -129,7 +159,11 @@ export function useSettingsState({
   const [pendingRestartSections, setPendingRestartSections] = useState<PendingRestartSections>(
     EMPTY_PENDING_RESTART_SECTIONS,
   );
+  // 保存需要重启的设置后弹出询问对话框(替代旧版 native host 自动重启逻辑)
+  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
   const [localPrefs, setLocalPrefs] = useState<LocalPreferences>(() => readLocalPreferences());
+  // Plan & Execute 双模型配置:本地草稿状态,变更时立即保存并触发重启提示。
+  const [plannerSaving, setPlannerSaving] = useState(false);
   const [networkSafetyForm, setNetworkSafetyForm] = useState<NetworkSafetySettingsUpdate>({
     webuiAllowLocalServiceAccess: true,
     webuiDefaultAccessMode: "default",
@@ -194,8 +228,13 @@ export function useSettingsState({
         max_results: ws.max_results,
         timeout: ws.timeout,
         proxy: ws.proxy ?? "",
-        user_agent: ws.user_agent ?? "",
         backends: backendsDraft,
+      });
+    }
+    // web_fetch form(jina reader 开关)从 payload.web.fetch 初始化
+    if (payload.web?.fetch) {
+      setWebFetchForm({
+        useJinaReader: payload.web.fetch.use_jina_reader,
       });
     }
     if (payload.restart_required_sections) {
@@ -275,11 +314,12 @@ export function useSettingsState({
           "";
         next[provider.name] = {
           apiKey: next[provider.name]?.apiKey ?? "",
-          // custom 单例是添加入口,不预填旧值(每次都是新配置)
+          // 所有 provider(含 custom)一致:用 provider.api_base 预填。
+          // custom 的 api_base 由后端从代表 preset 的凭证填充。
           apiBase: next[provider.name]?.apiBase ??
-            (provider.name === "custom" ? "" : (provider.api_base ?? provider.default_api_base ?? "")),
+            (provider.api_base ?? provider.default_api_base ?? ""),
           apiType: next[provider.name]?.apiType ?? provider.api_type ?? "auto",
-          model: provider.name === "custom" ? (next[provider.name]?.model ?? "") : inferredModel,
+          model: next[provider.name]?.model ?? inferredModel,
         };
       }
       return next;
@@ -329,7 +369,6 @@ export function useSettingsState({
     if (webSearchForm.max_results !== ws.max_results) return true;
     if (webSearchForm.timeout !== ws.timeout) return true;
     if ((webSearchForm.proxy || null) !== (ws.proxy ?? null)) return true;
-    if ((webSearchForm.user_agent || null) !== (ws.user_agent ?? null)) return true;
     // backends:任何 api_key 非空都视为 dirty(用户输入了新 key)
     for (const draft of Object.values(webSearchForm.backends)) {
       if (draft.api_key) return true;
@@ -344,6 +383,11 @@ export function useSettingsState({
     // 后端有但 form 没有的:用户没改动不算 dirty(初始化时已补全)
     return false;
   }, [webSearchForm, settings]);
+
+  const webFetchDirty = useMemo(() => {
+    if (!settings?.web?.fetch) return false;
+    return webFetchForm.useJinaReader !== settings.web.fetch.use_jina_reader;
+  }, [webFetchForm, settings]);
 
   const runtimeDirty = useMemo(() => {
     if (!settingsRuntime) return false;
@@ -395,28 +439,24 @@ export function useSettingsState({
 
   const maybeRestartHostEngine = useCallback(
     async (payload: RestartAwarePayload) => {
-      const surface = payload.surface ?? payload.runtime_surface ?? settings?.surface ?? settings?.runtime_surface;
-      const capabilities = payload.runtime_capabilities ?? settings?.runtime_capabilities;
-      const isNativeHost = surface === "native";
-      const hostApi = getHostApi();
-      if (!payload.requires_restart || !isNativeHost || !capabilities?.can_restart_engine || !hostApi) {
-        return;
-      }
-      setHostEngineApplying(true);
-      try {
-        await hostApi.restartEngine();
-        const refreshed = await fetchSettings(token);
-        applyPayload(refreshed);
-        setPendingRestartSections(EMPTY_PENDING_RESTART_SECTIONS);
-        setError(null);
-      } catch (err) {
-        setError((err as Error).message);
-      } finally {
-        setHostEngineApplying(false);
-      }
+      // 保存后若 requires_restart=true,弹出对话框询问用户是否重启。
+      // 不再自动重启(即使 native host 支持 can_restart_engine),让用户显式确认。
+      if (!payload.requires_restart) return;
+      setRestartConfirmOpen(true);
     },
-    [applyPayload, settings, token],
+    [],
   );
+
+  // 用户在重启询问对话框点击"重启"
+  const confirmRestart = useCallback(async () => {
+    setRestartConfirmOpen(false);
+    await restartViaSettingsSurface();
+  }, [restartViaSettingsSurface]);
+
+  // 用户在重启询问对话框点击"稍后"或关闭
+  const cancelRestart = useCallback(() => {
+    setRestartConfirmOpen(false);
+  }, []);
 
   // 轮询 settings,直到目标模型的上下文窗口学习完成(status 变为 learned/configured)
   // 或超过最大轮询次数(超时后强制刷新一次并清除"查询中"状态,设置超时提示)
@@ -548,29 +588,228 @@ export function useSettingsState({
       label: "",
       provider,
       model: "",
+      apiKey: "",
+      apiBase: "",
+      editingPresetName: undefined,
     });
     setModelConfigurationOpen(true);
   };
 
-  const handleCreateModelConfiguration = async () => {
-    if (modelConfigurationSaving) return;
-    const label = modelConfigurationForm.label.trim();
-    const provider = modelConfigurationForm.provider.trim();
-    const model = modelConfigurationForm.model.trim();
-    if (!label || !provider || !model) return;
+  // 在已配置 provider 卡片下点击"添加模型"时调用:预填该 provider,
+  // 采用 inline 折叠展开式(不弹窗),在卡片内原地展开 InlineAddModelForm。
+  const openModelConfigurationForProvider = (providerName: string) => {
+    setInlineAddModelDraft({
+      label: "",
+      provider: providerName,
+      model: "",
+      apiKey: "",
+      apiBase: "",
+      editingPresetName: undefined,
+    });
+    setInlineAddModelModels([]);
+    setInlineAddModelProvider(providerName);
+  };
+
+  // 取消 inline 添加模型:收起表单
+  const cancelInlineAddModel = () => {
+    setInlineAddModelProvider(null);
+    setInlineAddModelModels([]);
+  };
+
+  // 保存 inline 添加模型:复用 handleCreateModelConfiguration。
+  // 去掉了"名称"字段,用 model 自动作为 label(避免列表重复显示)。
+  const saveInlineAddModel = async () => {
+    if (inlineAddModelSaving) return;
+    setInlineAddModelSaving(true);
+    try {
+      const model = inlineAddModelDraft.model.trim();
+      const draftWithLabel: ModelConfigurationDraft = {
+        ...inlineAddModelDraft,
+        label: model,
+      };
+      const ok = await handleCreateModelConfiguration(draftWithLabel);
+      if (ok) {
+        setInlineAddModelProvider(null);
+        setInlineAddModelModels([]);
+      }
+    } finally {
+      setInlineAddModelSaving(false);
+    }
+  };
+
+  // 为 inline 表单拉取模型列表(用 draft 自带的凭证,独立于 providerForms)
+  const fetchInlineAddModelModels = async () => {
+    if (inlineAddModelModelsLoading) return;
+    const providerName = inlineAddModelDraft.provider;
+    if (!providerName) return;
+    setInlineAddModelModelsLoading(true);
+    try {
+      const models = await fetchProviderModels(token, providerName, {
+        apiKey: inlineAddModelDraft.apiKey?.trim() || undefined,
+        apiBase: inlineAddModelDraft.apiBase?.trim() || undefined,
+      });
+      setInlineAddModelModels(models ?? []);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+      setInlineAddModelModels([]);
+    } finally {
+      setInlineAddModelModelsLoading(false);
+    }
+  };
+
+  // === custom 自定义配置入口(未配置区域的虚线框 + 号) ===
+  // 打开 Dialog,重置 draft(provider 固定为 custom)
+  const openCustomConfig = () => {
+    setCustomConfigDraft({
+      label: "",
+      provider: "custom",
+      model: "",
+      apiKey: "",
+      apiBase: "",
+    });
+    setCustomConfigModels([]);
+    setCustomConfigOpen(true);
+  };
+  const cancelCustomConfig = () => {
+    setCustomConfigOpen(false);
+    setCustomConfigModels([]);
+  };
+  // 保存 custom 配置:复用 handleCreateModelConfiguration,触发上下文查询,
+  // 成功后在已配置区域生成新卡片(label 用 model,后端 _payload.py 会从 api_base 提取显示名)
+  const saveCustomConfig = async () => {
+    if (customConfigSaving) return;
+    setCustomConfigSaving(true);
+    try {
+      const model = customConfigDraft.model.trim();
+      const draftWithLabel: ModelConfigurationDraft = {
+        ...customConfigDraft,
+        label: model,
+      };
+      const ok = await handleCreateModelConfiguration(draftWithLabel);
+      if (ok) {
+        setCustomConfigOpen(false);
+        setCustomConfigModels([]);
+      }
+    } finally {
+      setCustomConfigSaving(false);
+    }
+  };
+  // 为 custom 配置 Dialog 拉取模型列表
+  const fetchCustomConfigModels = async () => {
+    if (customConfigModelsLoading) return;
+    setCustomConfigModelsLoading(true);
+    try {
+      const models = await fetchProviderModels(token, "custom", {
+        apiKey: customConfigDraft.apiKey?.trim() || undefined,
+        apiBase: customConfigDraft.apiBase?.trim() || undefined,
+      });
+      setCustomConfigModels(models ?? []);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+      setCustomConfigModels([]);
+    } finally {
+      setCustomConfigModelsLoading(false);
+    }
+  };
+
+  // 激活该 provider 下的某个 preset:切换 agent.model_preset。
+  // 通过 updateSettings API 走 update_agent_settings handler。
+  const activateModelPreset = async (presetName: string) => {
+    if (!settings) return;
+    setProviderSaving("__preset_activate__");
+    try {
+      const payload = await updateSettings(token, { modelPreset: presetName });
+      applyPayload(payload);
+      onModelNameChange(payload.agent.model || null);
+      if (payload.requires_restart) {
+        setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
+      }
+      await maybeRestartHostEngine(payload);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setProviderSaving(null);
+    }
+  };
+
+  // 删除该 provider 下的某个 preset(单模型删除,不影响其他 preset)。
+  // 走 model-configuration delete API,返回最新 payload 同步 UI。
+  const deletePreset = async (presetName: string) => {
+    if (!settings || providerSaving) return;
+    setProviderSaving("__preset_activate__");
+    try {
+      const payload = await deleteModelConfiguration(token, presetName);
+      applyPayload(payload);
+      onModelNameChange(payload.agent.model || null);
+      if (payload.requires_restart) {
+        setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
+      }
+      await maybeRestartHostEngine(payload);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setProviderSaving(null);
+    }
+  };
+
+  const handleCreateModelConfiguration = async (overrideDraft?: ModelConfigurationDraft): Promise<boolean> => {
+    if (modelConfigurationSaving) return false;
+    const draft = overrideDraft ?? modelConfigurationForm;
+    const label = draft.label.trim();
+    const provider = draft.provider.trim();
+    const model = draft.model.trim();
+    if (!label || !provider || !model) return false;
+    // 编辑模式:editingPresetName 存在时走 update API
+    const editingName = draft.editingPresetName;
+    // 后端 create_model_configuration 已改为后台线程执行 HF 查询,
+    // HTTP 立即返回,新 preset 的 resolved_context_window_status 为 "unknown"。
+    // 前端需要启动轮询,持续显示"查询中"直到后端学习完成。
+    const isNewModel = !editingName;
+    const willQueryContext = isNewModel;
+    if (willQueryContext) {
+      learningPollCancelRef.current = true;
+      setContextWindowLearning(true);
+      setLearningProvider(provider);
+      setContextWindowLearnTimeout(false);
+      setTimeoutProvider(null);
+    }
     setModelConfigurationSaving(true);
     try {
-      const payload = await createModelConfiguration(token, {
-        label,
-        provider,
-        model,
-      });
+      const payload = editingName
+        ? await updateModelConfiguration(token, {
+            name: editingName,
+            label,
+            provider,
+            model,
+            apiKey: draft.apiKey,
+            apiBase: draft.apiBase,
+          })
+        : await createModelConfiguration(token, {
+            label,
+            provider,
+            model,
+            // custom provider 的 preset 必须自带凭证;其他 provider 可选透传
+            apiKey: draft.apiKey,
+            apiBase: draft.apiBase,
+          });
       applyPayload(payload);
       onModelNameChange(payload.agent.model || null);
       setModelConfigurationOpen(false);
       setError(null);
+      // 后端后台线程正在查询 HF,启动轮询持续显示"查询中"
+      if (willQueryContext) {
+        pollContextWindowLearning(model, provider);
+      }
+      return true;
     } catch (err) {
       setError((err as Error).message);
+      setContextWindowLearning(false);
+      setLearningProvider(null);
+      return false;
     } finally {
       setModelConfigurationSaving(false);
     }
@@ -611,6 +850,45 @@ export function useSettingsState({
       setWebSearchSaving(false);
     }
   };
+
+  const saveWebFetchSettings = async () => {
+    if (!settings || !webFetchDirty || webFetchSaving) return;
+    setWebFetchSaving(true);
+    try {
+      const payload = await updateWebFetchSettings(token, webFetchForm);
+      applyPayload(payload);
+      if (payload.requires_restart) {
+        setPendingRestartSections((prev) => ({ ...prev, browser: true }));
+      }
+      await maybeRestartHostEngine(payload);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setWebFetchSaving(false);
+    }
+  };
+
+  const savePlannerSettings = useCallback(
+    async (update: { usePlanner?: boolean; plannerModel?: string | null }) => {
+      if (!settings || plannerSaving) return;
+      setPlannerSaving(true);
+      try {
+        const payload = await updateSettings(token, update);
+        applyPayload(payload);
+        if (payload.requires_restart) {
+          setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
+        }
+        await maybeRestartHostEngine(payload);
+        setError(null);
+      } catch (err) {
+        setError((err as Error).message);
+      } finally {
+        setPlannerSaving(false);
+      }
+    },
+    [applyPayload, maybeRestartHostEngine, plannerSaving, settings, token],
+  );
 
   const saveRuntimeSettings = async () => {
     if (!settings || !runtimeDirty || runtimeSaving) return;
@@ -940,10 +1218,15 @@ export function useSettingsState({
     });
   }, [settingsProviders, settingsModelPresets, settingsAgent]);
 
-  const handleToggleProvider = useCallback((providerName: string) => {
-    if (expandedProvider) resetProviderDraft(expandedProvider);
-    if (expandedProvider === providerName) {
+  const handleToggleProvider = useCallback((entryKey: string) => {
+    // entryKey 格式: `${providerName}__${configured ? "cfg" : "add"}`
+    // 提取 provider name 用于 resetProviderDraft / setProviderModels
+    const providerName = entryKey.split("__")[0];
+    if (expandedProvider) resetProviderDraft(expandedProvider.split("__")[0]);
+    if (expandedProvider === entryKey) {
       setExpandedProvider(null);
+      // 收起时同步收起 inline 表单
+      if (inlineAddModelProvider) cancelInlineAddModel();
     } else {
       setProviderModels((prev) => {
         if (!(providerName in prev)) return prev;
@@ -951,9 +1234,9 @@ export function useSettingsState({
         delete next[providerName];
         return next;
       });
-      setExpandedProvider(providerName);
+      setExpandedProvider(entryKey);
     }
-  }, [expandedProvider, resetProviderDraft]);
+  }, [expandedProvider, resetProviderDraft, inlineAddModelProvider, cancelInlineAddModel]);
 
   const toggleProviderKeyVisibility = (providerName: string) => {
     const isVisible = visibleProviderKeys[providerName];
@@ -1006,6 +1289,11 @@ export function useSettingsState({
     modelConfigurationOpen,
     modelConfigurationSaving,
     modelConfigurationForm,
+    inlineAddModelProvider,
+    inlineAddModelDraft,
+    inlineAddModelModels,
+    inlineAddModelModelsLoading,
+    inlineAddModelSaving,
     providerSaving,
     providerSaved,
     providerModels,
@@ -1016,6 +1304,8 @@ export function useSettingsState({
     networkSafetySaving,
     webSearchSaving,
     webSearchForm,
+    webFetchSaving,
+    webFetchForm,
     runtimeSaving,
     runtimeForm,
     hostEngineApplying,
@@ -1026,6 +1316,9 @@ export function useSettingsState({
     visibleProviderKeys,
     editingProviderKeys,
     pendingRestartSections,
+    restartConfirmOpen,
+    confirmRestart,
+    cancelRestart,
     localPrefs,
     networkSafetyForm,
     form,
@@ -1036,6 +1329,7 @@ export function useSettingsState({
     modelDirty,
     networkSafetyDirty,
     webSearchDirty,
+    webFetchDirty,
     runtimeDirty,
     configuredModelProviderOptions,
     hasPendingRestart,
@@ -1051,6 +1345,7 @@ export function useSettingsState({
     setCustomPresetLabel,
     setNetworkSafetyForm,
     setWebSearchForm,
+    setWebFetchForm,
     setExpandedProvider,
 
     // translation helper
@@ -1065,9 +1360,30 @@ export function useSettingsState({
     saveContextWindow,
     openModelConfigurationDialog,
     handleCreateModelConfiguration,
+    openModelConfigurationForProvider,
+    cancelInlineAddModel,
+    saveInlineAddModel,
+    fetchInlineAddModelModels,
+    setInlineAddModelDraft,
+    // custom 自定义配置入口(未配置区域的虚线框 + 号)
+    customConfigOpen,
+    customConfigDraft,
+    customConfigSaving,
+    customConfigModels,
+    customConfigModelsLoading,
+    openCustomConfig,
+    setCustomConfigDraft,
+    cancelCustomConfig,
+    saveCustomConfig,
+    fetchCustomConfigModels,
+    activateModelPreset,
+    deletePreset,
     saveNetworkSafetySettings,
     saveWebSearchSettings,
+    saveWebFetchSettings,
     saveRuntimeSettings,
+    savePlannerSettings,
+    plannerSaving,
     saveProvider,
     confirmDeleteProvider,
     saveCustomConfiguration,

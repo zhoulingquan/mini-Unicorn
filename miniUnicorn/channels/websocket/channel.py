@@ -90,8 +90,8 @@ from miniUnicorn.webui.thread_disk import delete_webui_thread
 from miniUnicorn.webui.transcript import (
     append_transcript_object,
     build_webui_thread_response,
-    rewrite_local_markdown_images,
     rewind_webui_transcript_to_user,
+    rewrite_local_markdown_images,
 )
 from miniUnicorn.webui.workspaces import (
     WebUIWorkspaceController,
@@ -103,6 +103,9 @@ from miniUnicorn.webui.workspaces import (
 # what tests patch, so the binding must live in this module's globals.
 from ._http_routes import (  # noqa: F401
     _API_KEY_RE,
+    _MCP_PRESET_ACTIONS_BY_PATH,
+    _MCP_VALUES_HEADER,
+    _MCP_VALUES_HEADER_MAX_BYTES,
     _bearer_token,
     _collect_chunked_header,
     _decode_api_key,
@@ -111,9 +114,6 @@ from ._http_routes import (  # noqa: F401
     _http_response,
     _human_readable_size,
     _issue_route_secret_matches,
-    _MCP_PRESET_ACTIONS_BY_PATH,
-    _MCP_VALUES_HEADER,
-    _MCP_VALUES_HEADER_MAX_BYTES,
     _normalize_http_path,
     _parse_mcp_settings_query,
     _parse_query,
@@ -123,7 +123,6 @@ from ._http_routes import (  # noqa: F401
 from ._media_sign import (  # noqa: F401
     _DATA_URL_MIME_RE,
     _DOCUMENT_MIME_ALLOWED,
-    _extract_data_url_mime,
     _IMAGE_MIME_ALLOWED,
     _MAX_DOCUMENT_BYTES,
     _MAX_IMAGE_BYTES,
@@ -132,6 +131,7 @@ from ._media_sign import (  # noqa: F401
     _MAX_VIDEOS_PER_MESSAGE,
     _UPLOAD_MIME_ALLOWED,
     _VIDEO_MIME_ALLOWED,
+    _extract_data_url_mime,
 )
 from ._session import (  # noqa: F401
     _CHAT_ID_RE,
@@ -142,16 +142,16 @@ from ._session import (  # noqa: F401
     publish_runtime_model_update,
 )
 from ._ws_upgrade import (  # noqa: F401
+    _LOCALHOSTS,
+    WebSocketConfig,
     _case_insensitive_header,
     _host_for_url,
     _is_localhost,
     _is_websocket_upgrade,
-    _LOCALHOSTS,
     _normalize_config_path,
     _RateLimiter,
     _safe_host_header,
     _strip_trailing_slash,
-    WebSocketConfig,
 )
 
 if TYPE_CHECKING:
@@ -686,7 +686,6 @@ class WebSocketChannel(BaseChannel):
         Accepts content via repeated ``X-MiniUnicorn-Agent-Content`` headers
         (URL-encoded chunks) like the skills save endpoint.
         """
-        from urllib.parse import unquote
 
         from miniUnicorn.api.routes_agents import router
 
@@ -765,7 +764,6 @@ class WebSocketChannel(BaseChannel):
         (URL-encoded chunks concatenated in order) to stay within the HTTP line
         limit for large files.
         """
-        from urllib.parse import unquote
 
         if not self._check_api_token(request):
             return _http_error(401, "Unauthorized")
@@ -973,7 +971,6 @@ class WebSocketChannel(BaseChannel):
     def _handle_tools_import(self, request: WsRequest) -> Response:
         """Import a .py tool file into <workspace>/tools/."""
         import base64
-        from urllib.parse import unquote
 
         from miniUnicorn.webui.tools_api import WebUIToolsError, import_tool
 
@@ -1103,7 +1100,6 @@ class WebSocketChannel(BaseChannel):
         content as JSON without persisting it; the client is expected to
         review the preview and then POST to ``/api/agents/save``.
         """
-        from urllib.parse import unquote
 
         from miniUnicorn.api.routes_agents import router
 
@@ -1323,7 +1319,6 @@ class WebSocketChannel(BaseChannel):
         HTTP line limit for large skills. Falls back to the ``content`` query
         parameter for small edits.
         """
-        from urllib.parse import unquote
 
         from miniUnicorn.agent.skills import SkillsLoader, is_valid_skill_name
 
@@ -1363,7 +1358,6 @@ class WebSocketChannel(BaseChannel):
         concatenated in order before decoding.
         """
         import base64
-        from urllib.parse import unquote
 
         from miniUnicorn.agent.skills import SkillsLoader
 

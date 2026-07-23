@@ -16,19 +16,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
-from loguru import logger
-
 from miniUnicorn.agent.tools.registry import ToolRegistry
 from miniUnicorn.apps.protocol import app_manifest, compact_dict
 from miniUnicorn.config.loader import load_config, resolve_config_env_vars, save_config
 from miniUnicorn.config.paths import get_runtime_subdir
 from miniUnicorn.config.schema import MCPServerConfig
-from miniUnicorn.security.workspace_policy import is_path_within
 from miniUnicorn.utils.helpers import ensure_dir
 
 QueryParams = dict[str, list[str]]
-
-_PRESETS_DATA_PATH = Path(__file__).with_name("mcp_presets_data.json")
 
 _MCP_PRESET_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$", re.IGNORECASE)
 _SECRET_QUERY_RE = re.compile(
@@ -53,35 +48,6 @@ _MAX_TEST_TOOLS = 16
 _DEFAULT_TEST_TIMEOUT = 20
 _DEFAULT_CUSTOM_TIMEOUT = 30
 _CUSTOM_ACTIONS = {"custom", "import", "import-cursor", "tools"}
-
-# Allowlisted launchers for user-submitted stdio MCP servers.  Keeping this
-# explicit prevents arbitrary ``command`` values from running as the agent
-# user (RCE defence).  Tests and downstream forks can patch this set.
-_ALLOWED_MCP_COMMANDS: frozenset[str] = frozenset({
-    "npx",
-    "npm",
-    "node",
-    "uvx",
-    "uv",
-    "python",
-    "python3",
-    "pipx",
-    "deno",
-    "bun",
-    "yarn",
-})
-
-# Environment variables that allow user-controlled code injection if a
-# malicious MCP server config sets them.  Stripped before persisting.
-_FORBIDDEN_MCP_ENV_KEYS: frozenset[str] = frozenset({
-    "LD_PRELOAD",
-    "LD_LIBRARY_PATH",
-    "PYTHONPATH",
-    "DYLD_INSERT_LIBRARIES",
-    "DYLD_LIBRARY_PATH",
-    "NODE_OPTIONS",
-    "ELECTRON_RUN_AS_NODE",
-})
 
 McpReload = Callable[[], Awaitable[dict[str, Any]]]
 
@@ -127,89 +93,183 @@ def _favicon_url(domain: str) -> str:
     return f"https://www.google.com/s2/favicons?domain={domain}&sz=64"
 
 
-def _build_field_from_json(raw: dict[str, Any]) -> McpPresetField:
-    target_raw = raw.get("target") or []
-    target_kind = str(target_raw[0]) if len(target_raw) > 0 else "env"
-    target_name = str(target_raw[1]) if len(target_raw) > 1 else ""
-    return McpPresetField(
-        name=str(raw.get("name") or ""),
-        label=str(raw.get("label") or ""),
-        target=(target_kind, target_name),  # type: ignore[arg-type]
-        secret=bool(raw.get("secret", True)),
-        required=bool(raw.get("required", True)),
-        env_var=(str(raw["env_var"]) if raw.get("env_var") else None),
-        placeholder=str(raw.get("placeholder") or ""),
-    )
-
-
-def _build_preset_from_json(raw: dict[str, Any]) -> McpPreset:
-    server_raw = raw.get("server")
-    server_cfg: MCPServerConfig | None = None
-    if isinstance(server_raw, dict) and server_raw:
-        server_cfg = MCPServerConfig.model_validate(server_raw)
-    fields_raw = raw.get("fields") or []
-    fields = tuple(
-        _build_field_from_json(field)
-        for field in fields_raw
-        if isinstance(field, dict)
-    )
-    return McpPreset(
-        name=str(raw.get("name") or ""),
-        display_name=str(raw.get("display_name") or ""),
-        category=str(raw.get("category") or ""),
-        description=str(raw.get("description") or ""),
-        docs_url=str(raw.get("docs_url") or ""),
-        transport=str(raw.get("transport") or "stdio"),  # type: ignore[arg-type]
-        install_supported=bool(raw.get("install_supported", False)),
-        brand_domain=str(raw.get("brand_domain") or ""),
-        brand_color=str(raw.get("brand_color") or ""),
-        server=server_cfg,
-        fields=fields,
-        requires=str(raw.get("requires") or ""),
-        note=str(raw.get("note") or ""),
-    )
-
-
-def _load_presets_from_data() -> tuple[McpPreset, ...]:
-    """Load MCP presets from the bundled JSON data file.
-
-    Falls back to an empty tuple on failure so a corrupted data file never
-    breaks WebUI startup.  Errors are logged for visibility.
-    """
-    try:
-        with _PRESETS_DATA_PATH.open(encoding="utf-8") as fp:
-            payload = json.load(fp)
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.warning("Failed to load MCP presets data ({}): {}", _PRESETS_DATA_PATH, exc)
-        return ()
-    if not isinstance(payload, dict):
-        return ()
-    raw_presets = payload.get("presets") or []
-    if not isinstance(raw_presets, list):
-        return ()
-    return tuple(
-        _build_preset_from_json(item)
-        for item in raw_presets
-        if isinstance(item, dict)
-    )
-
-
-# Lazy-loaded tuple of built-in MCP presets.  Loaded from
-# ``mcp_presets_data.json`` so the data can be patched without editing Python
-# source.  Tests that need a known preset set can monkeypatch this attribute
-# or call ``reload_mcp_presets()``.
-MCP_PRESETS: tuple[McpPreset, ...] = _load_presets_from_data()
-
-
-def reload_mcp_presets() -> tuple[McpPreset, ...]:
-    """Reload MCP presets from the JSON data file and update ``MCP_PRESETS``.
-
-    Useful for tests that swap the data file at runtime, or for downstream
-    forks that ship their own data file via the same path.
-    """
-    global MCP_PRESETS
-    MCP_PRESETS = _load_presets_from_data()
-    return MCP_PRESETS
+MCP_PRESETS: tuple[McpPreset, ...] = (
+    McpPreset(
+        name="playwright",
+        display_name="Playwright",
+        category="browser",
+        description="浏览器自动化 MCP 服务，支持页面操作、截图、表单填写等。",
+        docs_url="https://github.com/anthropics/playwright-mcp",
+        transport="stdio",
+        install_supported=True,
+        brand_domain="playwright.dev",
+        brand_color="#2EAD33",
+        server=MCPServerConfig(
+            type="stdio",
+            command="npx",
+            args=["-y", "@playwright/mcp@latest"],
+        ),
+        requires="Node.js",
+        note="无需 API Key，开箱即用。",
+    ),
+    McpPreset(
+        name="context7",
+        display_name="Context7",
+        category="docs",
+        description="获取最新版库文档，为 AI 提供准确的 API 参考。",
+        docs_url="https://github.com/upstash/context7",
+        transport="stdio",
+        install_supported=True,
+        brand_domain="context7.com",
+        brand_color="#DD3105",
+        server=MCPServerConfig(
+            type="stdio",
+            command="npx",
+            args=["-y", "@upstash/context7-mcp"],
+        ),
+        requires="Node.js",
+        note="无需 API Key，开箱即用。",
+    ),
+    McpPreset(
+        name="sequential-thinking",
+        display_name="Sequential Thinking",
+        category="reasoning",
+        description="结构化思维工具，帮助 AI 分步骤解决复杂问题。",
+        docs_url="https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking",
+        transport="stdio",
+        install_supported=True,
+        brand_domain="modelcontextprotocol.io",
+        brand_color="#6366F1",
+        server=MCPServerConfig(
+            type="stdio",
+            command="npx",
+            args=["-y", "@modelcontextprotocol/server-sequential-thinking"],
+        ),
+        requires="Node.js",
+        note="无需 API Key，开箱即用。",
+    ),
+    McpPreset(
+        name="fetch",
+        display_name="Fetch",
+        category="web",
+        description="网页抓取工具，获取 URL 内容并转为 Markdown。",
+        docs_url="https://github.com/modelcontextprotocol/servers/tree/main/src/fetch",
+        transport="stdio",
+        install_supported=True,
+        brand_domain="modelcontextprotocol.io",
+        brand_color="#0EA5E9",
+        server=MCPServerConfig(
+            type="stdio",
+            command="npx",
+            args=["-y", "@modelcontextprotocol/server-fetch"],
+        ),
+        requires="Node.js",
+        note="无需 API Key，开箱即用。",
+    ),
+    McpPreset(
+        name="filesystem",
+        display_name="Filesystem",
+        category="files",
+        description="文件系统访问工具，允许 AI 读写指定目录的文件。",
+        docs_url="https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
+        transport="stdio",
+        install_supported=True,
+        brand_domain="modelcontextprotocol.io",
+        brand_color="#10B981",
+        server=MCPServerConfig(
+            type="stdio",
+            command="npx",
+            args=["-y", "@modelcontextprotocol/server-filesystem", "/"],
+        ),
+        requires="Node.js",
+        note="默认允许访问根目录，可根据需要修改参数中的路径。",
+    ),
+    McpPreset(
+        name="github",
+        display_name="GitHub",
+        category="dev",
+        description="GitHub 仓库管理，支持搜索、创建 Issue、管理 PR 等。",
+        docs_url="https://github.com/modelcontextprotocol/servers/tree/main/src/github",
+        transport="stdio",
+        install_supported=True,
+        brand_domain="github.com",
+        brand_color="#181717",
+        server=MCPServerConfig(
+            type="stdio",
+            command="npx",
+            args=["-y", "@modelcontextprotocol/server-github"],
+        ),
+        fields=(
+            McpPresetField(
+                name="api_key",
+                label="GitHub Personal Access Token",
+                target=("env", "GITHUB_PERSONAL_ACCESS_TOKEN"),
+                secret=True,
+                required=True,
+                env_var="GITHUB_PERSONAL_ACCESS_TOKEN",
+                placeholder="ghp_xxxxxxxxxxxx",
+            ),
+        ),
+        requires="Node.js + GitHub Token",
+        note="在 GitHub Settings → Developer settings → Personal access tokens 生成 Token。",
+    ),
+    # 注：brave-search / tavily 已移至 web_search backends（参与聚合/熔断/deep_research），
+    # 不再作为 MCP preset 暴露，避免搜索能力分散在两处。
+    McpPreset(
+        name="memory",
+        display_name="Memory",
+        category="knowledge",
+        description="持久化记忆工具，基于知识图谱存储和检索信息。",
+        docs_url="https://github.com/modelcontextprotocol/servers/tree/main/src/memory",
+        transport="stdio",
+        install_supported=True,
+        brand_domain="modelcontextprotocol.io",
+        brand_color="#8B5CF6",
+        server=MCPServerConfig(
+            type="stdio",
+            command="npx",
+            args=["-y", "@modelcontextprotocol/server-memory"],
+        ),
+        requires="Node.js",
+        note="无需 API Key，开箱即用。",
+    ),
+    McpPreset(
+        name="puppeteer",
+        display_name="Puppeteer",
+        category="browser",
+        description="Puppeteer 浏览器自动化，支持页面截图、PDF 生成、表单提交等。",
+        docs_url="https://github.com/modelcontextprotocol/servers/tree/main/src/puppeteer",
+        transport="stdio",
+        install_supported=True,
+        brand_domain="pptr.dev",
+        brand_color="#40B5A4",
+        server=MCPServerConfig(
+            type="stdio",
+            command="npx",
+            args=["-y", "@modelcontextprotocol/server-puppeteer"],
+        ),
+        requires="Node.js",
+        note="无需 API Key，开箱即用。首次运行会下载 Chromium。",
+    ),
+    McpPreset(
+        name="time",
+        display_name="Time",
+        category="utility",
+        description="时间工具，获取当前时间、时区转换等。",
+        docs_url="https://github.com/modelcontextprotocol/servers/tree/main/src/time",
+        transport="stdio",
+        install_supported=True,
+        brand_domain="modelcontextprotocol.io",
+        brand_color="#F59E0B",
+        server=MCPServerConfig(
+            type="stdio",
+            command="npx",
+            args=["-y", "@modelcontextprotocol/server-time"],
+        ),
+        requires="Node.js",
+        note="无需 API Key，开箱即用。",
+    ),
+)
 
 
 def _query_first(query: QueryParams, key: str) -> str | None:
@@ -247,16 +307,8 @@ def _known_preset_names() -> set[str]:
 
 def _known_mcp_names() -> set[str]:
     names = _known_preset_names()
-    try:
+    with suppress(Exception):
         names.update(load_config().tools.mcp_servers)
-    except Exception as exc:
-        # Best-effort: an unreadable / partially-migrated config should not
-        # break preset-name normalization. Surface the failure for debugging
-        # rather than silently swallowing it.
-        logger.debug(
-            "Ignoring MCP server names from config while building known preset set: {}",
-            exc,
-        )
     return names
 
 
@@ -657,18 +709,15 @@ def _custom_payload(
     }
 
 
-def initialize_mcp_presets(config: Any) -> None:
+def _auto_enable_no_credential_presets() -> None:
     """首次加载时自动启用所有无需凭据的 MCP 预设服务。
 
     仅处理 ``fields`` 中无必填项的预设（如 playwright/fetch/time 等），
-    需要API Key 的预设（github/brave-search）仍需用户手动填写凭据后启用。
+    需要API Key 的预设（github）仍需用户手动填写凭据后启用。
     一次性：通过 ``mcp_presets_auto_enabled`` 标记确保只执行一次，
     用户手动关闭后不会被重新启用。
-
-    此函数应当作为应用启动初始化的一部分显式调用，而不是在每次读取
-    ``mcp_presets_payload`` 时隐式触发——后者会违反 CQS（命令查询分离），
-    使一个看似只读的函数产生副作用。
     """
+    config = load_config()
     if config.tools.mcp_presets_auto_enabled:
         return
     changed = False
@@ -691,27 +740,12 @@ def initialize_mcp_presets(config: Any) -> None:
         save_config(config)
 
 
-def _auto_enable_no_credential_presets() -> None:
-    """Backward-compatible wrapper around :func:`initialize_mcp_presets`.
-
-    Kept so external callers that already trigger the side effect on first
-    payload access keep working.  New code should call
-    :func:`initialize_mcp_presets` directly at startup instead.
-    """
-    initialize_mcp_presets(load_config())
-
-
 def mcp_presets_payload(
     *,
     last_action: dict[str, Any] | None = None,
     tool_preview: Mapping[str, list[str]] | None = None,
 ) -> dict[str, Any]:
-    """Return the read-only MCP presets payload.
-
-    Pure read: does not mutate config.  Auto-enabling of no-credential
-    presets must be driven explicitly by :func:`initialize_mcp_presets`
-    at application startup (see CQS rationale in the docstring there).
-    """
+    _auto_enable_no_credential_presets()
     config = load_config()
     known = _known_preset_names()
     preset_rows = [
@@ -1069,64 +1103,10 @@ def _import_mcp_servers(raw_json: str | None) -> dict[str, MCPServerConfig]:
     return out
 
 
-def _enforce_mcp_server_security(name: str, cfg: MCPServerConfig, config: Any) -> None:
-    """Validate user-submitted MCP server config to prevent RCE.
-
-    - ``command`` must be in the allowlist of known launchers (npx, uvx, …).
-    - ``cwd`` (when set) must resolve inside the workspace or the managed MCP
-      runtime directory.
-    - Dangerous env vars (``LD_PRELOAD``, ``PYTHONPATH``, …) are stripped and
-      logged so a malicious server config cannot inject shared libraries or
-      override the interpreter's module path.
-
-    All rejections are audited via the loguru logger before raising.
-    """
-    if cfg.command:
-        command_name = Path(cfg.command).name
-        if command_name not in _ALLOWED_MCP_COMMANDS:
-            logger.warning(
-                "MCP server '{}' rejected: command '{}' not in allowlist",
-                name, cfg.command,
-            )
-            raise McpPresetError(
-                f"command '{cfg.command}' is not allowed; permitted launchers: "
-                f"{', '.join(sorted(_ALLOWED_MCP_COMMANDS))}",
-                status=400,
-            )
-
-    if cfg.cwd:
-        cwd_resolved = Path(cfg.cwd).expanduser().resolve(strict=False)
-        allowed_roots: list[Path] = []
-        workspace = getattr(config, "workspace_path", None)
-        if workspace:
-            allowed_roots.append(Path(str(workspace)).expanduser().resolve(strict=False))
-        allowed_roots.append(get_runtime_subdir("mcp").resolve(strict=False))
-        if not any(is_path_within(cwd_resolved, root) for root in allowed_roots):
-            logger.warning(
-                "MCP server '{}' rejected: cwd '{}' outside workspace",
-                name, cfg.cwd,
-            )
-            raise McpPresetError(
-                "cwd must be inside the workspace or the managed MCP directory",
-                status=400,
-            )
-
-    if cfg.env:
-        forbidden_found = _FORBIDDEN_MCP_ENV_KEYS.intersection(cfg.env.keys())
-        if forbidden_found:
-            logger.warning(
-                "MCP server '{}': stripping forbidden env keys: {}",
-                name, sorted(forbidden_found),
-            )
-            for key in forbidden_found:
-                del cfg.env[key]
-
-
 def custom_mcp_action(action: str, query: QueryParams) -> dict[str, Any]:
     config = load_config()
     if action == "custom":
         name, cfg = _custom_server_from_query(query)
-        _enforce_mcp_server_security(name, cfg, config)
         config.tools.mcp_servers[name] = cfg
         save_config(config)
         payload = mcp_presets_payload(last_action=_server_action_message(action, name))
@@ -1135,8 +1115,6 @@ def custom_mcp_action(action: str, query: QueryParams) -> dict[str, Any]:
 
     if action in {"import", "import-cursor"}:
         servers = _import_mcp_servers(_query_first(query, "config"))
-        for server_name, server_cfg in servers.items():
-            _enforce_mcp_server_security(server_name, server_cfg, config)
         config.tools.mcp_servers.update(servers)
         save_config(config)
         payload = mcp_presets_payload(last_action={
@@ -1264,8 +1242,6 @@ async def mcp_presets_settings_action(
 
 
 async def _background_reload(reload_mcp: McpReload) -> None:
-    """Run MCP hot-reload in the background, logging errors instead of swallowing."""
-    try:
+    """Run MCP hot-reload in the background, swallowing errors."""
+    with suppress(Exception):
         await reload_mcp()
-    except Exception:
-        logger.exception("Background MCP hot-reload failed")

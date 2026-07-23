@@ -50,7 +50,7 @@ except ImportError:
     ChatbotMessage = None  # type: ignore[assignment,misc]
 
 
-class miniUnicornDingTalkHandler(CallbackHandler):
+class MiniUnicornDingTalkHandler(CallbackHandler):
     """
     Standard DingTalk Stream SDK Callback Handler.
     Parses incoming messages and forwards them to the miniUnicorn channel.
@@ -247,7 +247,7 @@ class DingTalkChannel(BaseChannel):
             self._client = DingTalkStreamClient(credential)
 
             # Register standard handler
-            handler = miniUnicornDingTalkHandler(self)
+            handler = MiniUnicornDingTalkHandler(self)
             self._client.register_callback_handler(ChatbotMessage.TOPIC, handler)
 
             self.logger.info("bot started with Stream Mode")
@@ -742,7 +742,7 @@ class DingTalkChannel(BaseChannel):
         conversation_type: str | None = None,
         conversation_id: str | None = None,
     ) -> None:
-        """Handle incoming message (called by miniUnicornDingTalkHandler).
+        """Handle incoming message (called by MiniUnicornDingTalkHandler).
 
         Delegates to BaseChannel._handle_message() which enforces allow_from
         permission checks before publishing to the bus.

@@ -55,7 +55,6 @@ def create_docx(
     """创建 .docx 文档。"""
     try:
         from docx import Document
-        from docx.enum.text import WD_BREAK
         from docx.shared import Pt
     except ImportError:
         print("错误:需要 python-docx 库。安装:pip install python-docx", file=sys.stderr)

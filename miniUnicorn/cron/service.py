@@ -372,6 +372,7 @@ class CronService:
             if sched.kind == "cron" and sched.expr:
                 try:
                     from zoneinfo import ZoneInfo
+
                     from croniter import croniter
                     tz = ZoneInfo(sched.tz) if sched.tz and sched.tz != "system" else datetime.now().astimezone().tzinfo
                     base_dt = datetime.fromtimestamp(now / 1000, tz=tz)

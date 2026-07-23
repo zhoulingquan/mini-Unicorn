@@ -94,12 +94,8 @@ class WebUIBuildHook(BuildHookInterface):
     def _run(self, cmd: list[str], *, cwd: Path) -> None:
         self.app.display_info(f"[webui-build] $ {' '.join(cmd)} (cwd={cwd})")
         try:
-            subprocess.run(cmd, cwd=cwd, check=True, timeout=600)
+            subprocess.run(cmd, cwd=cwd, check=True)
         except subprocess.CalledProcessError as exc:
             raise RuntimeError(
                 f"[webui-build] command failed ({exc.returncode}): {' '.join(cmd)}"
-            ) from exc
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(
-                f"[webui-build] command timed out after {exc.timeout}s: {' '.join(cmd)}"
             ) from exc

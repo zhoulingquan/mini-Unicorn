@@ -59,6 +59,8 @@ coverage.xml
 *.cover
 
 # Lock files (project policy)
+# poetry.lock stays ignored — project migrated to uv. uv.lock IS tracked
+# so CI/Docker builds are reproducible across machines.
 poetry.lock
 
 # Jupyter

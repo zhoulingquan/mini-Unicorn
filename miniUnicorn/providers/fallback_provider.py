@@ -13,6 +13,7 @@ from miniUnicorn.providers.base import LLMProvider, LLMResponse
 # Circuit breaker tuned to match OpenAICompatProvider's Responses API breaker.
 _PRIMARY_FAILURE_THRESHOLD = 3
 _PRIMARY_COOLDOWN_S = 60
+_MISSING = object()
 _FALLBACK_ERROR_KINDS = frozenset({
     "timeout",
     "connection",
@@ -52,35 +53,6 @@ _FALLBACK_ERROR_TOKENS = (
     "balance",
     "out of credits",
 )
-
-# HTTP status codes that signal request-side problems (auth, validation, etc).
-# These never warrant a fallback — retrying the same request on another model
-# would just fail the same way. Kept as a frozenset so membership checks are
-# O(1) and the intent (read-only catalog) is explicit.
-_HARD_FAILURE_STATUSES: frozenset[int] = frozenset({400, 401, 403, 404, 422})
-
-# HTTP status codes that signal transient/server-side problems. 408/409/429
-# (timeout / conflict / rate-limit) and the entire 5xx range (server errors)
-# are good candidates for failing over to a fallback provider because the
-# failure is tied to the upstream, not to the request itself.
-_TRANSIENT_STATUSES: frozenset[int] = frozenset({408, 409, 429})
-
-
-def _is_transient_status(status: int | None) -> bool:
-    """True when the HTTP status code indicates a transient/server-side error
-    that is worth retrying against a fallback provider."""
-    if status is None:
-        return False
-    if status in _TRANSIENT_STATUSES:
-        return True
-    return 500 <= status <= 599
-
-
-def _is_hard_failure_status(status: int | None) -> bool:
-    """True when the HTTP status code indicates a request-side problem that
-    would fail identically on any fallback provider."""
-    return status is not None and status in _HARD_FAILURE_STATUSES
-
 
 
 class FallbackProvider(LLMProvider):
@@ -229,18 +201,25 @@ class FallbackProvider(LLMProvider):
                 )
                 continue
 
-            # Operate on a shallow copy so the original kwargs dict is never
-            # mutated — previous code mutated then restored via try/finally,
-            # which is fragile if an exception skips the restore path.
-            fallback_kwargs = dict(kwargs)
-            fallback_kwargs["model"] = fallback_model
-            fallback_kwargs["max_tokens"] = fallback.max_tokens
-            fallback_kwargs["temperature"] = fallback.temperature
+            original_values = {
+                name: kwargs.get(name, _MISSING)
+                for name in ("model", "max_tokens", "temperature", "reasoning_effort")
+            }
+            kwargs["model"] = fallback_model
+            kwargs["max_tokens"] = fallback.max_tokens
+            kwargs["temperature"] = fallback.temperature
             if fallback.reasoning_effort is None:
-                fallback_kwargs.pop("reasoning_effort", None)
+                kwargs.pop("reasoning_effort", None)
             else:
-                fallback_kwargs["reasoning_effort"] = fallback.reasoning_effort
-            fallback_response = await call(fallback_provider, fallback_kwargs)
+                kwargs["reasoning_effort"] = fallback.reasoning_effort
+            try:
+                fallback_response = await call(fallback_provider, kwargs)
+            finally:
+                for name, value in original_values.items():
+                    if value is _MISSING:
+                        kwargs.pop(name, None)
+                    else:
+                        kwargs[name] = value
 
             if fallback_response.finish_reason != "error":
                 logger.info(
@@ -279,22 +258,16 @@ class FallbackProvider(LLMProvider):
         code = (response.error_code or "").lower()
         text = (response.content or "").lower()
 
-        # Hard failures (auth/validation/etc.) would fail on any provider.
-        if _is_hard_failure_status(status):
+        if status in {400, 401, 403, 404, 422}:
             return False
-        # Kinds that signal request-side problems (content_filter, refusal, …).
         if kind in _NON_FALLBACK_ERROR_KINDS:
             return False
         if any(token in value for value in (kind, error_type, code) for token in _NON_FALLBACK_ERROR_KINDS):
             return False
-        # Provider explicitly flagged the error as retryable.
         if response.error_should_retry is True:
             return True
-        # Transient HTTP statuses (timeout / conflict / rate-limit / 5xx).
-        if _is_transient_status(status):
+        if status is not None and (status in {408, 409, 429} or 500 <= status <= 599):
             return True
-        # Error kind known to be transient (timeout / connection / …).
         if kind in _FALLBACK_ERROR_KINDS:
             return True
-        # Substring scan of all error fields against the token catalog.
         return any(token in value for value in (kind, error_type, code, text) for token in _FALLBACK_ERROR_TOKENS)

@@ -12,12 +12,6 @@ from pydantic import BaseModel
 
 from miniUnicorn.config.schema import Config, _resolve_tool_config_refs
 
-# Default context window (in tokens) used when no model-specific value is
-# known.  Centralised here so settings/api surfaces and runtime helpers all
-# agree on the same fallback.  Kept as a plain int (not imported from
-# ``cli.models``) to avoid a circular import.
-DEFAULT_CONTEXT_WINDOW = 65_536
-
 # Global variable to store current config path (for multi-instance support)
 _current_config_path: Path | None = None
 _schema_refs_ready = False
@@ -88,15 +82,8 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
 
     data = config.model_dump(mode="json", by_alias=True)
 
-    # 不在 open 中使用 mode 参数(跨平台兼容),写完后单独 chmod 限制为仅文件所有者可读写
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-
-    # 限制文件权限为 0600(仅所有者可读写),Windows 等不支持的平台失败时仅记录 warning
-    try:
-        path.chmod(0o600)
-    except OSError as exc:
-        logger.warning("无法设置配置文件 {} 的权限为 0o600: {}", path, exc)
 
 
 _ENV_REF_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")

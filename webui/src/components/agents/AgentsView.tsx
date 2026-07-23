@@ -262,7 +262,7 @@ export function AgentsView({ onBack, token, onUseAgent }: AgentsViewProps) {
   return (
     <ViewShell
       onBack={onBack}
-      icon={<Users className="h-4.5 w-4.5 text-foreground/80" />}
+      icon={<Users className="h-4 w-4 text-foreground/80" />}
       title={t("agents.title")}
       actions={
         <>

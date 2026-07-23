@@ -27,7 +27,7 @@ export function DeleteConfirm({
   return (
     <AlertDialog open={open} onOpenChange={(o) => (!o ? onCancel() : undefined)}>
       <AlertDialogContent
-        className="max-w-sm rounded-[22px] border-border/70 bg-popover p-5 shadow-2xl"
+        className="max-w-sm p-5"
       >
         <AlertDialogHeader className="text-left">
           <AlertDialogTitle>{t("deleteConfirm.title", { title })}</AlertDialogTitle>

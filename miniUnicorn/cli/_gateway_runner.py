@@ -26,7 +26,6 @@ without changing the tests.
 """
 
 import asyncio
-import sys
 from contextlib import suppress
 from typing import Any
 
@@ -43,7 +42,6 @@ from miniUnicorn.cli._terminal_render import console
 from miniUnicorn.config.paths import is_default_workspace
 from miniUnicorn.config.schema import Config
 from miniUnicorn.cron.types import CronJob, CronPayload, CronSchedule
-
 
 # ---------------------------------------------------------------------------
 # Module-level helpers extracted from the body of _run_gateway
@@ -321,12 +319,11 @@ def _run_gateway(
     # on the commands module (``sync_workspace_templates``,
     # ``_migrate_cron_store``, ``AgentLoop``).  The other imports below are
     # patched by tests on their own modules, so they can be resolved directly.
-    from miniUnicorn.cli import commands
-    from miniUnicorn.agent.tools.cron import CronTool
     from miniUnicorn.agent.tools.message import MessageTool
     from miniUnicorn.bus.queue import MessageBus
     from miniUnicorn.channels.manager import ChannelManager
     from miniUnicorn.channels.websocket import publish_runtime_model_update
+    from miniUnicorn.cli import commands
     from miniUnicorn.cron.service import CronService
     from miniUnicorn.providers.factory import build_provider_snapshot, load_provider_snapshot
     from miniUnicorn.session.manager import SessionManager

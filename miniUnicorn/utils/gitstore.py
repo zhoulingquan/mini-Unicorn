@@ -112,9 +112,6 @@ class GitStore:
             )
             logger.info("Git store initialized at {}", self._workspace)
             return True
-        except ImportError:
-            logger.debug("dulwich not installed; git store disabled")
-            return False
         except Exception:
             logger.exception("Git store init failed for {}", self._workspace)
             return False
@@ -151,9 +148,6 @@ class GitStore:
             sha = sha_bytes.hex()[:8]
             logger.debug("Git auto-commit: {} ({})", sha, message)
             return sha
-        except ImportError:
-            logger.debug("dulwich not installed; git auto-commit skipped")
-            return None
         except Exception:
             logger.exception("Git auto-commit failed: {}", message)
             return None
@@ -178,8 +172,6 @@ class GitStore:
                     if commit.type_name != b"commit":
                         break
                     sha = commit.parents[0] if commit.parents else None
-            return None
-        except ImportError:
             return None
         except Exception:
             return None
@@ -250,9 +242,6 @@ class GitStore:
                     sha = commit.parents[0] if commit.parents else None
 
             return entries
-        except ImportError:
-            logger.debug("dulwich not installed; git log skipped")
-            return []
         except Exception:
             logger.exception("Git log failed")
             return []
@@ -276,9 +265,6 @@ class GitStore:
             from dulwich import porcelain
 
             annotated = porcelain.annotate(str(self._workspace), file_path)
-        except ImportError:
-            logger.debug("dulwich not installed; git line_ages skipped for {}", file_path)
-            return []
         except Exception:
             logger.exception("Git line_ages annotate failed for {}", file_path)
             return []
@@ -309,9 +295,6 @@ class GitStore:
                 outstream=out,
             )
             return out.getvalue().decode("utf-8", errors="replace")
-        except ImportError:
-            logger.debug("dulwich not installed; git diff_commits skipped")
-            return ""
         except Exception:
             logger.exception("Git diff_commits failed")
             return ""
@@ -336,30 +319,6 @@ class GitStore:
         return None
 
     # -- restore ---------------------------------------------------------------
-
-    def gc(self, *, prune: bool = True) -> bool:
-        """垃圾回收：repack loose objects + 清理不可达对象。
-
-        Dream 长期累积 commit 会产生大量 loose objects，占用磁盘且拖慢
-        ``porcelain.status``/``auto_commit``。本方法封装 dulwich 的
-        ``porcelain.gc``，等价于系统 ``git gc``。
-
-        建议在 Dream.run() 末尾周期性调用。返回 True 表示成功执行。
-        """
-        if not self.is_initialized():
-            return False
-        try:
-            from dulwich import porcelain
-
-            porcelain.gc(str(self._workspace), prune=prune)
-            logger.debug("GitStore.gc completed for {}", self._workspace)
-            return True
-        except ImportError:
-            logger.debug("dulwich not installed; git gc skipped")
-            return False
-        except Exception:
-            logger.exception("GitStore.gc failed for {}", self._workspace)
-            return False
 
     def revert(self, commit: str) -> str | None:
         """Revert (undo) the changes introduced by the given commit.
@@ -407,9 +366,6 @@ class GitStore:
             # Commit the restored state
             msg = f"revert: undo {commit}"
             return self.auto_commit(msg)
-        except ImportError:
-            logger.debug("dulwich not installed; git revert skipped for {}", commit)
-            return None
         except Exception:
             logger.exception("Git revert failed for {}", commit)
             return None

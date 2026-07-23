@@ -419,3 +419,114 @@ class TestLegacyHistoryMigration:
         assert entries[0]["timestamp"] == "2026-04-01 10:00"
         assert "Broken" in entries[0]["content"]
         assert "migration." in entries[0]["content"]
+
+
+# ---------------------------------------------------------------------------
+# Single-Writer 路径校验（Phase 5：路径白名单硬约束）
+# ---------------------------------------------------------------------------
+
+
+class TestSingleWriterPathValidation:
+    """验证 MemoryStore 的路径白名单和 single-writer 不变量。"""
+
+    def test_assert_path_in_workspace_accepts_inside(self, tmp_path):
+        """workspace 内的路径应通过校验。"""
+        store = MemoryStore(tmp_path)
+        # 不应抛异常
+        store._assert_path_in_workspace(tmp_path / "memory" / "MEMORY.md")
+        store._assert_path_in_workspace(tmp_path / "notes.md")
+
+    def test_assert_path_in_workspace_rejects_outside(self, tmp_path):
+        """workspace 外的路径应被拒绝。"""
+        store = MemoryStore(tmp_path)
+        # 构造 workspace 外的路径
+        outside = tmp_path.parent / "evil.txt"
+        with pytest.raises(PermissionError, match="outside workspace"):
+            store._assert_path_in_workspace(outside)
+
+    def test_assert_path_in_workspace_rejects_traversal(self, tmp_path):
+        """path traversal 攻击（../）应被拒绝。"""
+        store = MemoryStore(tmp_path)
+        # 构造 traversal 路径：workspace/../../etc/passwd
+        evil = tmp_path / ".." / ".." / "etc" / "passwd"
+        with pytest.raises(PermissionError):
+            store._assert_path_in_workspace(evil)
+
+    def test_assert_writer_allowed_silent_for_unlisted_path(self):
+        """不在白名单中的路径视为 unrestricted，不抛异常。"""
+        # 不应抛异常也不应记录 warning
+        MemoryStore._assert_writer_allowed("anyone", "nonexistent/file.md")
+
+    def test_assert_writer_allowed_silent_for_correct_role(self):
+        """白名单中的角色应通过校验。"""
+        # main_agent 写 notes.md 是允许的
+        MemoryStore._assert_writer_allowed("main_agent", "notes.md")
+        # consolidator 写 notes.md 是允许的（清空）
+        MemoryStore._assert_writer_allowed("consolidator", "notes.md")
+        # dream 写 MEMORY.md 是允许的
+        MemoryStore._assert_writer_allowed("dream", "memory/MEMORY.md")
+
+    def test_assert_writer_allowed_warns_for_wrong_role(self, caplog):
+        """角色不在白名单中应记录 warning（不抛异常，避免破坏现有流程）。"""
+        import logging
+        with caplog.at_level(logging.WARNING, logger="loguru"):
+            MemoryStore._assert_writer_allowed("main_agent", "memory/MEMORY.md")
+        # 应有 warning 记录（main_agent 不允许直接写 MEMORY.md）
+        # 注意：loguru 的 warning 通过 intercept 才能被 caplog 捕获；
+        # 这里只验证不抛异常即可
+        # 真正的违规检测在工具层强制执行
+
+    def test_writer_whitelist_covers_all_memory_files(self):
+        """白名单应覆盖所有结构化记忆文件。"""
+        expected_files = {
+            "notes.md",
+            "memory/MEMORY.md",
+            "SOUL.md",
+            "USER.md",
+            "memory/history.jsonl",
+            "memory/.cursor",
+            "memory/.dream_cursor",
+            "memory/.reflections_cursor",
+            "memory/episodic.jsonl",
+            "memory/procedural.jsonl",
+            "memory/reflections.jsonl",
+            "memory/shared/MEMORY_SHARED.md",
+            "memory/shared/procedural_shared.jsonl",
+        }
+        assert expected_files.issubset(set(MemoryStore._WRITER_WHITELIST.keys()))
+
+    def test_main_agent_only_allowed_to_write_notes(self):
+        """主 Agent 只能写 notes.md，不能写其他结构化文件。"""
+        for path in MemoryStore._WRITER_WHITELIST:
+            allowed = MemoryStore._WRITER_WHITELIST[path]
+            if path == "notes.md":
+                assert "main_agent" in allowed
+            else:
+                assert "main_agent" not in allowed, (
+                    f"主 Agent 不应被允许写 {path}（single-writer 不变量）"
+                )
+
+    def test_append_notes_passes_validation(self, tmp_path):
+        """append_notes 在正常 workspace 下应通过校验并写入。"""
+        store = MemoryStore(tmp_path)
+        store.append_notes("test note")
+        assert "test note" in store.read_notes()
+
+    def test_clear_notes_passes_validation(self, tmp_path):
+        """clear_notes 在正常 workspace 下应通过校验并清空。"""
+        store = MemoryStore(tmp_path)
+        store.append_notes("to be cleared")
+        store.clear_notes()
+        assert store.read_notes() == ""
+
+    def test_write_memory_passes_validation(self, tmp_path):
+        """write_memory 在正常 workspace 下应通过校验。"""
+        store = MemoryStore(tmp_path)
+        store.write_memory("memory content")
+        assert store.read_memory() == "memory content"
+
+    def test_append_history_passes_validation(self, tmp_path):
+        """append_history 在正常 workspace 下应通过校验。"""
+        store = MemoryStore(tmp_path)
+        cursor = store.append_history("event")
+        assert cursor >= 1

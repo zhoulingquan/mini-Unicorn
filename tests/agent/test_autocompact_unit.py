@@ -177,6 +177,32 @@ class TestFormatSummary:
         result = AutoCompact._format_summary("text", last_active)
         assert result.startswith("Previous conversation summary (last active ")
 
+    def test_verbatim_appended_when_provided(self):
+        """verbatim_recent 用户消息原文应拼接到 summary 之后（防改写偏离）。"""
+        last_active = datetime(2026, 1, 1)
+        result = AutoCompact._format_summary(
+            "summary text", last_active,
+            verbatim=["把订单号改成 12345", "再帮我加一条备注"],
+        )
+        assert "Recent user messages (verbatim):" in result
+        assert "把订单号改成 12345" in result
+        assert "再帮我加一条备注" in result
+
+    def test_verbatim_long_message_truncated(self):
+        """过长的 verbatim 消息应被截断到 500 字符以内。"""
+        last_active = datetime(2026, 1, 1)
+        long_msg = "x" * 1000
+        result = AutoCompact._format_summary("s", last_active, verbatim=[long_msg])
+        assert "..." in result
+        # 截断后应保留 500 字符 + "..."
+        assert result.count("x") == 500
+
+    def test_verbatim_omitted_when_empty(self):
+        """空的 verbatim 列表不应触发拼接块（保持旧行为）。"""
+        last_active = datetime(2026, 1, 1)
+        result = AutoCompact._format_summary("s", last_active, verbatim=[])
+        assert "Recent user messages (verbatim):" not in result
+
 
 # ---------------------------------------------------------------------------
 # check_expired
@@ -367,7 +393,7 @@ class TestPrepareSession:
         ac = _make_autocompact()
         session = _make_session()
         last_active = datetime(2026, 5, 13, 14, 0, 0)
-        ac._summaries["cli:test"] = ("Hot summary.", last_active)
+        ac._summaries["cli:test"] = ("Hot summary.", last_active, [])
 
         result_session, summary = ac.prepare_session(session, "cli:test")
 
@@ -381,7 +407,7 @@ class TestPrepareSession:
         ac = _make_autocompact()
         session = _make_session()
         last_active = datetime(2026, 1, 1)
-        ac._summaries["cli:test"] = ("One-shot.", last_active)
+        ac._summaries["cli:test"] = ("One-shot.", last_active, [])
 
         _, summary1 = ac.prepare_session(session, "cli:test")
         assert summary1 is not None
@@ -436,7 +462,7 @@ class TestPrepareSession:
             },
         })
         last_active = datetime(2026, 5, 13, 14, 0, 0)
-        ac._summaries["cli:test"] = ("Hot summary.", last_active)
+        ac._summaries["cli:test"] = ("Hot summary.", last_active, [])
 
         _, summary = ac.prepare_session(session, "cli:test")
         assert "Hot summary." in summary

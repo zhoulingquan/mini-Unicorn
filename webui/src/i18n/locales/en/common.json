@@ -46,6 +46,7 @@
     "expand": "Expand sidebar",
     "newChat": "New chat",
     "recent": "Recent",
+    "search": "Search chats",
     "settings": "Settings",
     "mcp": "MCP",
     "skills": "Skills",
@@ -57,7 +58,7 @@
       "label": "Language",
       "ariaLabel": "Change language"
     },
-    "apps": "Apps"
+    "apps": "CLI Apps"
   },
   "settings": {
     "backToChat": "Back to chat",
@@ -72,11 +73,11 @@
       "appearance": "Appearance",
       "models": "Models",
       "providers": "Providers",
-      "browser": "Search",
+      "browser": "Web Search",
       "cliApps": "CLI Apps",
       "mcp": "MCP",
       "advanced": "Security",
-      "apps": "Apps"
+      "apps": "CLI Apps"
     },
     "sections": {
       "interface": "Interface",
@@ -93,7 +94,7 @@
       "webSearchBasic": "Web Search",
       "webSearchCache": "Network",
       "webSearchBackends": "Backend Credentials",
-      "apps": "Apps",
+      "apps": "CLI Apps",
       "nativeHost": "Native host",
       "hostSafety": "App safety"
     },
@@ -102,6 +103,8 @@
       "addConfiguration": "Add configuration",
       "newConfiguration": "New model configuration",
       "newConfigurationHelp": "Save a provider and model as a one-click option.",
+      "editConfiguration": "Edit model configuration",
+      "editConfigurationHelp": "Update the label, model, or credentials for this configuration.",
       "configurationName": "Name",
       "configurationNameHelp": "Rename this saved model configuration.",
       "configurationNamePlaceholder": "Fast writing",
@@ -171,14 +174,13 @@
       "localServiceAccess": "Allow Full Access shell commands to reach localhost services.",
       "webuiDefaultAccess": "Used by web chats without a project-specific permission.",
       "securityManagedControls": "Web fetches always protect local, private, and metadata services. Core channel safety stays in config.json.",
-      "webSearchEnable": "Toggle the web_search tool on/off for the agent. By default all registered backends are queried concurrently and deduped, covering both CN and overseas results.",
+      "webSearchEnable": "Toggle the web_search tool on/off. By default queries searxng + tavily + bing_cn concurrently and merges deduped results.",
       "webSearchMaxResults": "Maximum number of results returned per query (1-10).",
       "webSearchTimeout": "Per-request timeout in seconds.",
-      "webSearchProxy": "HTTP proxy for overseas backends (e.g. duckduckgo). Leave empty to use system env.",
+      "webSearchProxy": "HTTP proxy for overseas backends (e.g. tavily). Leave empty to use system HTTP_PROXY/HTTPS_PROXY env vars.",
       "webSearchUserAgent": "Custom User-Agent for scraping backends. Leave empty to use default.",
-      "webSearchBackend_bocha": "Bocha AI Search API (CN, requires key, free tier available)",
-      "webSearchBackend_tencent": "Tencent Cloud Search (CN, requires secret_id:secret_key)",
-      "webSearchBackend_duckduckgo": "DuckDuckGo (overseas, no key, requires proxy in CN)",
+      "webSearchBackend_searxng": "SearXNG self-hosted meta search (requires base_url, aggregates 100+ engines, free)",
+      "webSearchBackend_tavily": "Tavily AI Search API (requires key, returns LLM summary, 1000/mo free)",
       "logs": "Open the native engine log folder.",
       "diagnostics": "Export a small runtime report for support.",
       "localServiceAccessNative": "Allow Full Access shell commands to reach services on this Mac.",
@@ -304,6 +306,17 @@
       "apiBaseRequired": "API base is required",
       "modelIdRequired": "Model ID is required",
       "customRequiredHint": "Label, API base and model are required",
+      "modelsUnderProvider": "Models under this provider",
+      "noPresets": "Continue to add other models",
+      "addModelToProvider": "Add model",
+      "addCustomProvider": "Add custom provider",
+      "customProviderHelp": "Configure a custom OpenAI-compatible endpoint. Saved as an independent provider card.",
+      "activate": "Activate",
+      "activePreset": "Active",
+      "editPreset": "Edit model",
+      "affectedPresets": "The following {{count}} model configuration(s) will also be deleted:",
+      "apiKey": "API Key",
+      "apiBase": "API Base",
       "tabs": {
         "ariaLabel": "BYOK credential type",
         "llm": "LLM"
@@ -365,6 +378,14 @@
       "configuredHint": "Using: {{model}}",
       "defaultHint": "Using main agent model.",
       "useMain": "Main model"
+    },
+    "planner": {
+      "title": "Plan & Execute dual model",
+      "useMain": "Main model",
+      "disabledHint": "ReAct only. Toggle on to enable plan-and-execute.",
+      "singleModelHint": "Planner: main model · Executor: main model",
+      "dualModelHint": "Planner: {{model}} · Executor: main model",
+      "toggleAria": "Toggle plan-and-execute dual model"
     },
     "providers": {
       "saveProvider": "Save provider"
@@ -492,7 +513,12 @@
       "newChat": "Start a new chat",
       "toggleTheme": "Toggle theme from header",
       "toggleLanguage": "Toggle language",
-      "settings": "Open settings"
+      "settings": "Open settings",
+      "provider": {
+        "label": "Select provider",
+        "ariaLabel": "Switch LLM provider",
+        "empty": "No provider configured"
+      }
     },
     "composer": {
       "placeholderThread": "Type your message…",
@@ -982,8 +1008,8 @@
       "run_cli_app": "Run a CLI App installed in Settings",
       "spawn": "Spawn a subagent to handle a task in the background",
       "web_fetch": "Fetch a URL and extract readable content",
-      "web_search": "Search the web by keyword across 6 CN/global engines (Bing, Baidu, Sogou, Bocha, Tencent, DuckDuckGo) with auto-fallback and caching; returns titles, URLs, and snippets",
-      "deep_research": "Multi-step research workflow (plan, search, reflect, write) that orchestrates 6 CN/global search engines concurrently with auto-reflection; returns a cited Markdown report",
+      "web_search": "Search the web by keyword with SearXNG (self-hosted meta search aggregating 100+ engines) as primary, plus Tavily AI summaries and Bing CN fallback; concurrent query with dedup merge and auto-caching; returns titles, URLs, and snippets",
+      "deep_research": "Multi-step research workflow (plan, search, fetch, reflect, rerank, write) powered by SearXNG-primary concurrent search with full-text fetching and auto-reflection; returns a cited Markdown report",
       "write_file": "Create a new file or intentionally replace an entire file",
       "write_stdin": "Write to stdin or control a running exec session"
     }

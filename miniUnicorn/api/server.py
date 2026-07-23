@@ -10,8 +10,6 @@ import asyncio
 import contextlib
 import hmac
 import json as _json
-import os
-import re
 import time
 import uuid
 from typing import Any
@@ -44,19 +42,9 @@ __all__ = (
 API_SESSION_KEY = "api:default"
 API_CHAT_ID = "default"
 
-# Environment variable used to set the static API token when the CLI does
-# not pass one explicitly. Kept as a plain string so it can be patched in tests.
-API_TOKEN_ENV = "MINIUNICORN_API_TOKEN"
-
-# Public endpoints exempt from authentication (health checks must remain open
-# so orchestrators like Docker/kubernetes can probe readiness without creds).
+# Routes that bypass auth (health checks only). /v1/* always requires auth
+# when api_key is configured.
 _PUBLIC_PATHS = frozenset({"/health"})
-
-# Server-side validation for client-supplied session_id values.  Used both to
-# keep per-session locks bounded and to prevent path-traversal-style abuse of
-# the session_key namespace.
-_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
-_SESSION_ID_MAX_LEN = 64
 
 
 # ---------------------------------------------------------------------------
@@ -204,121 +192,6 @@ async def _parse_multipart(request: web.Request) -> tuple[str, list[str], str | 
 
 
 # ---------------------------------------------------------------------------
-# Authentication & session helpers
-# ---------------------------------------------------------------------------
-
-
-def _resolve_api_token(explicit: str | None) -> str:
-    """Return the effective API token, falling back to the env var."""
-    if explicit is None:
-        return os.environ.get(API_TOKEN_ENV, "").strip()
-    return explicit.strip()
-
-
-def _bearer_token_from_request(request: web.Request) -> str | None:
-    """Extract a Bearer token from the Authorization header (case-insensitive)."""
-    headers = request.headers
-    authorization = headers.get("Authorization") or headers.get("authorization")
-    if authorization and authorization.lower().startswith("bearer "):
-        return authorization[7:].strip()
-    return None
-
-
-# Loopback 主机名集合,用于判定是否允许在无 api_token 的情况下提供 API 服务。
-# 仅监听 loopback 时,无 token 便利访问是可接受的;其他地址必须配置 token。
-_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
-
-
-def _is_loopback_host(host: str) -> bool:
-    """判断绑定地址是否为 loopback。"""
-    return host in _LOOPBACK_HOSTS
-
-
-def _is_loopback_remote(request: web.Request) -> bool:
-    """判断请求来源 IP 是否为 loopback。
-
-    用于防御反向代理场景:即使绑定了 127.0.0.1,如果代理转发了非本机请求,
-    也应当要求 token 认证。
-    """
-    remote = request.remote or ""
-    # IPv6 aiohttp 可能带上端口或包在 [ ] 中,简单取首段做判断。
-    if remote.startswith("["):
-        remote = remote.strip("[]").split("%")[0]
-    return remote in _LOOPBACK_HOSTS
-
-
-def _authenticate_request(request: web.Request) -> web.Response | None:
-    """Validate the Bearer token. Returns an error response on failure, None on success.
-
-    When no ``api_token`` is configured (e.g. local-only dev bind), authentication
-    is skipped so existing local workflows keep working.  But if the request remote
-    is not loopback (e.g. service is reached via a reverse proxy), authentication
-    is enforced to defend against accidental public exposure.
-    """
-    api_token: str = request.app.get("api_token", "")
-    if not api_token:
-        # 无 token 时,仅允许 loopback 来源;否则按未授权处理。
-        if _is_loopback_remote(request):
-            return None
-        return _error_json(
-            401,
-            "Unauthorized: API token not configured and request is not from loopback",
-            err_type="authentication_error",
-        )
-    supplied = _bearer_token_from_request(request)
-    if supplied and hmac.compare_digest(supplied, api_token):
-        return None
-    return _error_json(401, "Unauthorized", err_type="authentication_error")
-
-
-@web.middleware
-async def _auth_middleware(request: web.Request, handler):
-    """aiohttp middleware enforcing Bearer token auth on protected routes."""
-    if request.path in _PUBLIC_PATHS:
-        return await handler(request)
-    err = _authenticate_request(request)
-    if err is not None:
-        return err
-    return await handler(request)
-
-
-def _validate_session_id(session_id: str | None) -> str | None:
-    """Sanitize a client-supplied session_id.
-
-    Returns a safe session_id string (or ``None`` when the input is empty),
-    rejecting values that contain path separators, exceed the length cap, or
-    use characters outside the allowlist.  This keeps per-session locks
-    bounded and prevents ``api:<payload>`` style namespace abuse.
-    """
-    if session_id is None:
-        return None
-    value = session_id.strip()
-    if not value:
-        return None
-    if len(value) > _SESSION_ID_MAX_LEN:
-        raise ValueError("session_id too long")
-    if _SESSION_ID_RE.match(value) is None:
-        raise ValueError("invalid session_id")
-    return value
-
-
-async def _acquire_session_lock(request: web.Request, session_key: str) -> asyncio.Lock:
-    """Atomically look up (or create) the per-session lock.
-
-    ``dict.setdefault`` is not atomic across coroutines, so a dedicated
-    guard lock serialises the dictionary mutation.
-    """
-    locks_lock: asyncio.Lock = request.app["session_locks_lock"]
-    locks: dict[str, asyncio.Lock] = request.app["session_locks"]
-    async with locks_lock:
-        lock = locks.get(session_key)
-        if lock is None:
-            lock = asyncio.Lock()
-            locks[session_key] = lock
-    return lock
-
-
-# ---------------------------------------------------------------------------
 # Route handlers
 # ---------------------------------------------------------------------------
 
@@ -357,121 +230,84 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     if requested_model and requested_model != model_name:
         return _error_json(400, f"Only configured model '{model_name}' is available")
 
-    try:
-        safe_session_id = _validate_session_id(session_id)
-    except ValueError as e:
-        return _error_json(400, str(e))
-    session_key = f"api:{safe_session_id}" if safe_session_id else API_SESSION_KEY
-    session_lock = await _acquire_session_lock(request, session_key)
+    session_key = f"api:{session_id}" if session_id else API_SESSION_KEY
+    session_locks: dict[str, asyncio.Lock] = request.app["session_locks"]
+    session_lock = session_locks.setdefault(session_key, asyncio.Lock())
 
-    # 不记录用户消息原文,仅记录长度,避免敏感内容泄露到日志。
     logger.info(
-        "API request session_key={} media={} text_len={} stream={}",
-        session_key, len(media_paths), len(text), stream,
+        "API request session_key={} media={} text={} stream={}",
+        session_key, len(media_paths), text[:80], stream,
     )
     # -- streaming path --
     if stream:
-        return await _stream_response(
-            request, agent_loop, session_lock, session_key,
-            text, media_paths, model_name, timeout_s,
-        )
+        resp = web.StreamResponse()
+        resp.content_type = "text/event-stream"
+        resp.headers["Cache-Control"] = "no-cache"
+        resp.headers["Connection"] = "keep-alive"
+        await resp.prepare(request)
 
-    # -- non-streaming path --
-    return await _non_stream_response(
-        agent_loop, session_lock, session_key,
-        text, media_paths, model_name, timeout_s,
-    )
+        chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        stream_failed = False
+        emitted_content = False
 
+        async def _on_stream(token: str) -> None:
+            nonlocal emitted_content
+            if token:
+                emitted_content = True
+            await queue.put(token)
 
-async def _stream_response(
-    request: web.Request,
-    agent_loop,
-    session_lock: asyncio.Lock,
-    session_key: str,
-    text: str,
-    media_paths: list[str],
-    model_name: str,
-    timeout_s: float,
-) -> web.Response:
-    """Stream chat completion tokens as OpenAI-compatible SSE events."""
-    resp = web.StreamResponse()
-    resp.content_type = "text/event-stream"
-    resp.headers["Cache-Control"] = "no-cache"
-    resp.headers["Connection"] = "keep-alive"
-    await resp.prepare(request)
+        async def _on_stream_end(*_a: Any, **_kw: Any) -> None:
+            # Agent stream-end callbacks mark generation segment boundaries.
+            # Tool-backed requests may continue after a segment ends, so the
+            # HTTP SSE stream is closed only when process_direct returns.
+            return None
 
-    chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-    queue: asyncio.Queue[str | None] = asyncio.Queue()
-    stream_failed = False
-    emitted_content = False
+        async def _run() -> None:
+            nonlocal stream_failed
+            try:
+                async with session_lock:
+                    response = await asyncio.wait_for(
+                        agent_loop.process_direct(
+                            content=text,
+                            media=media_paths if media_paths else None,
+                            session_key=session_key,
+                            channel="api",
+                            chat_id=API_CHAT_ID,
+                            on_stream=_on_stream,
+                            on_stream_end=_on_stream_end,
+                        ),
+                        timeout=timeout_s,
+                    )
+                    if not emitted_content:
+                        response_text = _response_text(response)
+                        if response_text.strip():
+                            await queue.put(response_text)
+            except Exception:
+                stream_failed = True
+                logger.exception("Streaming error for session {}", session_key)
+            finally:
+                await queue.put(None)
 
-    async def _on_stream(token: str) -> None:
-        nonlocal emitted_content
-        if token:
-            emitted_content = True
-        await queue.put(token)
-
-    async def _on_stream_end(*_a: Any, **_kw: Any) -> None:
-        # Agent stream-end callbacks mark generation segment boundaries.
-        # Tool-backed requests may continue after a segment ends, so the
-        # HTTP SSE stream is closed only when process_direct returns.
-        return None
-
-    async def _run() -> None:
-        nonlocal stream_failed
+        task = asyncio.create_task(_run())
         try:
-            async with session_lock:
-                response = await asyncio.wait_for(
-                    agent_loop.process_direct(
-                        content=text,
-                        media=media_paths if media_paths else None,
-                        session_key=session_key,
-                        channel="api",
-                        chat_id=API_CHAT_ID,
-                        on_stream=_on_stream,
-                        on_stream_end=_on_stream_end,
-                    ),
-                    timeout=timeout_s,
-                )
-                if not emitted_content:
-                    response_text = _response_text(response)
-                    if response_text.strip():
-                        await queue.put(response_text)
-        except Exception:
-            stream_failed = True
-            logger.exception("Streaming error for session {}", session_key)
+            while True:
+                token = await queue.get()
+                if token is None:
+                    break
+                await resp.write(_sse_chunk(token, model_name, chunk_id))
         finally:
-            await queue.put(None)
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
-    task = asyncio.create_task(_run())
-    try:
-        while True:
-            token = await queue.get()
-            if token is None:
-                break
-            await resp.write(_sse_chunk(token, model_name, chunk_id))
-    finally:
-        if not task.done():
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        if not stream_failed:
+            await resp.write(_sse_chunk("", model_name, chunk_id, finish_reason="stop"))
+            await resp.write(_SSE_DONE)
+        return resp
 
-    if not stream_failed:
-        await resp.write(_sse_chunk("", model_name, chunk_id, finish_reason="stop"))
-        await resp.write(_SSE_DONE)
-    return resp
-
-
-async def _non_stream_response(
-    agent_loop,
-    session_lock: asyncio.Lock,
-    session_key: str,
-    text: str,
-    media_paths: list[str],
-    model_name: str,
-    timeout_s: float,
-) -> web.Response:
-    """Run the agent and return a single chat completion JSON response."""
+    # -- non-streaming path (original logic) --
     fallback = EMPTY_FINAL_RESPONSE_MESSAGE
 
     try:
@@ -542,6 +378,48 @@ async def handle_health(request: web.Request) -> web.Response:
 
 
 # ---------------------------------------------------------------------------
+# Auth middleware
+# ---------------------------------------------------------------------------
+
+
+@web.middleware
+async def _auth_middleware(request: web.Request, handler):
+    """Bearer-token auth for /v1/* endpoints.
+
+    - ``/health`` is always public (liveness probes).
+    - When ``app["api_key"]`` is empty, all routes are open (development mode).
+    - When set, ``/v1/*`` requires ``Authorization: Bearer <api_key>``.
+    Comparison uses ``hmac.compare_digest`` to avoid timing leaks.
+    """
+    api_key: str = request.app.get("api_key", "")
+    if not api_key:
+        return await handler(request)
+
+    path = request.path
+    # Strip trailing slash for matching (except root).
+    if len(path) > 1 and path.endswith("/"):
+        path = path.rstrip("/")
+
+    if path in _PUBLIC_PATHS:
+        return await handler(request)
+
+    auth = request.headers.get("Authorization") or request.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer "):
+        supplied = auth[7:].strip()
+    else:
+        supplied = ""
+
+    if supplied and hmac.compare_digest(supplied, api_key):
+        return await handler(request)
+
+    return _error_json(
+        401,
+        "Missing or invalid Authorization header. Expected: 'Authorization: Bearer <api_key>'",
+        err_type="authentication_error",
+    )
+
+
+# ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
 
@@ -550,9 +428,7 @@ def create_app(
     agent_loop,
     model_name: str = "MiniUnicorn",
     request_timeout: float = 120.0,
-    *,
-    host: str = "127.0.0.1",
-    api_token: str | None = None,
+    api_key: str = "",
 ) -> web.Application:
     """Create the aiohttp application.
 
@@ -560,31 +436,17 @@ def create_app(
         agent_loop: An initialized AgentLoop instance.
         model_name: Model name reported in responses.
         request_timeout: Per-request timeout in seconds.
-        host: Bind address the server will listen on. Wildcard hosts
-            (``0.0.0.0`` / ``::``) require a non-empty ``api_token`` to
-            prevent unauthenticated access on untrusted networks.
-        api_token: Static Bearer token protecting non-public endpoints.
-            When ``None`` (default), the value of the
-            ``MINIUNICORN_API_TOKEN`` environment variable is used. When
-            empty, authentication is skipped (only safe for local binds).
+        api_key: Bearer token required for /v1/* endpoints. Empty = no auth.
     """
-    effective_token = _resolve_api_token(api_token)
-    # 若 api_token 为空,仅允许 loopback 绑定;监听其他地址必须配置 token,
-    # 否则在启动阶段就明确拒绝,避免无认证 API 暴露到非本机网络。
-    if not effective_token and not _is_loopback_host(host):
-        raise ValueError(
-            f"host '{host}' is not a loopback address but no API token is set — "
-            "set api_token or the MINIUNICORN_API_TOKEN environment variable, "
-            "or bind to 127.0.0.1/::1/localhost to prevent unauthenticated access"
-        )
-
-    app = web.Application(client_max_size=20 * 1024 * 1024, middlewares=[_auth_middleware])  # 20MB for base64 images
+    app = web.Application(
+        client_max_size=20 * 1024 * 1024,  # 20MB for base64 images
+        middlewares=[_auth_middleware],
+    )
     app["agent_loop"] = agent_loop
     app["model_name"] = model_name
     app["request_timeout"] = request_timeout
-    app["api_token"] = effective_token
+    app["api_key"] = api_key
     app["session_locks"] = {}  # per-user locks, keyed by session_key
-    app["session_locks_lock"] = asyncio.Lock()  # guards mutations of session_locks
 
     app.router.add_post("/v1/chat/completions", handle_chat_completions)
     app.router.add_get("/v1/models", handle_models)

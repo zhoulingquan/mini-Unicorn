@@ -133,6 +133,9 @@ export function ThreadComposer({
   modelLabel = null,
   modelProvider = null,
   modelProviderLabel = null,
+  modelApiBase = null,
+  models,
+  onSelectModel,
   variant = "thread",
   slashCommands = [],
   onStop,
@@ -806,7 +809,7 @@ export function ThreadComposer({
                         : "h-9 w-9 border border-border/55 bg-card shadow-[0_2px_8px_rgba(15,23,42,0.05)] hover:bg-card",
                     )}
                   >
-                    <Plus className={cn(isHero ? "h-4.5 w-4.5" : "h-4 w-4")} />
+                    <Plus className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent
@@ -867,6 +870,9 @@ export function ThreadComposer({
                 label={modelLabel}
                 provider={modelProvider}
                 providerLabel={modelProviderLabel}
+                apiBase={modelApiBase}
+                models={models}
+                onSelect={onSelectModel}
                 isHero={isHero}
               />
             ) : null}
