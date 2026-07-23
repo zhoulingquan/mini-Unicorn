@@ -4,7 +4,7 @@ import tempfile
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -136,6 +136,9 @@ async def test_process_message_ignores_unauthorized_sender_before_side_effects(t
         WeixinConfig(enabled=True, allow_from=["allowed-user"], state_dir=str(tmp_path)),
         bus,
     )
+    channel._client = MagicMock()
+    channel._client.post = AsyncMock(return_value=MagicMock(json=lambda: {"err_code": 0}))
+    channel._token = "token"
     channel._download_media_item = AsyncMock(return_value="/tmp/test.jpg")
     channel._start_typing = AsyncMock()
 

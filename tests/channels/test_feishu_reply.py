@@ -43,6 +43,9 @@ def _make_feishu_channel(
     channel._client = MagicMock()
     # _loop is only used by the WebSocket thread bridge; not needed for unit tests
     channel._loop = None
+    # Mark channel as running so _on_message doesn't early-return (it checks
+    # _running at the entry to gate against messages arriving before start()).
+    channel._running = True
     return channel
 
 
@@ -234,8 +237,9 @@ async def test_send_uses_expected_feishu_msg_type_for_uploaded_files(
 
     send_calls: list[tuple[str, str, str, str]] = []
 
-    def _record_send(receive_id_type: str, receive_id: str, msg_type: str, content: str) -> None:
+    def _record_send(receive_id_type: str, receive_id: str, msg_type: str, content: str) -> str:
         send_calls.append((receive_id_type, receive_id, msg_type, content))
+        return "om_sent"
 
     with patch.object(channel, "_upload_file_sync", return_value="file-key"), patch.object(
         channel, "_send_message_sync", side_effect=_record_send
@@ -587,7 +591,12 @@ async def test_on_message_audio_publishes_downloaded_path_and_transcription() ->
 @pytest.mark.asyncio
 async def test_download_and_save_media_returns_absolute_path_in_content(monkeypatch, tmp_path) -> None:
     channel = _make_feishu_channel()
-    monkeypatch.setattr(feishu, "get_media_dir", lambda _channel: tmp_path)
+    # Patch get_media_dir where it's imported (channel module), not the source
+    # module — channel.py does `from ...paths import get_media_dir` so the
+    # reference lives in miniUnicorn.channels.feishu.channel.
+    monkeypatch.setattr(
+        "miniUnicorn.channels.feishu.channel.get_media_dir", lambda _channel: tmp_path
+    )
     channel._download_file_sync = MagicMock(return_value=(b"voice-bytes", None))
 
     file_path, content_text = await channel._download_and_save_media(

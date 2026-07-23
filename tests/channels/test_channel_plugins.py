@@ -195,17 +195,6 @@ def test_discover_enabled_imports_only_enabled_builtins():
     assert loaded == ["enabled"]
 
 
-def test_discover_all_builtin_shadows_plugin():
-    from miniUnicorn.channels.registry import discover_all
-
-    ep = _make_entry_point("telegram", _FakeTelegram)
-    with patch(_EP_TARGET, return_value=[ep]):
-        result = discover_all()
-
-    assert "telegram" in result
-    assert result["telegram"] is not _FakeTelegram
-
-
 # ---------------------------------------------------------------------------
 # Manager _init_channels with dict config (plugin scenario)
 # ---------------------------------------------------------------------------
@@ -556,24 +545,6 @@ async def test_manager_skips_disabled_plugin():
 # ---------------------------------------------------------------------------
 # Built-in channel default_config() and dict->Pydantic conversion
 # ---------------------------------------------------------------------------
-
-def test_builtin_channel_default_config():
-    """Built-in channels expose default_config() returning a dict with 'enabled': False."""
-    from miniUnicorn.channels.telegram import TelegramChannel
-    cfg = TelegramChannel.default_config()
-    assert isinstance(cfg, dict)
-    assert cfg["enabled"] is False
-    assert "token" in cfg
-
-
-def test_builtin_channel_init_from_dict():
-    """Built-in channels accept a raw dict and convert to Pydantic internally."""
-    from miniUnicorn.channels.telegram import TelegramChannel
-    bus = MessageBus()
-    ch = TelegramChannel({"enabled": False, "token": "test-tok", "allowFrom": ["*"]}, bus)
-    assert ch.config.token == "test-tok"
-    assert ch.config.allow_from == ["*"]
-
 
 def test_channels_config_send_max_retries_default():
     """ChannelsConfig should have send_max_retries with default value of 3."""

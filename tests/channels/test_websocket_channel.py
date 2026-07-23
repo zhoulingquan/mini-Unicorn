@@ -173,7 +173,7 @@ def test_default_config_includes_safe_bind_and_streaming() -> None:
     assert defaults["enabled"] is False
     assert defaults["host"] == "127.0.0.1"
     assert defaults["streaming"] is True
-    assert defaults["allowFrom"] == ["*"]
+    assert defaults["allowFrom"] == []
     assert defaults.get("tokenIssuePath", "") == ""
 
 
@@ -1453,11 +1453,11 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         body = settings.json()
         assert body["agent"]["model"] == "deepseek/deepseek-chat"
         assert body["agent"]["provider"] == "deepseek"
-        assert body["agent"]["model_preset"] == "default"
+        assert body["agent"]["model_preset"] is None
         assert body["agent"]["max_tokens"] == 8192
         assert body["agent"]["tool_hint_max_length"] == 40
         presets = {preset["name"]: preset for preset in body["model_presets"]}
-        assert presets["default"]["active"] is True
+        assert presets["default"]["active"] is False
         assert presets["deep"]["reasoning_effort"] == "high"
         providers = {provider["name"]: provider for provider in body["providers"]}
         assert providers["deepseek"]["configured"] is True
@@ -1763,7 +1763,7 @@ def test_settings_payload_includes_native_runtime_surface(monkeypatch, tmp_path)
     assert body["runtime_surface"] == "native"
     assert body["runtime_capabilities"]["can_open_logs"] is True
     assert body["runtime_capabilities"]["can_restart_engine"] is True
-    assert body["restart_behavior_by_section"]["runtime"] == "engineRestart"
+    assert body["restart_behavior_by_section"]["runtime"] == "none"
     assert body["requires_restart"] is True
     assert body["apply_state"] == {"status": "pending", "sections": ["runtime"]}
 

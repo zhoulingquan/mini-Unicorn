@@ -51,7 +51,7 @@ async def test_tool_hint_sends_interactive_card(mock_feishu_channel):
         channel="feishu",
         chat_id="oc_123456",
         content='read_file("test.txt")',
-        metadata={"_tool_hint": True}
+        metadata={"_tool_hint": True, "_progress": True}
     )
 
     with patch.object(mock_feishu_channel, '_send_message_sync') as mock_send:
@@ -107,7 +107,7 @@ async def test_tool_hint_multiple_tools_in_one_message(mock_feishu_channel):
         channel="feishu",
         chat_id="oc_123456",
         content='list_dir("query"), read_file("/path/to/file")',
-        metadata={"_tool_hint": True}
+        metadata={"_tool_hint": True, "_progress": True}
     )
 
     with patch.object(mock_feishu_channel, '_send_message_sync') as mock_send:
@@ -127,7 +127,7 @@ async def test_tool_hint_new_format_basic(mock_feishu_channel):
         channel="feishu",
         chat_id="oc_123456",
         content='read src/main.py, grep "TODO"',
-        metadata={"_tool_hint": True}
+        metadata={"_tool_hint": True, "_progress": True}
     )
 
     with patch.object(mock_feishu_channel, '_send_message_sync') as mock_send:
@@ -146,7 +146,7 @@ async def test_tool_hint_new_format_with_comma_in_quotes(mock_feishu_channel):
         channel="feishu",
         chat_id="oc_123456",
         content='grep "hello, world", $ echo test',
-        metadata={"_tool_hint": True}
+        metadata={"_tool_hint": True, "_progress": True}
     )
 
     with patch.object(mock_feishu_channel, '_send_message_sync') as mock_send:
@@ -165,7 +165,7 @@ async def test_tool_hint_new_format_with_folding(mock_feishu_channel):
         channel="feishu",
         chat_id="oc_123456",
         content='read path × 3, grep "pattern"',
-        metadata={"_tool_hint": True}
+        metadata={"_tool_hint": True, "_progress": True}
     )
 
     with patch.object(mock_feishu_channel, '_send_message_sync') as mock_send:
@@ -184,7 +184,7 @@ async def test_tool_hint_new_format_mcp(mock_feishu_channel):
         channel="feishu",
         chat_id="oc_123456",
         content='4_5v::analyze_image("photo.jpg")',
-        metadata={"_tool_hint": True}
+        metadata={"_tool_hint": True, "_progress": True}
     )
 
     with patch.object(mock_feishu_channel, '_send_message_sync') as mock_send:
@@ -202,7 +202,7 @@ async def test_tool_hint_keeps_commas_inside_arguments(mock_feishu_channel):
         channel="feishu",
         chat_id="oc_123456",
         content='list_dir("foo, bar"), read_file("/path/to/file")',
-        metadata={"_tool_hint": True}
+        metadata={"_tool_hint": True, "_progress": True}
     )
 
     with patch.object(mock_feishu_channel, '_send_message_sync') as mock_send:

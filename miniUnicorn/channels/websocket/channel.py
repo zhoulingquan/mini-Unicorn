@@ -48,49 +48,24 @@ from miniUnicorn.utils.media_decode import (
     FileSizeExceededError,
     save_base64_data_url,
 )
-from miniUnicorn.utils.subagent_channel_display import scrub_subagent_messages_for_channel
 from miniUnicorn.webui.cli_apps_api import (
     cli_apps_action,
     cli_apps_payload,
     normalize_cli_app_mentions,
 )
 from miniUnicorn.webui.mcp_presets_api import (
-    mcp_presets_settings_action,
     normalize_mcp_preset_mentions,
 )
 from miniUnicorn.webui.media_api import (
-    serve_signed_media,
     sign_media_path,
     sign_or_stage_media_path,
 )
 from miniUnicorn.webui.settings_api import (
-    WebUISettingsError,
-    create_model_configuration,
     decorate_settings_payload,
-    delete_model_configuration,
-    delete_provider_settings,
-    list_provider_models,
-    login_oauth_provider,
-    logout_oauth_provider,
     runtime_capabilities,
-    settings_payload,
-    update_agent_settings,
-    update_model_configuration,
-    update_network_safety_settings,
-    update_provider_settings,
-    update_runtime_settings,
-    update_web_fetch_settings,
-    update_web_search_settings,
 )
-from miniUnicorn.webui.sidebar_state import (
-    read_webui_sidebar_state,
-    write_webui_sidebar_state,
-)
-from miniUnicorn.webui.thread_disk import delete_webui_thread
 from miniUnicorn.webui.transcript import (
     append_transcript_object,
-    build_webui_thread_response,
-    rewind_webui_transcript_to_user,
     rewrite_local_markdown_images,
 )
 from miniUnicorn.webui.workspaces import (
@@ -101,6 +76,7 @@ from miniUnicorn.webui.workspaces import (
 # test monkeypatch targets keep working unchanged. The original module
 # attribute path (``miniUnicorn.channels.websocket.channel.<name>``) is
 # what tests patch, so the binding must live in this module's globals.
+from ._http_router import RouteDeps, router  # noqa: F401 — router used by _dispatch_http
 from ._http_routes import (  # noqa: F401
     _API_KEY_RE,
     _MCP_PRESET_ACTIONS_BY_PATH,
@@ -153,6 +129,11 @@ from ._ws_upgrade import (  # noqa: F401
     _safe_host_header,
     _strip_trailing_slash,
 )
+
+# Importing the handlers package triggers ``@router.route(...)`` registration
+# for all migrated WebUI HTTP endpoints. Must come after ``_http_router`` so
+# the decorators find the global ``router`` singleton already bound.
+from . import handlers  # noqa: F401 — side effect: registers declarative routes
 
 if TYPE_CHECKING:
     from miniUnicorn.session.manager import SessionManager
@@ -505,21 +486,36 @@ class WebSocketChannel(BaseChannel):
     # -- HTTP dispatch ------------------------------------------------------
 
     async def _dispatch_http(self, connection: Any, request: WsRequest) -> Any:
-        """Route an inbound HTTP request to a handler or to the WS upgrade path."""
+        """Route an inbound HTTP request to a handler or to the WS upgrade path.
+
+        分派顺序:
+        1. ``token_issue_path`` (可选的自定义令牌签发端点,保留在 channel)。
+        2. ``/webui/bootstrap`` (token bootstrap,需要 channel 状态:Origin 校验 +
+           限流 + 双 token 池写入,保留在 channel)。
+        3. 声明式路由层(60 个精确 + 5 个正则,handler 已迁移到 ``handlers/``)。
+        4. WebSocket 升级(只允许在配置路径上的真 WS 握手)。
+        5. API 404(避免给 API 客户端吐 SPA HTML,导致前端 JSON 解析炸掉)。
+        6. 静态文件(SPA fallback 到 index.html)。
+        """
         got, query = _parse_request_path(request.path)
 
+        # 1. 自定义 token 签发端点
         if self.config.token_issue_path:
             issue_expected = _normalize_config_path(self.config.token_issue_path)
             if got == issue_expected:
                 return self._handle_token_issue_http(connection, request)
 
+        # 2. /webui/bootstrap (channel-side stateful bootstrap endpoint)
         if got == "/webui/bootstrap":
             return self._handle_bootstrap(connection, request)
 
-        api_response = await self._dispatch_api_route(connection, request, got)
+        # 3. 声明式路由层:handler 不再持有 self,改由 RouteDeps 注入依赖
+        deps = self._build_route_deps()
+        api_response = await router.dispatch(deps, connection, request)
         if api_response is not None:
             return api_response
 
+        # 4. WebSocket 升级
         ws_matched, ws_response = self._dispatch_websocket_upgrade(
             connection, request, got, query
         )
@@ -532,6 +528,7 @@ class WebSocketChannel(BaseChannel):
         if got.startswith("/api/"):
             return _http_error(404, "API route not found")
 
+        # 5. 静态文件
         if self._static_dist_path is not None:
             response = self._serve_static(got)
             if response is not None:
@@ -539,261 +536,66 @@ class WebSocketChannel(BaseChannel):
 
         return connection.respond(404, "Not Found")
 
-    async def _dispatch_api_route(
-        self,
-        connection: Any,
-        request: WsRequest,
-        got: str,
-    ) -> Any | None:
-        """Route REST-ish WebUI requests served beside the WebSocket endpoint."""
-        response = await self._dispatch_settings_api_route(request, got)
-        if response is not None:
-            return response
-        response = self._dispatch_session_api_route(request, got)
-        if response is not None:
-            return response
-        response = self._dispatch_media_api_route(request, got)
-        if response is not None:
-            return response
-        # Async agent routes (LLM-backed) — handled here because misc is sync.
-        if got == "/api/agents/generate":
-            return await self._handle_agents_generate(request)
-        return self._dispatch_misc_api_route(connection, request, got)
+    def _build_route_deps(self) -> RouteDeps:
+        """构造一次请求所需的依赖快照,把 channel 实例状态显式注入到 handler。
 
-    def _dispatch_misc_api_route(
-        self,
-        connection: Any,
-        request: WsRequest,
-        got: str,
-    ) -> Response | None:
-        """Route small API endpoints that do not belong to a larger route group."""
-        if got == "/api/sessions":
-            return self._handle_sessions_list(request)
-
-        if got == "/api/commands":
-            return self._handle_commands(request)
-
-        if got == "/api/workspaces":
-            return self._handle_workspaces(connection, request)
-
-        if got == "/api/webui/sidebar-state":
-            return self._handle_webui_sidebar_state(request)
-
-        if got == "/api/webui/sidebar-state/update":
-            return self._handle_webui_sidebar_state_update(request)
-
-        if got == "/api/skills":
-            return self._handle_skills_list(request)
-
-        if got == "/api/skills/delete":
-            return self._handle_skills_delete(request)
-
-        if got == "/api/skills/toggle":
-            return self._handle_skills_toggle(request)
-
-        if got == "/api/skills/read":
-            return self._handle_skills_read(request)
-
-        if got == "/api/skills/save":
-            return self._handle_skills_save(request)
-
-        if got == "/api/skills/file":
-            return self._handle_skills_file(request)
-
-        if got == "/api/skills/upload":
-            return self._handle_skills_upload(request)
-
-        if got == "/api/agents":
-            return self._handle_agents_list(request)
-
-        if got == "/api/agents/read":
-            return self._handle_agents_read(request)
-
-        if got == "/api/agents/save":
-            return self._handle_agents_save(request)
-
-        if got == "/api/agents/delete":
-            return self._handle_agents_delete(request)
-
-        if got == "/api/bootstrap-file":
-            return self._handle_bootstrap_file_read(request)
-
-        if got == "/api/bootstrap-file/save":
-            return self._handle_bootstrap_file_save(request)
-
-        if got == "/api/dream/files":
-            return self._handle_dream_files_list(request)
-        if got == "/api/dream/file":
-            return self._handle_dream_file_read(request)
-
-        if got == "/api/cron/jobs":
-            return self._handle_cron_jobs_list(request)
-        if got == "/api/cron/jobs/create":
-            return self._handle_cron_jobs_create(request)
-        if got == "/api/cron/jobs/delete":
-            return self._handle_cron_jobs_delete(request)
-        if got == "/api/cron/jobs/toggle":
-            return self._handle_cron_jobs_toggle(request)
-
-        if got == "/api/tools":
-            return self._handle_tools_list(request)
-        if got == "/api/tools/import":
-            return self._handle_tools_import(request)
-        if got == "/api/tools/delete":
-            return self._handle_tools_delete(request)
-
-        if got == "/api/channels":
-            return self._handle_channels_list(request)
-        if got == "/api/channels/update":
-            return self._handle_channels_update(request)
-        if got == "/api/channels/delete":
-            return self._handle_channels_delete(request)
-        if got == "/api/channels/qrcode":
-            return self._handle_channels_qrcode_begin(request)
-        if got == "/api/channels/qrcode/status":
-            return self._handle_channels_qrcode_status(request)
-
-        return None
-
-    def _handle_agents_list(self, request: WsRequest | None = None) -> Response:
-        """Return all registered subagent definitions as JSON."""
-        from miniUnicorn.api.routes_agents import router
-
-        try:
-            return _http_json_response(router.list_agents(self._workspace_path))
-        except Exception as exc:
-            return _http_error(500, str(exc))
-
-    def _handle_agents_read(self, request: WsRequest) -> Response:
-        """Return a single subagent definition (parsed fields + raw .md)."""
-        from miniUnicorn.api.routes_agents import router
-
-        query = _parse_query(request.path)
-        name = _query_first(query, "name")
-        if not name:
-            return _http_error(400, "missing 'name' parameter")
-        try:
-            data = router.read_agent(self._workspace_path, name)
-            if data is None:
-                return _http_error(404, f"agent '{name}' not found")
-            return _http_json_response(data)
-        except Exception as exc:
-            return _http_error(500, str(exc))
-
-    def _handle_agents_save(self, request: WsRequest) -> Response:
-        """Create or update an agent's ``.md`` file.
-
-        Accepts content via repeated ``X-MiniUnicorn-Agent-Content`` headers
-        (URL-encoded chunks) like the skills save endpoint.
+        - 每次请求都构造新快照,handler 读到的总是最新状态(例如运行时
+          ``runtime_capabilities``、``session_manager`` 等)。
+        - 副作用回调(``with_restart_state``/``refresh_agent_model``/``reload_cron``/
+          ``reload_mcp``/``notify_session_updated``/``invalidate_bootstrap_cache``)
+          通过 callable 注入,handler 不再反向引用 channel,实现解耦。
+        - ``reload_mcp`` 闭包内引用的 ``request_mcp_reload`` 是本模块的全局名,
+          测试通过 monkeypatch ``channel.request_mcp_reload`` 仍可拦截调用。
         """
+        return RouteDeps(
+            workspace_path=self._workspace_path,
+            webui_workspaces=self._webui_workspaces,
+            session_manager=self._session_manager,
+            cron_service=self._cron_service,
+            tool_registry=self._tool_registry,
+            provider_loader=self._provider_loader,
+            runtime_model_name=self._runtime_model_name,
+            runtime_surface=self._runtime_surface,
+            runtime_capabilities=self._runtime_capabilities,
+            media_secret=self._media_secret,
+            bus=self.bus,
+            logger=self.logger,
+            check_api_token=self._check_api_token,
+            is_localhost_connection=self._is_localhost_connection,
+            with_restart_state=self._with_settings_restart_state,
+            refresh_agent_model=self._maybe_refresh_agent_model,
+            reload_cron=self._reload_cron_safe,
+            reload_mcp=self._reload_mcp_safe,
+            notify_session_updated=self._notify_session_updated_safe,
+            invalidate_bootstrap_cache=self._invalidate_bootstrap_cache,
+            sign_media_path=self._sign_media_path,
+            sign_or_stage_media_path=self._sign_or_stage_media_path,
+            get_media_dir=get_media_dir,
+        )
 
-        from miniUnicorn.api.routes_agents import router
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-
-        query = _parse_query(request.path)
-        name = _query_first(query, "name")
-        if not name:
-            return _http_error(400, "missing 'name' parameter")
-
-        header_data = _collect_chunked_header(request.headers, "X-MiniUnicorn-Agent-Content")
-        if header_data:
-            content = unquote(header_data)
-        else:
-            content_values = query.get("content", [])
-            content = unquote(content_values[0]) if content_values else ""
-
-        try:
-            path = router.save_agent(self._workspace_path, name, content)
-            return _http_json_response({"saved": True, "name": name, "path": path})
-        except ValueError as exc:
-            return _http_error(400, str(exc))
-        except Exception as exc:
-            return _http_error(500, str(exc))
-
-    def _handle_agents_delete(self, request: WsRequest) -> Response:
-        """Delete an agent's ``.md`` file by name."""
-        from miniUnicorn.api.routes_agents import router
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-
-        query = _parse_query(request.path)
-        name = _query_first(query, "name")
-        if not name:
-            return _http_error(400, "missing 'name' parameter")
-        try:
-            deleted = router.delete_agent(self._workspace_path, name)
-            if not deleted:
-                return _http_error(404, f"agent '{name}' not found")
-            return _http_json_response({"deleted": True, "name": name})
-        except Exception as exc:
-            return _http_error(500, str(exc))
-
-    # Allowed bootstrap files (workspace-root markdown loaded into the system
-    # prompt by ContextBuilder). Kept to a fixed allowlist to avoid arbitrary
-    # file reads/writes through this endpoint.
-    _BOOTSTRAP_FILE_ALLOWLIST: tuple[str, ...] = ("AGENTS.md", "SOUL.md")
-
-    def _handle_bootstrap_file_read(self, request: WsRequest) -> Response:
-        """Read a workspace bootstrap markdown file (AGENTS.md / SOUL.md)."""
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        name = _query_first(query, "name")
-        if name not in self._BOOTSTRAP_FILE_ALLOWLIST:
-            return _http_error(400, "invalid or missing 'name' parameter")
-        try:
-            path = (self._workspace_path / name).resolve()
+    def _reload_cron_safe(self) -> None:
+        """重新注册心跳/dream 系统 cron 任务,使新间隔立即生效(best-effort)。"""
+        if self._cron_reloader is not None:
             try:
-                path.relative_to(self._workspace_path.resolve())
-            except ValueError:
-                return _http_error(400, "path escapes workspace")
-            if not path.exists():
-                return _http_json_response({"name": name, "content": "", "exists": False})
-            content = path.read_text(encoding="utf-8")
-            return _http_json_response({"name": name, "content": content, "exists": True})
-        except Exception as exc:
-            return _http_error(500, str(exc))
+                self._cron_reloader()
+            except Exception:
+                logger.exception("Cron reloader failed after runtime settings update")
 
-    def _handle_bootstrap_file_save(self, request: WsRequest) -> Response:
-        """Create or update a workspace bootstrap markdown file.
-
-        Accepts content via repeated ``X-MiniUnicorn-Bootstrap-Content`` headers
-        (URL-encoded chunks concatenated in order) to stay within the HTTP line
-        limit for large files.
-        """
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        name = _query_first(query, "name")
-        if name not in self._BOOTSTRAP_FILE_ALLOWLIST:
-            return _http_error(400, "invalid or missing 'name' parameter")
-        header_b64 = _collect_chunked_header(request.headers, "X-MiniUnicorn-Bootstrap-Content")
-        if header_b64:
-            content = unquote(header_b64)
-        else:
-            content_values = query.get("content", [])
-            content = unquote(content_values[0]) if content_values else ""
-        if not content.strip():
-            return _http_error(400, "content must not be empty")
+    def _reload_mcp_safe(self) -> None:
+        """触发 MCP 服务热重载。``request_mcp_reload`` 名字解析自本模块全局,
+        所以测试对 ``channel.request_mcp_reload`` 的 monkeypatch 仍能拦截。"""
         try:
-            path = (self._workspace_path / name).resolve()
-            try:
-                path.relative_to(self._workspace_path.resolve())
-            except ValueError:
-                return _http_error(400, "path escapes workspace")
-            path.write_text(content, encoding="utf-8")
-            # Invalidate ContextBuilder's bootstrap cache so the next turn sees
-            # the new content without waiting for mtime to change (mtime
-            # resolution is sufficient on most filesystems, but explicit
-            # invalidation guarantees immediacy for same-mtime writes).
-            self._invalidate_bootstrap_cache(name)
-            return _http_json_response({"saved": True, "name": name, "path": str(path)})
-        except Exception as exc:
-            return _http_error(500, str(exc))
+            request_mcp_reload(self.bus)
+        except Exception:
+            logger.exception("MCP reload failed after preset change")
+
+    def _notify_session_updated_safe(self, chat_id: str) -> None:
+        """fire-and-forget: 通知连接的 WS 客户端刷新会话视图。"""
+        try:
+            asyncio.create_task(self.send_session_updated(chat_id))
+        except RuntimeError:
+            # No running loop — the client will refresh on next poll/reconnect.
+            pass
 
     def _invalidate_bootstrap_cache(self, name: str) -> None:
         """Best-effort invalidation of ContextBuilder's bootstrap file cache."""
@@ -813,689 +615,6 @@ class WebSocketChannel(BaseChannel):
         except Exception:
             # Cache invalidation is best-effort; mtime check covers it anyway.
             pass
-
-    # Dream 维护的记忆/人格文件白名单。这些文件由 Dream(记忆整合)流程
-    # 读取或写入,通过此端点向 WebUI 暴露只读视图。所有路径相对于工作区根目录。
-    # SOUL.md 既是 bootstrap 人格文件,也是 Dream 演化的产物(Phase 1 读、
-    # Phase 2 可通过 EditFileTool 修改),故在此暴露只读视图;编辑入口仍在
-    # Persona section。AGENTS.md 完全由用户手动维护,Dream 不动,故不列入。
-    _DREAM_FILE_ALLOWLIST: tuple[str, ...] = (
-        "SOUL.md",
-        "USER.md",
-        "memory/MEMORY.md",
-        "memory/history.jsonl",
-        "memory/episodic.jsonl",
-        "memory/procedural.jsonl",
-        "memory/reflections.jsonl",
-        "memory/shared/MEMORY_SHARED.md",
-        "memory/shared/procedural_shared.jsonl",
-    )
-
-    def _handle_dream_files_list(self, request: WsRequest) -> Response:
-        """列出 Dream 生成的记忆文件及其元信息(大小、修改时间、是否存在)。"""
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        try:
-            from datetime import datetime, timezone
-
-            ws_root = self._workspace_path.resolve()
-            files = []
-            for rel in self._DREAM_FILE_ALLOWLIST:
-                path = (ws_root / rel).resolve()
-                try:
-                    path.relative_to(ws_root)
-                except ValueError:
-                    continue
-                exists = path.exists()
-                entry = {
-                    "name": rel,
-                    "exists": exists,
-                    "size": 0,
-                    "size_human": "",
-                    "modified_at": None,
-                    "modified_at_human": "",
-                }
-                if exists:
-                    stat = path.stat()
-                    entry["size"] = stat.st_size
-                    entry["size_human"] = _human_readable_size(stat.st_size)
-                    mtime = stat.st_mtime
-                    entry["modified_at"] = mtime
-                    entry["modified_at_human"] = datetime.fromtimestamp(
-                        mtime, tz=timezone.utc
-                    ).astimezone().strftime("%Y-%m-%d %H:%M:%S")
-                files.append(entry)
-            return _http_json_response({"files": files})
-        except Exception as exc:
-            return _http_error(500, str(exc))
-
-    def _handle_dream_file_read(self, request: WsRequest) -> Response:
-        """读取 Dream 生成的记忆文件内容(只读)。"""
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        name = _query_first(query, "name")
-        if not name or name not in self._DREAM_FILE_ALLOWLIST:
-            return _http_error(400, "invalid or missing 'name' parameter")
-        try:
-            ws_root = self._workspace_path.resolve()
-            path = (ws_root / name).resolve()
-            try:
-                path.relative_to(ws_root)
-            except ValueError:
-                return _http_error(400, "path escapes workspace")
-            if not path.exists():
-                return _http_json_response({"name": name, "content": "", "exists": False})
-            content = path.read_text(encoding="utf-8")
-            return _http_json_response({"name": name, "content": content, "exists": True})
-        except Exception as exc:
-            return _http_error(500, str(exc))
-
-    def _handle_cron_jobs_list(self, request: WsRequest) -> Response:
-        """List all cron jobs (including system jobs and disabled ones)."""
-        from miniUnicorn.webui.cron_api import list_cron_jobs
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        if self._cron_service is None:
-            return _http_error(503, "cron service is not available")
-        try:
-            payload = list_cron_jobs(self._cron_service, include_disabled=True)
-        except Exception as exc:
-            return _http_error(500, str(exc))
-        return _http_json_response(payload)
-
-    def _handle_cron_jobs_create(self, request: WsRequest) -> Response:
-        """Create a new user cron job."""
-        from miniUnicorn.webui.cron_api import WebUICronError, create_cron_job
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        if self._cron_service is None:
-            return _http_error(503, "cron service is not available")
-        query = _parse_query(request.path)
-        try:
-            payload = create_cron_job(self._cron_service, query)
-        except WebUICronError as e:
-            return _http_error(e.status, e.message)
-        except Exception as exc:
-            return _http_error(500, str(exc))
-        return _http_json_response(payload)
-
-    def _handle_cron_jobs_delete(self, request: WsRequest) -> Response:
-        """Delete a cron job by id (system jobs are protected)."""
-        from miniUnicorn.webui.cron_api import WebUICronError, delete_cron_job
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        if self._cron_service is None:
-            return _http_error(503, "cron service is not available")
-        query = _parse_query(request.path)
-        try:
-            payload = delete_cron_job(self._cron_service, query)
-        except WebUICronError as e:
-            return _http_error(e.status, e.message)
-        except Exception as exc:
-            return _http_error(500, str(exc))
-        return _http_json_response(payload)
-
-    def _handle_cron_jobs_toggle(self, request: WsRequest) -> Response:
-        """Enable or disable a cron job by id."""
-        from miniUnicorn.webui.cron_api import WebUICronError, toggle_cron_job
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        if self._cron_service is None:
-            return _http_error(503, "cron service is not available")
-        query = _parse_query(request.path)
-        try:
-            payload = toggle_cron_job(self._cron_service, query)
-        except WebUICronError as e:
-            return _http_error(e.status, e.message)
-        except Exception as exc:
-            return _http_error(500, str(exc))
-        return _http_json_response(payload)
-
-    def _handle_tools_list(self, request: WsRequest) -> Response:
-        """List all registered tools + user tool files on disk."""
-        from miniUnicorn.webui.tools_api import list_tools
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        try:
-            payload = list_tools(self._tool_registry, self._workspace_path)
-        except Exception as exc:
-            return _http_error(500, str(exc))
-        return _http_json_response(payload)
-
-    def _handle_tools_import(self, request: WsRequest) -> Response:
-        """Import a .py tool file into <workspace>/tools/."""
-        import base64
-
-        from miniUnicorn.webui.tools_api import WebUIToolsError, import_tool
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-
-        query = _parse_query(request.path)
-        filename = _query_first(query, "filename")
-        filename = unquote(filename) if filename else None
-
-        b64_data = _collect_chunked_header(request.headers, "X-MiniUnicorn-Tool-Content")
-        if not b64_data:
-            return _http_error(400, "missing tool content (send via X-MiniUnicorn-Tool-Content headers)")
-
-        try:
-            content = base64.b64decode(b64_data)
-        except Exception as exc:
-            return _http_error(400, f"invalid base64 data: {exc}")
-
-        try:
-            payload = import_tool(self._workspace_path, filename or "", content)
-        except WebUIToolsError as e:
-            return _http_error(e.status, e.message)
-        except Exception as exc:
-            return _http_error(500, str(exc))
-        return _http_json_response(payload)
-
-    def _handle_tools_delete(self, request: WsRequest) -> Response:
-        """Delete a user tool .py file by name."""
-        from miniUnicorn.webui.tools_api import WebUIToolsError, delete_tool
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            payload = delete_tool(self._workspace_path, query)
-        except WebUIToolsError as e:
-            return _http_error(e.status, e.message)
-        except Exception as exc:
-            return _http_error(500, str(exc))
-        return _http_json_response(payload)
-
-    def _handle_channels_list(self, request: WsRequest) -> Response:
-        """List all available channels and their current configuration."""
-        from miniUnicorn.webui.channels_api import list_channels
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        try:
-            payload = list_channels()
-        except Exception as exc:
-            return _http_error(500, str(exc))
-        return _http_json_response(payload)
-
-    def _handle_channels_update(self, request: WsRequest) -> Response:
-        """Create or update a single channel's configuration."""
-        from miniUnicorn.webui.channels_api import WebUIChannelsError, update_channel_config
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            payload = update_channel_config(query)
-        except WebUIChannelsError as e:
-            return _http_error(e.status, e.message)
-        except Exception as exc:
-            return _http_error(500, str(exc))
-        return _http_json_response(payload)
-
-    def _handle_channels_delete(self, request: WsRequest) -> Response:
-        """Remove a channel's configuration."""
-        from miniUnicorn.webui.channels_api import WebUIChannelsError, delete_channel_config
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            payload = delete_channel_config(query)
-        except WebUIChannelsError as e:
-            return _http_error(e.status, e.message)
-        except Exception as exc:
-            return _http_error(500, str(exc))
-        return _http_json_response(payload)
-
-    def _handle_channels_qrcode_begin(self, request: WsRequest) -> Response:
-        """Begin a QR code login flow for a channel (currently feishu only)."""
-        from miniUnicorn.webui.channels_api import (
-            WebUIChannelsError,
-            begin_channel_qr_login,
-        )
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            payload = begin_channel_qr_login(query)
-        except WebUIChannelsError as e:
-            return _http_error(e.status, e.message)
-        except Exception as exc:
-            return _http_error(500, str(exc))
-        return _http_json_response(payload)
-
-    def _handle_channels_qrcode_status(self, request: WsRequest) -> Response:
-        """Poll the status of a QR code login flow."""
-        from miniUnicorn.webui.channels_api import (
-            WebUIChannelsError,
-            poll_channel_qr_status,
-        )
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            payload = poll_channel_qr_status(query)
-        except WebUIChannelsError as e:
-            return _http_error(e.status, e.message)
-        except Exception as exc:
-            return _http_error(500, str(exc))
-        return _http_json_response(payload)
-
-    async def _handle_agents_generate(self, request: WsRequest) -> Response:
-        """Generate a subagent ``.md`` definition via the LLM.
-
-        Accepts the user's natural-language description via the
-        ``X-MiniUnicorn-Agent-Description`` chunked header (URL-encoded)
-        or a ``description`` query parameter. Returns the generated
-        content as JSON without persisting it; the client is expected to
-        review the preview and then POST to ``/api/agents/save``.
-        """
-
-        from miniUnicorn.api.routes_agents import router
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-
-        # Resolve the LLM provider lazily so the channel can be constructed
-        # before the agent loop is fully wired (e.g. in tests).
-        provider = None
-        if self._provider_loader is not None:
-            try:
-                provider = self._provider_loader()
-            except Exception as exc:
-                self.logger.warning("provider_loader failed: {}", exc)
-                provider = None
-        if provider is None:
-            return _http_error(503, "LLM provider unavailable")
-
-        # Resolve model name (may be None — provider default applies).
-        model_name: str | None = None
-        if self._runtime_model_name is not None:
-            try:
-                raw_model = self._runtime_model_name()
-            except Exception:
-                raw_model = None
-            if isinstance(raw_model, str) and raw_model.strip():
-                model_name = raw_model.strip()
-
-        header_data = _collect_chunked_header(
-            request.headers, "X-MiniUnicorn-Agent-Description"
-        )
-        if header_data:
-            description = unquote(header_data)
-        else:
-            query = _parse_query(request.path)
-            desc_values = query.get("description", [])
-            description = unquote(desc_values[0]) if desc_values else ""
-
-        if not description.strip():
-            return _http_error(400, "missing 'description' parameter")
-
-        try:
-            result = await router.generate_agent(
-                self._workspace_path, provider, model_name, description
-            )
-            return _http_json_response(result)
-        except ValueError as exc:
-            return _http_error(400, str(exc))
-        except Exception as exc:
-            return _http_error(500, str(exc))
-
-    def _handle_skills_list(self, request: WsRequest | None = None) -> Response:
-        """Return available skills (builtin + workspace) as JSON.
-
-        Includes disabled skills with a ``disabled`` flag so the UI can render
-        the toggle state.
-        """
-        from miniUnicorn.agent.skills import SkillsLoader
-
-        try:
-            loader = SkillsLoader(self._workspace_path)
-            # Refresh the disabled set from live config, then enumerate all
-            # skills (without the disabled filter) so the UI can show them.
-            loader._refresh_disabled_from_config()
-            disabled_set = set(loader.disabled_skills)
-            all_entries = loader._skill_entries_from_dir(loader.workspace_skills, "workspace")
-            workspace_names = {e["name"] for e in all_entries}
-            if loader.builtin_skills and loader.builtin_skills.exists():
-                all_entries.extend(
-                    loader._skill_entries_from_dir(
-                        loader.builtin_skills, "builtin", skip_names=workspace_names
-                    )
-                )
-            result = []
-            for entry in all_entries:
-                meta = loader.get_skill_metadata(entry["name"]) or {}
-                description = meta.get("description", entry["name"])
-                available = loader._check_requirements(loader._get_skill_meta(entry["name"]))
-                always = bool(
-                    loader._parse_miniUnicorn_metadata(meta.get("metadata")).get("always")
-                    or meta.get("always")
-                )
-                result.append({
-                    "name": entry["name"],
-                    "description": description,
-                    "source": entry["source"],
-                    "available": available,
-                    "disabled": entry["name"] in disabled_set,
-                    "always": always,
-                    "builtin_only": loader.is_builtin_skill(entry["name"]),
-                    "path": entry["path"],
-                })
-            return _http_json_response({"skills": result})
-        except Exception as exc:
-            return _http_error(500, str(exc))
-
-    def _handle_skills_delete(self, request: WsRequest | None = None) -> Response:
-        """Delete a workspace skill by name."""
-        import shutil
-
-        query = _parse_query(request.path if request else "")
-        names = query.get("name", [])
-        name = names[0] if names else None
-        if not name:
-            return _http_error(400, "missing 'name' parameter")
-
-        # Strict whitelist: only allow filesystem-safe identifiers. This
-        # replaces the old blacklist (``replace("/", "").replace("..", "")``)
-        # which could be bypassed with sequences like ``....//``.
-        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
-            return _http_error(400, "invalid skill name")
-
-        skills_dir = (self._workspace_path / "skills").resolve()
-        skill_dir = (skills_dir / name).resolve()
-        # Secondary check: ensure the resolved path is still inside skills_dir
-        # (guards against symlink tricks and filesystem edge cases).
-        if not is_path_within(skill_dir, skills_dir):
-            return _http_error(400, "invalid skill name")
-
-        if not skill_dir.exists():
-            return _http_error(404, f"skill '{name}' not found in workspace")
-
-        try:
-            shutil.rmtree(skill_dir)
-            return _http_json_response({"deleted": True, "name": name})
-        except Exception as exc:
-            return _http_error(500, str(exc))
-
-    def _handle_skills_toggle(self, request: WsRequest) -> Response:
-        """Enable or disable a skill at runtime (hot reload, no restart).
-
-        Updates ``config.agents.defaults.disabled_skills`` and saves. The
-        change is picked up on the next agent turn via
-        ``SkillsLoader._refresh_disabled_from_config``.
-        """
-        from miniUnicorn.agent.skills import is_valid_skill_name
-        from miniUnicorn.config.loader import load_config, save_config
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-
-        query = _parse_query(request.path)
-        name = _query_first(query, "name")
-        if not name or not is_valid_skill_name(name):
-            return _http_error(400, "invalid 'name' parameter")
-        disabled_value = _query_first(query, "disabled")
-        if disabled_value is None:
-            return _http_error(400, "missing 'disabled' parameter")
-        disable = disabled_value.lower() in ("1", "true", "yes", "on")
-
-        try:
-            config = load_config()
-            current = list(getattr(config.agents.defaults, "disabled_skills", []) or [])
-            if disable:
-                if name not in current:
-                    current.append(name)
-            else:
-                current = [n for n in current if n != name]
-            config.agents.defaults.disabled_skills = current
-            save_config(config)
-            return _http_json_response(
-                {"name": name, "disabled": disable, "disabled_skills": current}
-            )
-        except Exception as exc:
-            return _http_error(500, str(exc))
-
-    def _handle_skills_read(self, request: WsRequest) -> Response:
-        """Return a skill's SKILL.md content and bundled file list."""
-        from miniUnicorn.agent.skills import SkillsLoader
-
-        query = _parse_query(request.path)
-        name = _query_first(query, "name")
-        if not name:
-            return _http_error(400, "missing 'name' parameter")
-        try:
-            loader = SkillsLoader(self._workspace_path)
-            content = loader.load_skill(name)
-            if content is None:
-                return _http_error(404, f"skill '{name}' not found")
-            files = loader.list_skill_files(name)
-            meta = loader.get_skill_metadata(name) or {}
-            ws_exists = (loader.workspace_skills / name / "SKILL.md").exists()
-            return _http_json_response({
-                "name": name,
-                "content": content,
-                "files": files,
-                "source": "workspace" if ws_exists else "builtin",
-                "metadata": meta,
-                "builtin_only": loader.is_builtin_skill(name),
-            })
-        except Exception as exc:
-            return _http_error(500, str(exc))
-
-    def _handle_skills_file(self, request: WsRequest) -> Response:
-        """Read a single bundled file from a skill (traversal-safe)."""
-        from miniUnicorn.agent.skills import SkillsLoader
-
-        query = _parse_query(request.path)
-        name = _query_first(query, "name")
-        rel = _query_first(query, "path")
-        if not name or not rel:
-            return _http_error(400, "missing 'name' or 'path' parameter")
-        try:
-            loader = SkillsLoader(self._workspace_path)
-            content = loader.read_skill_file(name, rel)
-            if content is None:
-                return _http_error(404, "file not found")
-            return _http_json_response({"name": name, "path": rel, "content": content})
-        except Exception as exc:
-            return _http_error(500, str(exc))
-
-    def _handle_skills_save(self, request: WsRequest) -> Response:
-        """Create or update a workspace skill's SKILL.md.
-
-        Accepts the new content via repeated ``X-MiniUnicorn-Skill-Content``
-        headers (URL-encoded chunks, concatenated in order) to stay within the
-        HTTP line limit for large skills. Falls back to the ``content`` query
-        parameter for small edits.
-        """
-
-        from miniUnicorn.agent.skills import SkillsLoader, is_valid_skill_name
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-
-        query = _parse_query(request.path)
-        name = _query_first(query, "name")
-        if not name or not is_valid_skill_name(name):
-            return _http_error(400, "invalid 'name' parameter")
-
-        # Prefer chunked content headers; fall back to query param.
-        header_b64 = _collect_chunked_header(request.headers, "X-MiniUnicorn-Skill-Content")
-        if header_b64:
-            content = unquote(header_b64)
-        else:
-            content_values = query.get("content", [])
-            content = unquote(content_values[0]) if content_values else ""
-        if not content.strip():
-            return _http_error(400, "content must not be empty")
-
-        try:
-            loader = SkillsLoader(self._workspace_path)
-            path = loader.save_skill_content(name, content)
-            return _http_json_response({"saved": True, "name": name, "path": str(path)})
-        except ValueError as exc:
-            return _http_error(400, str(exc))
-        except Exception as exc:
-            return _http_error(500, str(exc))
-
-    def _handle_skills_upload(self, request: WsRequest) -> Response:
-        """Upload and extract a ZIP skill package into the workspace.
-
-        The websockets HTTP layer does not read request bodies, so the ZIP is
-        transported as base64 chunks in repeated ``X-MiniUnicorn-Skill-Zip``
-        headers (each header stays under the 8KB line limit). The chunks are
-        concatenated in order before decoding.
-        """
-        import base64
-
-        from miniUnicorn.agent.skills import SkillsLoader
-
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-
-        query = _parse_query(request.path)
-        preferred = _query_first(query, "name")
-        preferred = unquote(preferred) if preferred else None
-
-        # Collect base64 chunks from repeated headers (order preserved).
-        b64_data = _collect_chunked_header(request.headers, "X-MiniUnicorn-Skill-Zip")
-        if not b64_data:
-            return _http_error(400, "missing ZIP data (send via X-MiniUnicorn-Skill-Zip headers)")
-
-        try:
-            data = base64.b64decode(b64_data)
-        except Exception as exc:
-            return _http_error(400, f"invalid base64 data: {exc}")
-
-        if not data:
-            return _http_error(400, "empty zip data")
-
-        try:
-            loader = SkillsLoader(self._workspace_path)
-            skill_name = loader.extract_zip_skill(data, preferred_name=preferred)
-            return _http_json_response({"uploaded": True, "name": skill_name})
-        except ValueError as exc:
-            return _http_error(400, str(exc))
-        except Exception as exc:
-            return _http_error(500, str(exc))
-
-    async def _dispatch_settings_api_route(
-        self,
-        request: WsRequest,
-        got: str,
-    ) -> Response | None:
-        if got == "/api/settings":
-            return self._handle_settings(request)
-
-        if got == "/api/settings/update":
-            return self._handle_settings_update(request)
-
-        if got == "/api/settings/model-configurations/create":
-            return self._handle_settings_model_configuration_create(request)
-
-        if got == "/api/settings/model-configurations/update":
-            return self._handle_settings_model_configuration_update(request)
-
-        if got == "/api/settings/model-configurations/delete":
-            return self._handle_settings_model_configuration_delete(request)
-
-        if got == "/api/settings/provider/update":
-            return self._handle_settings_provider_update(request)
-
-        if got == "/api/settings/provider/delete":
-            return self._handle_settings_provider_delete(request)
-
-        if got == "/api/settings/provider/models":
-            return await self._handle_settings_provider_models(request)
-
-        if got == "/api/settings/provider/oauth-login":
-            return await self._handle_settings_provider_oauth(request, "login")
-
-        if got == "/api/settings/provider/oauth-logout":
-            return await self._handle_settings_provider_oauth(request, "logout")
-
-        if got == "/api/settings/web-fetch/update":
-            return self._handle_settings_web_fetch_update(request)
-
-        if got == "/api/settings/web-search/update":
-            return self._handle_settings_web_search_update(request)
-
-        if got == "/api/settings/network-safety/update":
-            return self._handle_settings_network_safety_update(request)
-
-        if got == "/api/settings/runtime/update":
-            return self._handle_settings_runtime_update(request)
-
-        if got == "/api/settings/cli-apps":
-            return self._handle_settings_cli_apps(request)
-
-        if got == "/api/settings/cli-apps/install":
-            return await self._handle_settings_cli_apps_action(request, "install")
-
-        if got == "/api/settings/cli-apps/update":
-            return await self._handle_settings_cli_apps_action(request, "update")
-
-        if got == "/api/settings/cli-apps/uninstall":
-            return await self._handle_settings_cli_apps_action(request, "uninstall")
-
-        if got == "/api/settings/cli-apps/test":
-            return await self._handle_settings_cli_apps_action(request, "test")
-
-        if got == "/api/settings/mcp-presets":
-            return await self._handle_settings_mcp_presets(request)
-
-        mcp_action = _MCP_PRESET_ACTIONS_BY_PATH.get(got)
-        if mcp_action is not None:
-            return await self._handle_settings_mcp_presets(request, mcp_action)
-
-        return None
-
-    def _dispatch_session_api_route(
-        self,
-        request: WsRequest,
-        got: str,
-    ) -> Response | None:
-        m = re.match(r"^/api/sessions/([^/]+)/messages$", got)
-        if m:
-            return self._handle_session_messages(request, m.group(1))
-
-        m = re.match(r"^/api/sessions/([^/]+)/webui-thread$", got)
-        if m:
-            return self._handle_webui_thread_get(request, m.group(1))
-
-        # NOTE: websockets' HTTP parser only accepts GET, so we cannot expose a
-        # true ``DELETE`` verb. The action is folded into the path instead.
-        m = re.match(r"^/api/sessions/([^/]+)/delete$", got)
-        if m:
-            return self._handle_session_delete(request, m.group(1))
-
-        m = re.match(r"^/api/sessions/([^/]+)/rewind$", got)
-        if m:
-            return self._handle_session_rewind(request, m.group(1))
-
-        return None
-
-    def _dispatch_media_api_route(
-        self,
-        request: WsRequest,
-        got: str,
-    ) -> Response | None:
-        m = re.match(r"^/api/media/([A-Za-z0-9_-]+)/([A-Za-z0-9_-]+)$", got)
-        if m:
-            return self._handle_media_fetch(m.group(1), m.group(2), request)
-
-        return None
 
     def _dispatch_websocket_upgrade(
         self,
@@ -1606,48 +725,6 @@ class WebSocketChannel(BaseChannel):
         scheme = "wss" if secure else "ws"
         return f"{scheme}://{host}{self._expected_path()}"
 
-    def _handle_sessions_list(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        if self._session_manager is None:
-            return _http_error(503, "session manager unavailable")
-        sessions = self._session_manager.list_sessions()
-        # Sidebar/chat listing for WS-backed sessions only — CLI / Slack / etc.
-        # keys are not intended for resume over this HTTP surface.
-        cleaned = []
-        for s in sessions:
-            key = s.get("key")
-            if not (isinstance(key, str) and key.startswith("websocket:")):
-                continue
-            row = {k: v for k, v in s.items() if k != "path"}
-            chat_id = key.split(":", 1)[1]
-            started_at = websocket_turn_wall_started_at(chat_id)
-            if started_at is not None:
-                row["run_started_at"] = started_at
-            scope = self._webui_workspaces.scope_for_session_key(key)
-            row["workspace_scope"] = scope.payload()
-            cleaned.append(row)
-        return _http_json_response({"sessions": cleaned})
-
-    def _handle_workspaces(self, connection: Any, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        return _http_json_response(
-            self._webui_workspaces.payload(controls_available=self._is_localhost_connection(connection))
-        )
-
-    def _handle_settings(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        return _http_json_response(
-            self._with_settings_restart_state(
-                settings_payload(
-                    surface=self._runtime_surface,
-                    runtime_capability_overrides=self._runtime_capabilities,
-                )
-            )
-        )
-
     def _with_settings_restart_state(
         self,
         payload: dict[str, Any],
@@ -1668,38 +745,6 @@ class WebSocketChannel(BaseChannel):
             restart_required_sections=sections,
         )
 
-    def _handle_commands(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        return _http_json_response({"commands": builtin_command_palette()})
-
-    def _handle_webui_sidebar_state(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        return _http_json_response(read_webui_sidebar_state())
-
-    def _handle_webui_sidebar_state_update(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        raw_state = _query_first(query, "state")
-        if raw_state is None:
-            return _http_error(400, "missing state")
-        try:
-            decoded = json.loads(raw_state)
-        except json.JSONDecodeError:
-            return _http_error(400, "state must be JSON")
-        if not isinstance(decoded, dict):
-            return _http_error(400, "state must be an object")
-        try:
-            state = write_webui_sidebar_state(decoded)
-        except ValueError as e:
-            return _http_error(400, str(e))
-        except OSError:
-            self.logger.exception("failed to write webui sidebar state")
-            return _http_error(500, "failed to write sidebar state")
-        return _http_json_response(state)
-
     def _maybe_refresh_agent_model(self) -> None:
         """Refresh the running agent's model after settings changes.
 
@@ -1712,253 +757,6 @@ class WebSocketChannel(BaseChannel):
             except Exception:
                 logger.exception("Agent model refresh failed after settings update")
 
-    def _handle_settings_update(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            payload = update_agent_settings(query)
-        except WebUISettingsError as e:
-            return _http_error(e.status, e.message)
-        self._maybe_refresh_agent_model()
-        return _http_json_response(
-            self._with_settings_restart_state(payload, section="runtime")
-        )
-
-    def _handle_settings_model_configuration_create(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            payload = create_model_configuration(query)
-        except WebUISettingsError as e:
-            return _http_error(e.status, e.message)
-        self._maybe_refresh_agent_model()
-        return _http_json_response(self._with_settings_restart_state(payload))
-
-    def _handle_settings_model_configuration_update(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            payload = update_model_configuration(query)
-        except WebUISettingsError as e:
-            return _http_error(e.status, e.message)
-        self._maybe_refresh_agent_model()
-        return _http_json_response(self._with_settings_restart_state(payload))
-
-    def _handle_settings_model_configuration_delete(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            payload = delete_model_configuration(query)
-        except WebUISettingsError as e:
-            return _http_error(e.status, e.message)
-        self._maybe_refresh_agent_model()
-        return _http_json_response(self._with_settings_restart_state(payload))
-
-    def _handle_settings_provider_update(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            payload = update_provider_settings(query)
-        except WebUISettingsError as e:
-            return _http_error(e.status, e.message)
-        return _http_json_response(payload)
-
-    def _handle_settings_provider_delete(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            payload = delete_provider_settings(query)
-        except WebUISettingsError as e:
-            return _http_error(e.status, e.message)
-        return _http_json_response(self._with_settings_restart_state(payload))
-
-    async def _handle_settings_provider_models(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            payload = await list_provider_models(query)
-        except WebUISettingsError as e:
-            return _http_error(e.status, e.message)
-        except Exception as exc:
-            # Log the unexpected error so it isn't lost when the WS server
-            # swallows it; surface a generic 500 to the client.
-            self.logger.warning("provider models fetch failed: {}", exc)
-            return _http_error(500, f"Failed to fetch models: {exc}")
-        return _http_json_response(payload)
-
-    async def _handle_settings_provider_oauth(self, request: WsRequest, action: str) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            if action == "login":
-                payload = await asyncio.to_thread(login_oauth_provider, query)
-            else:
-                payload = await asyncio.to_thread(logout_oauth_provider, query)
-        except WebUISettingsError as e:
-            return _http_error(e.status, e.message)
-        return _http_json_response(self._with_settings_restart_state(payload))
-
-    def _handle_settings_web_fetch_update(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            payload = update_web_fetch_settings(query)
-        except WebUISettingsError as e:
-            return _http_error(e.status, e.message)
-        return _http_json_response(self._with_settings_restart_state(payload, section="browser"))
-
-    def _handle_settings_web_search_update(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            payload = update_web_search_settings(query)
-        except WebUISettingsError as e:
-            return _http_error(e.status, e.message)
-        return _http_json_response(self._with_settings_restart_state(payload, section="browser"))
-
-    def _handle_settings_network_safety_update(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            payload = update_network_safety_settings(query)
-        except WebUISettingsError as e:
-            return _http_error(e.status, e.message)
-        return _http_json_response(self._with_settings_restart_state(payload, section="runtime"))
-
-    def _handle_settings_runtime_update(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            payload = update_runtime_settings(query)
-        except WebUISettingsError as e:
-            return _http_error(e.status, e.message)
-        # Re-register heartbeat/dream system jobs on the running cron service
-        # so the new intervals take effect immediately without a restart.
-        if self._cron_reloader is not None:
-            try:
-                self._cron_reloader()
-            except Exception:
-                logger.exception("Cron reloader failed after runtime settings update")
-        return _http_json_response(self._with_settings_restart_state(payload, section="runtime"))
-
-    def _handle_settings_cli_apps(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        try:
-            payload = cli_apps_payload()
-        except Exception:
-            self.logger.exception("failed to load CLI Apps payload")
-            return _http_error(500, "failed to load CLI Apps")
-        return _http_json_response(payload)
-
-    async def _handle_settings_cli_apps_action(self, request: WsRequest, action: str) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        query = _parse_query(request.path)
-        try:
-            payload = await asyncio.to_thread(cli_apps_action, action, query)
-        except WebUISettingsError as e:
-            return _http_error(e.status, e.message)
-        except Exception as e:
-            status = getattr(e, "status", 500)
-            message = getattr(e, "message", str(e))
-            if status >= 500:
-                self.logger.exception("CLI Apps action '{}' failed", action)
-            return _http_error(status, message)
-        return _http_json_response(payload)
-
-    async def _handle_settings_mcp_presets(
-        self,
-        request: WsRequest,
-        action: str | None = None,
-    ) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        try:
-            payload = await mcp_presets_settings_action(
-                action,
-                _parse_mcp_settings_query(request),
-                reload_mcp=lambda: request_mcp_reload(self.bus),
-            )
-        except Exception as e:
-            status = getattr(e, "status", 500)
-            message = getattr(e, "message", str(e))
-            if status >= 500:
-                self.logger.exception("MCP preset action '{}' failed", action or "list")
-            return _http_error(status, message)
-        if action is None:
-            return _http_json_response(payload)
-        return _http_json_response(
-            self._with_settings_restart_state(payload, section="runtime")
-        )
-
-    # -- Session replay, transcript, and signed media ----------------------
-
-    @staticmethod
-    def _is_websocket_channel_session_key(key: str) -> bool:
-        """True when *key* is a ``websocket:…`` session exposed on this HTTP surface."""
-        return key.startswith("websocket:")
-
-    def _handle_session_messages(self, request: WsRequest, key: str) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        if self._session_manager is None:
-            return _http_error(503, "session manager unavailable")
-        decoded_key = _decode_api_key(key)
-        if decoded_key is None:
-            return _http_error(400, "invalid session key")
-        # Only ``websocket:…`` sessions are listed/served here — same boundary as
-        # ``/api/sessions``. Block handcrafted URLs from probing CLI / Slack / etc.
-        if not self._is_websocket_channel_session_key(decoded_key):
-            return _http_error(404, "session not found")
-        data = self._session_manager.read_session_file(decoded_key)
-        if data is None:
-            return _http_error(404, "session not found")
-        messages = data.get("messages")
-        if isinstance(messages, list):
-            scrub_subagent_messages_for_channel(messages)
-        # Decorate persisted user messages with signed media URLs so the
-        # client can render previews. The raw on-disk ``media`` paths are
-        # stripped on the way out — they leak server filesystem layout and
-        # the client never needs them once it has the signed fetch URL.
-        self._augment_media_urls(data)
-        return _http_json_response(data)
-
-    def _handle_webui_thread_get(self, request: WsRequest, key: str) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        decoded_key = _decode_api_key(key)
-        if decoded_key is None:
-            return _http_error(400, "invalid session key")
-        if not self._is_websocket_channel_session_key(decoded_key):
-            return _http_error(404, "session not found")
-        scope = self._webui_workspaces.scope_for_session_key(decoded_key)
-        data = build_webui_thread_response(
-            decoded_key,
-            augment_user_media=self._augment_transcript_user_media,
-            augment_assistant_text=lambda text: rewrite_local_markdown_images(
-                text,
-                workspace_path=scope.project_path,
-                sign_path=self._sign_or_stage_media_path,
-            ),
-        )
-        if data is None:
-            return _http_error(404, "webui thread not found")
-        data["workspace_scope"] = scope.payload()
-        return _http_json_response(data)
-
     def _try_append_webui_transcript(self, chat_id: str, wire: dict[str, Any]) -> None:
         sk = f"websocket:{chat_id}"
         try:
@@ -1966,20 +764,6 @@ class WebSocketChannel(BaseChannel):
             append_transcript_object(sk, dup)
         except (ValueError, TypeError) as e:
             self.logger.warning("webui transcript append failed: {}", e)
-
-    def _augment_transcript_user_media(self, paths: list[str]) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-        for pstr in paths:
-            path = Path(pstr)
-            att = self._sign_or_stage_media_path(path)
-            if att is None:
-                continue
-            mime, _ = mimetypes.guess_type(path.name)
-            kind = "video" if mime and mime.startswith("video/") else "image"
-            out.append(
-                {"kind": kind, "url": att["url"], "name": att.get("name", path.name)},
-            )
-        return out
 
     async def _handle_message(
         self,
@@ -2016,37 +800,6 @@ class WebSocketChannel(BaseChannel):
             session_key,
             is_dm,
         )
-
-    def _augment_media_urls(self, payload: dict[str, Any]) -> None:
-        """Mutate *payload* in place: each message's ``media`` path list is
-        replaced by a parallel ``media_urls`` list of signed fetch URLs.
-
-        Messages without media or with non-string path entries are left
-        untouched. Paths that no longer live inside ``media_dir`` (e.g. the
-        file was deleted, or the dir was relocated) are silently skipped;
-        the client falls back to the historical-replay placeholder tile.
-        """
-        messages = payload.get("messages")
-        if not isinstance(messages, list):
-            return
-        for msg in messages:
-            if not isinstance(msg, dict):
-                continue
-            media = msg.get("media")
-            if not isinstance(media, list) or not media:
-                continue
-            urls: list[dict[str, str]] = []
-            for entry in media:
-                if not isinstance(entry, str) or not entry:
-                    continue
-                signed = self._sign_media_path(Path(entry))
-                if signed is None:
-                    continue
-                urls.append({"url": signed, "name": Path(entry).name})
-            if urls:
-                msg["media_urls"] = urls
-            # Always drop the raw paths from the wire payload.
-            msg.pop("media", None)
 
     def _sign_media_path(self, abs_path: Path) -> str | None:
         """Return a ``/api/media/<sig>/<payload>`` URL for *abs_path*, or
@@ -2086,88 +839,46 @@ class WebSocketChannel(BaseChannel):
             sign_path=self._sign_or_stage_media_path,
         )
 
-    def _handle_media_fetch(
-        self, sig: str, payload: str, request: WsRequest | None = None
-    ) -> Response:
-        """Serve a single media file previously signed via
-        :meth:`_sign_media_path`. Validates the signature, decodes the
-        payload to a relative path, and streams the file bytes with a
-        long-lived immutable cache header (the URL already encodes the
-        file identity, so caches can be aggressive)."""
-        return serve_signed_media(
-            sig,
-            payload,
-            secret=self._media_secret,
-            request=request,
-            media_dir=lambda channel=None: get_media_dir(channel),
+    # -- Backward-compat wrappers for tests that call handlers directly -----
+    # These thin wrappers delegate to the declarative router so tests written
+    # against the old ``channel._handle_sessions_list(req)`` API keep working
+    # without duplicating the handler logic.
+
+    def _handle_sessions_list(self, request: WsRequest) -> Response:
+        """Backward-compat: delegates to the ``/api/sessions`` route handler."""
+        from ._http_router import RouteContext
+
+        deps = self._build_route_deps()
+        got, query = _parse_request_path(request.path)
+        entry = router._exact.get(got)
+        if entry is None:
+            return _http_error(404, "not found")
+        ctx = RouteContext(
+            deps=deps, connection=None, request=request, query=query, got=got
         )
+        return entry.fn(ctx)  # type: ignore[return-value]
 
-    def _handle_session_delete(self, request: WsRequest, key: str) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        if self._session_manager is None:
-            return _http_error(503, "session manager unavailable")
-        decoded_key = _decode_api_key(key)
-        if decoded_key is None:
-            return _http_error(400, "invalid session key")
-        # Same boundary as ``_handle_session_messages``: mutations apply only to
-        # websocket-channel sessions; deletion unlinks local JSONL — keep scope narrow.
-        if not self._is_websocket_channel_session_key(decoded_key):
-            return _http_error(404, "session not found")
-        deleted = self._session_manager.delete_session(decoded_key)
-        delete_webui_thread(decoded_key)
-        return _http_json_response({"deleted": bool(deleted)})
+    def _handle_webui_thread_get(self, request: WsRequest, key: str) -> Response:
+        """Backward-compat: delegates to the ``/api/sessions/<key>/webui-thread`` handler."""
+        from ._http_router import RouteContext
 
-    def _handle_session_rewind(self, request: WsRequest, key: str) -> Response:
-        """Truncate a websocket session to before the N-th user message.
-
-        Query parameter ``user_message_index`` (0-based) identifies the user
-        turn to rewind from. Both the JSONL transcript and the agent session
-        file are truncated in lockstep so the WebUI and the LLM context stay
-        consistent. A ``session_updated`` broadcast is emitted so connected
-        clients refresh their local thread view.
-        """
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
-        if self._session_manager is None:
-            return _http_error(503, "session manager unavailable")
-        decoded_key = _decode_api_key(key)
-        if decoded_key is None:
-            return _http_error(400, "invalid session key")
-        if not self._is_websocket_channel_session_key(decoded_key):
-            return _http_error(404, "session not found")
-        query = _parse_query(request.path)
-        raw_index = _query_first(query, "user_message_index")
-        if raw_index is None:
-            return _http_error(400, "missing user_message_index")
-        try:
-            user_message_index = int(raw_index)
-        except ValueError:
-            return _http_error(400, "user_message_index must be an integer")
-        if user_message_index < 0:
-            return _http_error(400, "user_message_index must be >= 0")
-        # Refuse rewind while a turn is still streaming for this chat to avoid
-        # racing with delta/stream_end events that would re-append the
-        # truncated content.
-        chat_id = decoded_key.split(":", 1)[1] if ":" in decoded_key else decoded_key
-        if websocket_turn_wall_started_at(chat_id) is not None:
-            return _http_error(409, "session is currently running")
-        transcript_removed = rewind_webui_transcript_to_user(decoded_key, user_message_index)
-        session_removed = self._session_manager.rewind_to_user_message(
-            decoded_key, user_message_index
-        )
-        # Notify connected clients to refresh their thread view. Use a
-        # background task so the HTTP response is not delayed by the broadcast.
-        try:
-            asyncio.create_task(self.send_session_updated(chat_id))
-        except RuntimeError:
-            # No running loop — the client will refresh on next poll/reconnect.
-            pass
-        return _http_json_response({
-            "rewound": transcript_removed > 0 or session_removed > 0,
-            "transcript_lines_removed": transcript_removed,
-            "session_messages_removed": session_removed,
-        })
+        deps = self._build_route_deps()
+        # ``key`` is already URL-encoded by the caller (matches old signature).
+        got = f"/api/sessions/{key}/webui-thread"
+        _, query = _parse_request_path(request.path)
+        for pattern, entry in router._regex:
+            m = pattern.match(got)
+            if m is not None:
+                ctx = RouteContext(
+                    deps=deps,
+                    connection=None,
+                    request=request,
+                    query=query,
+                    got=got,
+                    path_vars=m.groupdict(),
+                )
+                return entry.fn(ctx)  # type: ignore[return-value]
+        return _http_error(404, "not found")
 
     # -- Static files and WebSocket handshake ------------------------------
 

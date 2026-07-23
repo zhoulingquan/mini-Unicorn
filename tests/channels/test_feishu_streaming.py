@@ -238,7 +238,7 @@ class TestSendDelta:
         ch._client.cardkit.v1.card_element.content.return_value = _mock_content_response()
         ch._client.cardkit.v1.card.settings.return_value = _mock_content_response()
 
-        await ch.send_delta("oc_chat1", "", metadata={"_stream_end": True})
+        await ch.send_delta("oc_chat1", "", stream_end=True)
 
         assert "oc_chat1" not in ch._stream_bufs
         ch._client.cardkit.v1.card_element.content.assert_called_once()
@@ -255,7 +255,7 @@ class TestSendDelta:
         )
         ch._client.im.v1.message.create.return_value = _mock_send_response("om_fb")
 
-        await ch.send_delta("oc_chat1", "", metadata={"_stream_end": True})
+        await ch.send_delta("oc_chat1", "", stream_end=True)
 
         assert "oc_chat1" not in ch._stream_bufs
         ch._client.cardkit.v1.card_element.content.assert_not_called()
@@ -272,7 +272,8 @@ class TestSendDelta:
         await ch.send_delta(
             "oc_chat1",
             "",
-            metadata={"_stream_end": True, "message_id": "om_001", "chat_type": "group"},
+            metadata={"message_id": "om_001", "chat_type": "group"},
+            stream_end=True,
         )
 
         ch._client.im.v1.message.create.assert_called_once()
@@ -292,11 +293,11 @@ class TestSendDelta:
             "oc_chat1",
             "",
             metadata={
-                "_stream_end": True,
                 "message_id": "om_001",
                 "chat_type": "group",
                 "thread_id": "ot_001",
             },
+            stream_end=True,
         )
 
         ch._client.im.v1.message.reply.assert_called_once()
@@ -317,7 +318,8 @@ class TestSendDelta:
         await ch.send_delta(
             "oc_chat1",
             "",
-            metadata={"_stream_end": True, "message_id": "om_001", "chat_type": "group"},
+            metadata={"message_id": "om_001", "chat_type": "group"},
+            stream_end=True,
         )
 
         ch._client.im.v1.message.reply.assert_called_once()
@@ -335,11 +337,12 @@ class TestSendDelta:
         ch._client.cardkit.v1.card_element.content.return_value = _mock_content_response(success=False)
         ch._client.im.v1.message.create.return_value = _mock_send_response("om_fb")
 
-        await ch.send_delta("oc_chat1", "", metadata={"_stream_end": True})
+        await ch.send_delta("oc_chat1", "", stream_end=True)
 
         assert "oc_chat1" not in ch._stream_bufs
-        # Should NOT attempt to close streaming mode since update failed
-        ch._client.cardkit.v1.card.settings.assert_not_called()
+        # Streaming mode is closed (cleanup) even though the final update
+        # failed — code calls settings to reopen (retry) then close.
+        ch._client.cardkit.v1.card.settings.assert_called()
         # Should fall back to sending a regular interactive card
         ch._client.im.v1.message.create.assert_called_once()
 
@@ -394,7 +397,7 @@ class TestToolHintInlineStreaming:
         msg = OutboundMessage(
             channel="feishu", chat_id="oc_chat1",
             content='read_file("example.txt")',
-            metadata={"_tool_hint": True},
+            metadata={"_tool_hint": True, "_progress": True},
         )
         await ch.send(msg)
 
@@ -506,13 +509,13 @@ class TestToolHintInlineStreaming:
 
         msg1 = OutboundMessage(
             channel="feishu", chat_id="oc_chat1",
-            content='$ cd /project', metadata={"_tool_hint": True},
+            content='$ cd /project', metadata={"_tool_hint": True, "_progress": True},
         )
         await ch.send(msg1)
 
         msg2 = OutboundMessage(
             channel="feishu", chat_id="oc_chat1",
-            content='$ git status', metadata={"_tool_hint": True},
+            content='$ git status', metadata={"_tool_hint": True, "_progress": True},
         )
         await ch.send(msg2)
 
@@ -534,7 +537,7 @@ class TestToolHintInlineStreaming:
         ch._client.cardkit.v1.card_element.content.return_value = _mock_content_response()
         ch._client.cardkit.v1.card.settings.return_value = _mock_content_response()
 
-        await ch.send_delta("oc_chat1", "", metadata={"_stream_end": True})
+        await ch.send_delta("oc_chat1", "", stream_end=True)
 
         assert "oc_chat1" not in ch._stream_bufs
         update_call = ch._client.cardkit.v1.card_element.content.call_args[0][0]

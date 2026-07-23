@@ -116,8 +116,11 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
     if changed:
         save_config(config)
     # Trigger HF learning when the default model changed.
+    # 后台线程执行,HTTP 立即返回;前端通过轮询获取查询结果。
+    # 与 create_model_configuration 保持一致,避免 HF 查询阻塞 HTTP 请求。
     if model_changed:
-        _trigger_model_learning(defaults.model)
+        import threading
+        threading.Thread(target=_trigger_model_learning, args=(defaults.model,), daemon=True).start()
     return settings_payload(requires_restart=restart_required)
 
 
@@ -247,8 +250,11 @@ def update_model_configuration(query: QueryParams) -> dict[str, Any]:
         save_config(config)
     # Trigger HF learning when the model name changed (skips if already
     # learned successfully; retries on prior failure).
+    # 后台线程执行,HTTP 立即返回;前端通过轮询获取查询结果。
+    # 与 create_model_configuration 保持一致,避免 HF 查询阻塞 HTTP 请求。
     if model_changed:
-        _trigger_model_learning(preset.model)
+        import threading
+        threading.Thread(target=_trigger_model_learning, args=(preset.model,), daemon=True).start()
     return settings_payload()
 
 

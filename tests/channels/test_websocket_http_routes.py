@@ -314,9 +314,9 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
         assert preset_queries[-1][1]["browserbase_api_key"] == ["bb_live_secret"]
         body = enabled.json()
         assert "bb_live_secret" not in enabled.text
-        assert body["last_action"]["message"] == "enable:browserbase MCP config reloaded."
-        assert body["hot_reload"]["ok"] is True
-        assert body["restart_required_sections"] == []
+        # hot_reload runs in background; message no longer carries the reload suffix.
+        assert body["last_action"]["message"] == "enable:browserbase"
+        assert body["restart_required_sections"] == ["runtime"]
 
         bad_header = await _http_get(
             "http://127.0.0.1:29913/api/settings/mcp-presets/enable?name=browserbase",
@@ -335,14 +335,14 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
         )
         assert custom.status_code == 200
         assert custom_queries[-1][1]["command"] == ["npx"]
-        assert custom.json()["last_action"]["message"] == "custom:docs MCP config reloaded."
+        assert custom.json()["last_action"]["message"] == "custom:docs"
 
         imported = await _http_get(
             "http://127.0.0.1:29913/api/settings/mcp-presets/import",
             headers={**auth, "X-MiniUnicorn-MCP-Values": json.dumps({"config": "{}"})},
         )
         assert imported.status_code == 200
-        assert imported.json()["last_action"]["message"] == "import:config MCP config reloaded."
+        assert imported.json()["last_action"]["message"] == "import:config"
 
         tools = await _http_get(
             "http://127.0.0.1:29913/api/settings/mcp-presets/tools",
@@ -354,7 +354,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
             },
         )
         assert tools.status_code == 200
-        assert tools.json()["last_action"]["message"] == "tools:docs MCP config reloaded."
+        assert tools.json()["last_action"]["message"] == "tools:docs"
     finally:
         await channel.stop()
         await server_task
@@ -699,12 +699,12 @@ def test_wildcard_host_without_auth_raises_on_startup(bus: MagicMock) -> None:
 
 
 def test_wildcard_host_with_token_is_valid(bus: MagicMock) -> None:
-    channel = _ch(bus, host="0.0.0.0", token="my-token")
+    channel = _ch(bus, host="0.0.0.0", allowFrom=["caller"], token="my-token")
     assert channel.config.host == "0.0.0.0"
 
 
 def test_wildcard_host_with_secret_is_valid(bus: MagicMock) -> None:
-    channel = _ch(bus, host="0.0.0.0", tokenIssueSecret="s3cret")
+    channel = _ch(bus, host="0.0.0.0", allowFrom=["caller"], tokenIssueSecret="s3cret")
     assert channel.config.host == "0.0.0.0"
 
 
@@ -717,7 +717,7 @@ def test_wildcard_ipv6_without_auth_raises(bus: MagicMock) -> None:
 
 
 def test_wildcard_ipv6_with_secret_is_valid(bus: MagicMock) -> None:
-    channel = _ch(bus, host="::", tokenIssueSecret="s3cret")
+    channel = _ch(bus, host="::", allowFrom=["caller"], tokenIssueSecret="s3cret")
     resp = channel._handle_bootstrap(
         _REMOTE, _FakeReq({"X-MiniUnicorn-Auth": "s3cret"})
     )
@@ -726,7 +726,7 @@ def test_wildcard_ipv6_with_secret_is_valid(bus: MagicMock) -> None:
 
 def test_bootstrap_accepts_static_token_as_secret(bus: MagicMock) -> None:
     """When only token (not token_issue_secret) is set, bootstrap accepts it."""
-    channel = _ch(bus, host="0.0.0.0", token="static-tok")
+    channel = _ch(bus, host="0.0.0.0", allowFrom=["caller"], token="static-tok")
     resp = channel._handle_bootstrap(
         _REMOTE, _FakeReq({"Authorization": "Bearer static-tok"})
     )
@@ -793,7 +793,7 @@ def test_bootstrap_falls_back_when_runtime_raises(bus: MagicMock, monkeypatch: p
 
 
 def test_bootstrap_rejects_wrong_secret(bus: MagicMock) -> None:
-    channel = _ch(bus, host="0.0.0.0", tokenIssueSecret="correct")
+    channel = _ch(bus, host="0.0.0.0", allowFrom=["caller"], tokenIssueSecret="correct")
     resp = channel._handle_bootstrap(
         _REMOTE, _FakeReq({"Authorization": "Bearer wrong"})
     )
@@ -801,7 +801,7 @@ def test_bootstrap_rejects_wrong_secret(bus: MagicMock) -> None:
 
 
 def test_bootstrap_accepts_remote_with_valid_secret(bus: MagicMock) -> None:
-    channel = _ch(bus, host="0.0.0.0", tokenIssueSecret="s3cret")
+    channel = _ch(bus, host="0.0.0.0", allowFrom=["caller"], tokenIssueSecret="s3cret")
     resp = channel._handle_bootstrap(
         _REMOTE, _FakeReq({"Authorization": "Bearer s3cret"})
     )
@@ -811,7 +811,7 @@ def test_bootstrap_accepts_remote_with_valid_secret(bus: MagicMock) -> None:
 
 
 def test_bootstrap_accepts_x_miniUnicorn_auth_header(bus: MagicMock) -> None:
-    channel = _ch(bus, host="0.0.0.0", tokenIssueSecret="s3cret")
+    channel = _ch(bus, host="0.0.0.0", allowFrom=["caller"], tokenIssueSecret="s3cret")
     resp = channel._handle_bootstrap(
         _REMOTE, _FakeReq({"X-MiniUnicorn-Auth": "s3cret"})
     )
@@ -820,6 +820,6 @@ def test_bootstrap_accepts_x_miniUnicorn_auth_header(bus: MagicMock) -> None:
 
 def test_bootstrap_secret_also_enforced_on_localhost(bus: MagicMock) -> None:
     """When secret is set, even localhost must provide it (reverse-proxy safety)."""
-    channel = _ch(bus, host="0.0.0.0", tokenIssueSecret="s3cret")
+    channel = _ch(bus, host="0.0.0.0", allowFrom=["caller"], tokenIssueSecret="s3cret")
     resp = channel._handle_bootstrap(_LOCAL, _NO_HEADERS)
     assert resp.status_code == 401
