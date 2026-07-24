@@ -31,9 +31,12 @@ class EmbeddingProvider:
         if self._separate:
             return True  # Will try on first call
         try:
-            # Check if main provider supports embed
-            # (will raise NotImplementedError if not)
-            return hasattr(self._main, "embed")
+            # 基类 LLMProvider.embed 默认抛 NotImplementedError,
+            # hasattr 会永远返回 True,因此改用方法身份比对:
+            # 仅当子类真正 override 了 embed 才视为可用。
+            from miniUnicorn.providers.base import LLMProvider
+
+            return type(self._main).embed is not LLMProvider.embed
         except Exception:
             return False
 

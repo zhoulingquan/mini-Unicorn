@@ -22,40 +22,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { providerBrand, faviconUrls, type ProviderBrand } from "@/lib/provider-brand";
-
-/** 从 api_base URL 提取 host(用于 custom provider 动态生成 brand)。
- *  返回去除通用前缀(www/api/apihub/gateway)后的域名,如 apihub.agnes-ai.com → agnes-ai.com */
-function hostFromApiBase(apiBase: string | null | undefined): string | null {
-  if (!apiBase) return null;
-  try {
-    const parsed = new URL(apiBase);
-    let host = parsed.hostname.toLowerCase();
-    // 去掉通用前缀
-    host = host.replace(/^(www|api|apihub|api-gateway|gateway)\./, "");
-    return host || null;
-  } catch {
-    return null;
-  }
-}
-
-/** 从 host 生成首字母(取第一段非通用前缀的首字母,大写) */
-function initialsFromHost(host: string | null): string {
-  if (!host) return "C";
-  const firstPart = host.split(".")[0];
-  return firstPart.charAt(0).toUpperCase() || "C";
-}
-
-/** 从 host 生成稳定颜色(基于域名 hash → HSL) */
-function colorFromHost(host: string | null): string {
-  if (!host) return "#6B7280";
-  let hash = 0;
-  for (let i = 0; i < host.length; i++) {
-    hash = host.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash) % 360;
-  return `hsl(${hue}, 55%, 50%)`;
-}
+import { providerBrand, faviconUrls, hostFromApiBase, initialsFromHost, colorFromHost, type ProviderBrand } from "@/lib/provider-brand";
 
 export const PROVIDER_ICONS: Record<string, LucideIcon> = {
   custom: Hexagon,

@@ -13,7 +13,7 @@ from .._http_routes import (
     _query_first,
 )
 from .._http_router import RouteContext, router
-from ._common import unauthorized
+from ._common import require_auth
 
 
 @router.route("/api/agents")
@@ -45,6 +45,7 @@ def read(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/agents/save")
+@require_auth
 def save(ctx: RouteContext) -> Response:
     """Create or update an agent's ``.md`` file.
 
@@ -53,9 +54,6 @@ def save(ctx: RouteContext) -> Response:
     """
 
     from miniUnicorn.api.routes_agents import router
-
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
 
     name = _query_first(ctx.query, "name")
     if not name:
@@ -80,12 +78,10 @@ def save(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/agents/delete")
+@require_auth
 def delete(ctx: RouteContext) -> Response:
     """Delete an agent's ``.md`` file by name."""
     from miniUnicorn.api.routes_agents import router
-
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
 
     name = _query_first(ctx.query, "name")
     if not name:
@@ -100,6 +96,7 @@ def delete(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/agents/generate")
+@require_auth
 async def generate_agent(ctx: RouteContext) -> Response:
     """Generate a subagent ``.md`` definition via the LLM.
 
@@ -111,9 +108,6 @@ async def generate_agent(ctx: RouteContext) -> Response:
     """
 
     from miniUnicorn.api.routes_agents import router
-
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
 
     # Resolve the LLM provider lazily so the channel can be constructed
     # before the agent loop is fully wired (e.g. in tests).

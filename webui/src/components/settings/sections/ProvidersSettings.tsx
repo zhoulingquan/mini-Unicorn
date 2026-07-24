@@ -2,7 +2,7 @@
 // API Key / API Base / Model 编辑、OAuth 登录登出、删除、模型列表抓取。
 // 从 SettingsView.tsx 拆分而来。
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   ChevronDown,
   Eye,
@@ -18,6 +18,8 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -83,6 +85,8 @@ export function ProvidersSettings({
   onCancelCustomConfig,
   onSaveCustomConfig,
   onFetchCustomConfigModels,
+  onDeleteAllProviders,
+  deletingAllProviders,
 }: {
   settings: SettingsPayload;
   expandedProvider: string | null;
@@ -143,9 +147,14 @@ export function ProvidersSettings({
   onSaveCustomConfig: () => void;
   /** 为 custom 配置 Dialog 拉取模型列表。 */
   onFetchCustomConfigModels: () => void;
+  /** 一键清除所有 provider 配置。 */
+  onDeleteAllProviders: () => Promise<void>;
+  /** 是否正在清除所有 provider 配置。 */
+  deletingAllProviders: boolean;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  const [deleteAllConfirmOpen, setDeleteAllConfirmOpen] = useState(false);
   // custom provider 始终保留在未配置区域作为"添加 provider"入口(configured=false)。
   // 有 preset 时同时在已配置区域显示(展示 preset 列表)。
   // 两个区域的 custom 卡片用 entryKey(provider.name + configured)区分,避免 expanded 冲突。
@@ -463,6 +472,22 @@ export function ProvidersSettings({
         count={configuredProviders.length}
         empty={t("settings.byok.noConfiguredProviders")}
         showCount
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={configuredProviders.length === 0 || deletingAllProviders}
+            onClick={() => setDeleteAllConfirmOpen(true)}
+            className="h-7 rounded-full border-destructive/30 px-3 text-[12px] text-destructive hover:bg-destructive/5 hover:text-destructive disabled:border-border/40 disabled:text-muted-foreground disabled:opacity-60"
+          >
+            {deletingAllProviders ? (
+              <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden />
+            ) : (
+              <Trash2 className="mr-1 h-3 w-3" aria-hidden />
+            )}
+            {tx("settings.byok.clearAll", "清除全部")}
+          </Button>
+        }
       >
         {configuredProviders.map(renderProviderRow)}
       </ProviderSection>
@@ -508,6 +533,50 @@ export function ProvidersSettings({
               onCancel={onCancelCustomConfig}
             />
           </div>
+        </DialogContent>
+      </Dialog>
+      {/* 一键清除所有 provider 配置确认对话框 */}
+      <Dialog
+        open={deleteAllConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open && !deletingAllProviders) setDeleteAllConfirmOpen(false);
+        }}
+      >
+        <DialogContent className="max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle>
+              {tx("settings.byok.clearAllConfirmTitle", "清除所有 Provider 配置")}
+            </DialogTitle>
+            <DialogDescription>
+              {tx("settings.byok.clearAllConfirmDesc", "将清空所有 provider 的 API Key、API Base 和模型配置,恢复到初始状态。此操作不可撤销。")}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteAllConfirmOpen(false)}
+              disabled={deletingAllProviders}
+              className="rounded-full"
+            >
+              {t("settings.bootstrap.cancel", { defaultValue: "Cancel" })}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deletingAllProviders}
+              onClick={async () => {
+                await onDeleteAllProviders();
+                setDeleteAllConfirmOpen(false);
+              }}
+              className="rounded-full"
+            >
+              {deletingAllProviders ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+              ) : null}
+              {deletingAllProviders
+                ? t("settings.byok.clearing", { defaultValue: "清除中..." })
+                : tx("settings.byok.clearAll", "清除全部")}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

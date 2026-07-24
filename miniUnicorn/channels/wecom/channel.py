@@ -5,7 +5,6 @@ import base64
 import hashlib
 import importlib.util
 import os
-from collections import OrderedDict
 from typing import Any
 
 from pydantic import Field
@@ -82,7 +81,6 @@ class WecomChannel(BaseChannel):
         super().__init__(config, bus)
         self.config: WecomConfig = config
         self._client: Any = None
-        self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._generate_req_id = None
         # Store frame headers for each chat to enable replies
@@ -231,13 +229,8 @@ class WecomChannel(BaseChannel):
                 return
 
             # Deduplication check
-            if msg_id in self._processed_message_ids:
+            if not self._dedup_message(msg_id):
                 return
-            self._processed_message_ids[msg_id] = None
-
-            # Trim cache
-            while len(self._processed_message_ids) > 1000:
-                self._processed_message_ids.popitem(last=False)
 
             # For single chat, chatid is the sender's userid
             # For group chat, chatid is provided in body

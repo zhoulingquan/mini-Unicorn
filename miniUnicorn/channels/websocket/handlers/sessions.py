@@ -22,7 +22,7 @@ from .._http_routes import (
     _http_json_response,
     _query_first,
 )
-from ._common import service_unavailable, unauthorized
+from ._common import require_auth, service_unavailable
 
 
 def _is_ws_session_key(key: str) -> bool:
@@ -82,9 +82,8 @@ def _augment_transcript_user_media(
 
 
 @router.route(r"^/api/sessions/(?P<key>[^/]+)/messages$", regex=True)
+@require_auth
 def session_messages(ctx: RouteContext) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     if ctx.deps.session_manager is None:
         return service_unavailable("session manager unavailable")
     decoded_key = _decode_api_key(ctx.path_vars["key"])
@@ -109,9 +108,8 @@ def session_messages(ctx: RouteContext) -> Response:
 
 
 @router.route(r"^/api/sessions/(?P<key>[^/]+)/webui-thread$", regex=True)
+@require_auth
 def webui_thread_get(ctx: RouteContext) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     decoded_key = _decode_api_key(ctx.path_vars["key"])
     if decoded_key is None:
         return _http_error(400, "invalid session key")
@@ -134,9 +132,8 @@ def webui_thread_get(ctx: RouteContext) -> Response:
 
 
 @router.route(r"^/api/sessions/(?P<key>[^/]+)/delete$", regex=True)
+@require_auth
 def session_delete(ctx: RouteContext) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     if ctx.deps.session_manager is None:
         return service_unavailable("session manager unavailable")
     decoded_key = _decode_api_key(ctx.path_vars["key"])
@@ -152,6 +149,7 @@ def session_delete(ctx: RouteContext) -> Response:
 
 
 @router.route(r"^/api/sessions/(?P<key>[^/]+)/rewind$", regex=True)
+@require_auth
 def session_rewind(ctx: RouteContext) -> Response:
     """Truncate a websocket session to before the N-th user message.
 
@@ -161,8 +159,6 @@ def session_rewind(ctx: RouteContext) -> Response:
     consistent. A ``session_updated`` broadcast is emitted so connected
     clients refresh their local thread view.
     """
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     if ctx.deps.session_manager is None:
         return service_unavailable("session manager unavailable")
     decoded_key = _decode_api_key(ctx.path_vars["key"])

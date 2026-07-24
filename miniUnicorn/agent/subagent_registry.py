@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
 from loguru import logger
 
 
@@ -76,22 +77,44 @@ class SubagentRegistry:
             logger.warning("Subagent file {} has no frontmatter, skipping", path)
             return None
         fm_text, body = match.group(1), match.group(2)
-        # Parse frontmatter as simple YAML (avoid pyyaml dependency for simple cases)
-        meta = self._parse_simple_yaml(fm_text)
+        try:
+            parsed = yaml.safe_load(fm_text) or {}
+        except yaml.YAMLError as e:
+            logger.warning("Subagent file {} has invalid YAML frontmatter: {}", path, e)
+            return None
+        if not isinstance(parsed, dict):
+            logger.warning("Subagent file {} frontmatter is not a mapping, skipping", path)
+            return None
+        # 所有值统一转成字符串以保持向后兼容(name/description/model/avatar 均为标量)
+        meta: dict[str, str] = {}
+        for k, v in parsed.items():
+            meta[str(k)] = "" if v is None else str(v).strip() if isinstance(v, str) else str(v)
+
         name = meta.get("name", "").strip()
         description = meta.get("description", "").strip()
         if not name or not description:
             logger.warning("Subagent file {} missing name/description, skipping", path)
             return None
         model = meta.get("model", "").strip() or None
-        tools_str = meta.get("tools", "").strip()
-        tools = None
-        if tools_str:
-            # Comma-separated, allow empty string meaning "no tools"
-            if tools_str == '""' or tools_str == "''":
+
+        # tools 字段支持三种形式:
+        #   tools: read_file, edit_file        → 逗号分隔字符串
+        #   tools: "" / tools: '' / tools:     → 空列表(明确禁用所有工具)
+        #   tools: [read_file, edit_file]      → YAML 列表(已由 safe_load 转为 list)
+        #   缺省                                → None 表示继承全部工具
+        raw_tools = parsed.get("tools")
+        tools: list[str] | None
+        if raw_tools is None:
+            tools = None
+        elif isinstance(raw_tools, list):
+            tools = [str(t).strip() for t in raw_tools if str(t).strip()]
+        else:
+            tools_str = str(raw_tools).strip()
+            if not tools_str:
                 tools = []
             else:
                 tools = [t.strip() for t in tools_str.split(",") if t.strip()]
+
         avatar = meta.get("avatar", "").strip() or None
         return SubagentDefinition(
             name=name,
@@ -102,56 +125,6 @@ class SubagentRegistry:
             avatar=avatar,
             file_path=path,
         )
-
-    def _parse_simple_yaml(self, text: str) -> dict[str, str]:
-        """Parse simple key: value YAML (no nested structures for frontmatter).
-
-        Handles:
-          name: value
-          description: multi line text
-          model: value
-          tools: a, b, c
-        """
-        result: dict[str, str] = {}
-        lines = text.split("\n")
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-            if not line.strip() or line.strip().startswith("#"):
-                i += 1
-                continue
-            if ":" not in line:
-                i += 1
-                continue
-            key, _, value = line.partition(":")
-            key = key.strip()
-            value = value.strip()
-            # Handle quoted values
-            if value.startswith('"') and value.endswith('"'):
-                value = value[1:-1]
-            elif value.startswith("'") and value.endswith("'"):
-                value = value[1:-1]
-            # Handle multiline description (value empty, continuation lines)
-            if not value:
-                collected = []
-                j = i + 1
-                while j < len(lines):
-                    nxt = lines[j]
-                    if not nxt.strip():
-                        break
-                    # Continuation: indented or plain text (no key: value)
-                    if ":" in nxt and not nxt.startswith(" ") and not nxt.startswith("\t"):
-                        break
-                    collected.append(nxt.strip())
-                    j += 1
-                if collected:
-                    value = " ".join(collected)
-                    i = j
-                    result[key] = value
-                    continue
-            result[key] = value
-            i += 1
-        return result
 
     def get(self, name: str) -> SubagentDefinition | None:
         return self._definitions.get(name)

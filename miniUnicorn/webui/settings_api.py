@@ -27,6 +27,7 @@ from ._runtime import (
 )
 from ._updates import (
     create_model_configuration,
+    delete_all_providers,
     delete_model_configuration,
     delete_provider_settings,
     list_provider_models,
@@ -47,6 +48,7 @@ __all__ = [
     "WebUISettingsError",
     "create_model_configuration",
     "decorate_settings_payload",
+    "delete_all_providers",
     "delete_model_configuration",
     "delete_provider_settings",
     "list_provider_models",

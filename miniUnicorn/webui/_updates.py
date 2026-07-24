@@ -12,7 +12,7 @@ from typing import Any
 
 from miniUnicorn.config.loader import load_config, save_config
 from miniUnicorn.config.schema import ModelPresetConfig
-from miniUnicorn.providers.registry import find_by_name
+from miniUnicorn.providers.registry import PROVIDERS, find_by_name
 from miniUnicorn.webui.workspaces import write_webui_default_access_mode
 
 from ._helpers import (
@@ -592,6 +592,45 @@ def delete_provider_settings(query: QueryParams) -> dict[str, Any]:
         else:
             config.agents.defaults.model = ""
             config.agents.defaults.provider = "auto"
+        changed = True
+
+    if changed:
+        save_config(config)
+    return settings_payload(requires_restart=False)
+
+
+def delete_all_providers(_query: QueryParams) -> dict[str, Any]:
+    """一键清除所有 provider 配置,恢复初始状态。
+
+    做三件事:
+    1. 清空所有内置 provider 的 api_key / api_base(使其全部 configured=False)。
+    2. 删除所有非 default model_preset。
+    3. 重置 active preset 为 default,同步 agent.defaults 的 model/provider。
+    """
+    config = load_config()
+    changed = False
+
+    # 1) 清除所有内置 provider 凭证
+    for spec in PROVIDERS:
+        provider_config = getattr(config.providers, spec.name, None)
+        if provider_config is not None and (provider_config.api_key or provider_config.api_base):
+            provider_config.api_key = None
+            provider_config.api_base = None
+            changed = True
+
+    # 2) 删除所有非 default model_preset
+    preset_names_to_remove = [
+        name for name in config.model_presets if name != "default"
+    ]
+    for name in preset_names_to_remove:
+        del config.model_presets[name]
+        changed = True
+
+    # 3) 重置 active preset 为 default
+    if config.agents.defaults.model_preset and config.agents.defaults.model_preset != "default":
+        config.agents.defaults.model_preset = "default"
+        config.agents.defaults.model = ""
+        config.agents.defaults.provider = "auto"
         changed = True
 
     if changed:

@@ -18,7 +18,6 @@ import random
 import re
 import time
 import uuid
-from collections import OrderedDict
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -167,7 +166,6 @@ class WeixinChannel(BaseChannel):
         self._client: httpx.AsyncClient | None = None
         self._get_updates_buf: str = ""
         self._context_tokens: dict[str, str] = {}  # from_user_id -> context_token
-        self._processed_ids: OrderedDict[str, None] = OrderedDict()
         self._state_dir: Path | None = None
         self._token: str = ""
         self._poll_task: asyncio.Task | None = None
@@ -624,11 +622,8 @@ class WeixinChannel(BaseChannel):
             return
 
         # Deduplication by message_id
-        if msg_id in self._processed_ids:
+        if not self._dedup_message(msg_id):
             return
-        self._processed_ids[msg_id] = None
-        while len(self._processed_ids) > 1000:
-            self._processed_ids.popitem(last=False)
 
         ctx_token = msg.get("context_token", "")
         if not self.is_allowed(from_user_id):

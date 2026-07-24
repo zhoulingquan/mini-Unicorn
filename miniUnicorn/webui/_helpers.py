@@ -27,6 +27,19 @@ def _query_first_alias(query: QueryParams, snake: str, camel: str) -> str | None
     return _query_first(query, camel) if value is None else value
 
 
+def _clip_ws_string(value: Any, limit: int = 240) -> str | None:
+    """截断字符串到指定长度,非字符串或空字符串返回 None。
+
+    用于规范化 WebUI 提交的 mention/attachment 字段值。
+    """
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    return text[:limit]
+
+
 def _mask_secret_hint(secret: str | None) -> str | None:
     if not secret:
         return None

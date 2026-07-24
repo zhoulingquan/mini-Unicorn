@@ -135,3 +135,55 @@ export function inferProviderFromModelName(modelName: string | null | undefined)
   if (/opencode|big-pickle/.test(normalized)) return "opencode";
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Custom provider 动态 brand 工具(基于 api_base 生成 favicon + 首字母 + 稳定颜色)
+// 共享给 ProviderIcon / ComposerModelBadge / ThreadHeader 等组件。
+// ---------------------------------------------------------------------------
+
+/** 从 api_base URL 提取 host(去掉通用前缀 www/api/apihub/api-gateway/gateway)。
+ *  如 https://apihub.agnes-ai.com/v1 → agnes-ai.com */
+export function hostFromApiBase(apiBase: string | null | undefined): string | null {
+  if (!apiBase) return null;
+  try {
+    const parsed = new URL(apiBase);
+    let host = parsed.hostname.toLowerCase();
+    host = host.replace(/^(www|api|apihub|api-gateway|gateway)\./, "");
+    return host || null;
+  } catch {
+    return null;
+  }
+}
+
+/** 从 host 生成首字母(取第一段非通用前缀的首字母,大写;失败回退 "C") */
+export function initialsFromHost(host: string | null): string {
+  if (!host) return "C";
+  return host.split(".")[0].charAt(0).toUpperCase() || "C";
+}
+
+/** 从 host 生成稳定颜色(基于域名 hash → HSL);失败回退灰色 #6B7280 */
+export function colorFromHost(host: string | null): string {
+  if (!host) return "#6B7280";
+  let hash = 0;
+  for (let i = 0; i < host.length; i++) hash = host.charCodeAt(i) + ((hash << 5) - hash);
+  return `hsl(${Math.abs(hash) % 360}, 55%, 50%)`;
+}
+
+/** 解析 custom provider 的 brand:有 api_base → 用域名生成 favicon + 颜色 + 首字母;
+ *  无 api_base → 回退到内置 custom brand。供所有需要展示 custom 图标的组件复用。 */
+export function resolveCustomBrand(
+  provider: string | null | undefined,
+  apiBase: string | null | undefined,
+): ProviderBrand | null {
+  const isCustom = provider === "custom" || (provider?.startsWith("custom__") ?? false);
+  if (!isCustom) return providerBrand(provider);
+  const host = hostFromApiBase(apiBase);
+  if (!host) return providerBrand("custom");
+  const urls = faviconUrls(host);
+  return {
+    logoUrl: urls[0] ?? "",
+    logoUrls: urls,
+    color: colorFromHost(host),
+    initials: initialsFromHost(host),
+  };
+}

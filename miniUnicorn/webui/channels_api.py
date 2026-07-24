@@ -15,6 +15,9 @@ from typing import Any, get_args, get_origin
 from miniUnicorn.config.loader import load_config, save_config
 from miniUnicorn.config.schema import Base, ChannelsConfig
 
+from ._helpers import _query_first, _query_first_alias
+from ._runtime import QueryParams
+
 
 class WebUIChannelsError(ValueError):
     """User-facing channel validation failure."""
@@ -25,23 +28,11 @@ class WebUIChannelsError(ValueError):
         self.status = status
 
 
-QueryParams = dict[str, list[str]]
-
 # ChannelsConfig 中显式声明的内置频道字段（QwenPaw-style）。
 # 其余频道（插件）通过 pydantic extra="allow" 存放。
 _BUILTIN_CHANNEL_FIELDS = frozenset({
     "feishu", "dingtalk", "qq", "wecom", "weixin", "websocket",
 })
-
-
-def _query_first(query: QueryParams, key: str) -> str | None:
-    values = query.get(key)
-    return values[0] if values else None
-
-
-def _query_first_alias(query: QueryParams, snake: str, camel: str) -> str | None:
-    value = _query_first(query, snake)
-    return _query_first(query, camel) if value is None else value
 
 
 def _get_channel_section(cfg: ChannelsConfig, name: str) -> dict[str, Any] | None:

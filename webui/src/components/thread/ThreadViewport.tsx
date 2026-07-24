@@ -11,6 +11,7 @@ import { ArrowDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { ThreadMessages } from "@/components/thread/ThreadMessages";
+import { ThreadNavDots } from "@/components/thread/ThreadNavDots";
 import { isAgentActivityMember } from "@/components/thread/AgentActivityCluster";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -95,6 +96,22 @@ export function ThreadViewport({
       (m) => m.role === "user" && m.kind !== "trace",
     ).length;
   }, [messages, hiddenMessageCount]);
+  const userMessageIds = useMemo(
+    () =>
+      visibleMessages
+        .filter((m) => m.role === "user" && m.kind !== "trace")
+        .map((m) => m.id),
+    [visibleMessages],
+  );
+  const userMessagePreviews = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of visibleMessages) {
+      if (m.role === "user" && m.kind !== "trace") {
+        map.set(m.id, m.content);
+      }
+    }
+    return map;
+  }, [visibleMessages]);
   const scrollButtonBottom = composerDockHeight > 0
     ? composerDockHeight + SCROLL_BUTTON_COMPOSER_GAP_PX
     : DEFAULT_SCROLL_BUTTON_BOTTOM_PX;
@@ -284,7 +301,7 @@ export function ThreadViewport({
       >
         {hasMessages ? (
           <div ref={contentRef} className="mx-auto flex min-h-full w-full max-w-[64rem] flex-col">
-            <div className="flex-1 px-4 pb-20 pt-4">
+            <div className="flex-1 px-4 pb-8 pt-4">
               <div className="mx-auto w-full max-w-[49.5rem]">
                 <ThreadMessages
                   messages={visibleMessages}
@@ -303,6 +320,14 @@ export function ThreadViewport({
               data-testid="thread-composer-dock"
               className="sticky bottom-0 z-10 mt-auto bg-background"
             >
+              {hasMessages && userMessageIds.length > 1 && (
+                <ThreadNavDots
+                  scrollRef={scrollRef}
+                  userMessageIds={userMessageIds}
+                  hiddenUserMessageCount={hiddenUserMessageCount}
+                  userMessagePreviews={userMessagePreviews}
+                />
+              )}
               <div className="px-4 pb-3">
                 {composer}
               </div>

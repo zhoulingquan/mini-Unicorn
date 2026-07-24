@@ -1,21 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Menu, Monitor, Moon, Sun } from "lucide-react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Menu, Monitor, Moon, Sun, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { DeleteConfirm } from "@/components/DeleteConfirm";
+import { ResourceDeleteConfirmDialog } from "@/components/ui/resource-delete-confirm-dialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { RenameChatDialog } from "@/components/RenameChatDialog";
 import { Sidebar } from "@/components/Sidebar";
-import { AgentsView } from "@/components/agents/AgentsView";
-import { AppsView } from "@/components/apps/AppsView";
-import { McpView } from "@/components/mcp/McpView";
-import { SkillsView } from "@/components/skills/SkillsView";
-import { SettingsView, type SettingsSectionKey } from "@/components/settings/SettingsView";
-import { CronView } from "@/components/cron/CronView";
-import { ToolsView } from "@/components/tools/ToolsView";
-import { ChannelsView } from "@/components/channels/ChannelsView";
+import type { SettingsSectionKey } from "@/components/settings/types";
 import { SearchDialog } from "@/components/search/SearchDialog";
 import { ThreadShell } from "@/components/thread/ThreadShell";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { VIEW_REGISTRY, getSidebarNavItems, getView, type ViewRenderContext } from "@/views/registry";
 
 import { useSessions } from "@/hooks/useSessions";
 import { useDeferredTitleRefresh } from "@/hooks/useDeferredTitleRefresh";
@@ -24,6 +18,7 @@ import { ThemeProvider, useTheme, type ThemeMode } from "@/hooks/useTheme";
 import { useChatRunStatus } from "@/hooks/useChatRunStatus";
 import { useDeleteRenameDialog } from "@/hooks/useDeleteRenameDialog";
 import { useRestartFlow } from "@/hooks/useRestartFlow";
+import { useSidebarActions } from "@/hooks/useSidebarActions";
 import {
   useWorkspaceScope,
   normalizeWorkspaceScope,
@@ -78,7 +73,9 @@ const SIDEBAR_WIDTH = 272;
 const SIDEBAR_RAIL_WIDTH = 56;
 const TOKEN_REFRESH_MARGIN_MS = 30_000;
 const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
-type ShellView = "chat" | "settings" | "mcp" | "skills" | "agents" | "cron" | "tools" | "channels" | "apps";
+// ShellView 包含 "chat" + VIEW_REGISTRY 中所有已注册视图的 key
+// 新增视图时只需在 registry 加一项，此类型自动同步
+type ShellView = "chat" | (typeof VIEW_REGISTRY)[number]["key"];
 
 function bootstrapTokenExpiresAt(expiresInSeconds: number): number {
   return Date.now() + Math.max(0, expiresInSeconds) * 1000;
@@ -612,136 +609,40 @@ function Shell({
     [clearCompleted, sessions],
   );
 
-  const onTogglePin = useCallback(
-    (key: string) => {
-      void updateSidebarState((current) => {
-        const pinned = new Set(current.pinned_keys);
-        if (pinned.has(key)) {
-          pinned.delete(key);
-        } else {
-          pinned.add(key);
-        }
-        return {
-          ...current,
-          pinned_keys: Array.from(pinned),
-        };
-      });
-    },
-    [updateSidebarState],
-  );
-
-  const onConfirmRename = useCallback(
-    (title: string) => {
-      if (!pendingRename) return;
-      const key = pendingRename.key;
-      cancelRename();
-      void updateSidebarState((current) => {
-        const titleOverrides = { ...current.title_overrides };
-        const cleaned = title.trim();
-        if (cleaned) {
-          titleOverrides[key] = cleaned;
-        } else {
-          delete titleOverrides[key];
-        }
-        return {
-          ...current,
-          title_overrides: titleOverrides,
-        };
-      });
-    },
-    [cancelRename, pendingRename, updateSidebarState],
-  );
-
-  const onToggleGroup = useCallback(
-    (groupId: string) => {
-      void updateSidebarState((current) => {
-        const collapsedGroups = { ...current.collapsed_groups };
-        if (groupId === "workspace:chats" || groupId === "date:all") {
-          if (collapsedGroups[groupId] === false) {
-            delete collapsedGroups[groupId];
-          } else {
-            collapsedGroups[groupId] = false;
-          }
-          return {
-            ...current,
-            collapsed_groups: collapsedGroups,
-          };
-        }
-        if (collapsedGroups[groupId]) {
-          delete collapsedGroups[groupId];
-        } else {
-          collapsedGroups[groupId] = true;
-        }
-        return {
-          ...current,
-          collapsed_groups: collapsedGroups,
-        };
-      });
-    },
-    [updateSidebarState],
-  );
-
-  const onConfirmProjectRename = useCallback(
-    (title: string) => {
-      if (!pendingProjectRename) return;
-      const key = pendingProjectRename.key;
-      cancelProjectRename();
-      void updateSidebarState((current) => {
-        const projectNameOverrides = { ...current.project_name_overrides };
-        const cleaned = title.trim();
-        if (cleaned) {
-          projectNameOverrides[key] = cleaned;
-        } else {
-          delete projectNameOverrides[key];
-        }
-        return {
-          ...current,
-          project_name_overrides: projectNameOverrides,
-        };
-      });
-    },
-    [cancelProjectRename, pendingProjectRename, updateSidebarState],
-  );
-
-  const onToggleArchive = useCallback(
-    (key: string) => {
-      void updateSidebarState((current) => {
-        const archived = new Set(current.archived_keys);
-        const pinned = current.pinned_keys.filter((item) => item !== key);
-        if (archived.has(key)) {
-          archived.delete(key);
-        } else {
-          archived.add(key);
-        }
-        return {
-          ...current,
-          pinned_keys: pinned,
-          archived_keys: Array.from(archived),
-        };
-      });
-      if (activeKey === key && !sidebarState.archived_keys.includes(key)) {
-        const archived = new Set([...sidebarState.archived_keys, key]);
-        const next = sessions.find((session) => !archived.has(session.key));
-        setActiveKey(next?.key ?? null);
-      }
-    },
-    [activeKey, sessions, sidebarState.archived_keys, updateSidebarState],
-  );
-
-  const onToggleArchived = useCallback(() => {
-    void updateSidebarState((current) => ({
-      ...current,
-      view: {
-        ...current.view,
-        show_archived: !current.view.show_archived,
-      },
-    }));
-  }, [updateSidebarState]);
+  const {
+    onTogglePin,
+    onConfirmRename,
+    onToggleGroup,
+    onConfirmProjectRename,
+    onToggleArchive,
+    onToggleArchived,
+  } = useSidebarActions({
+    sidebarState,
+    updateSidebarState,
+    activeKey,
+    sessions,
+    setActiveKey,
+    pendingRename,
+    pendingProjectRename,
+    cancelRename,
+    cancelProjectRename,
+  });
 
   const openView = useCallback((name: ShellView) => {
     setView(name);
     setMobileSidebarOpen(false);
   }, []);
+
+  // Sidebar 声明式导航：接收 registry item key（string），转交 openView
+  const onNavigate = useCallback((key: string) => {
+    openView(key as ShellView);
+  }, [openView]);
+
+  // Sidebar 顶部按钮区导航项：排除 settings（settings 在底部独立渲染）
+  const sidebarNavItems = useMemo(
+    () => getSidebarNavItems().filter((v) => v.key !== "settings"),
+    [],
+  );
 
   const onSelectAgent = useCallback((agentId: string) => {
     setSelectedAgentId(agentId);
@@ -849,14 +750,9 @@ function Shell({
     onToggleGroup,
     onRequestRenameProject: requestProjectRename,
     onNewChatInProject,
-    onOpenSettings,
-    onOpenMcp: () => openView("mcp"),
-    onOpenSkills: () => openView("skills"),
-    onOpenAgents: () => openView("agents"),
-    onOpenCron: () => openView("cron"),
-    onOpenTools: () => openView("tools"),
-    onOpenChannels: () => openView("channels"),
-    onOpenApps: () => openView("apps"),
+    navItems: sidebarNavItems,
+    onNavigate,
+    onOpenSettings: () => onOpenSettings(),
     onOpenSearch: () => setSearchOpen(true),
     onToggleArchived,
     pinnedKeys: sidebarState.pinned_keys,
@@ -883,8 +779,9 @@ function Shell({
     onToggleGroup,
     requestProjectRename,
     onNewChatInProject,
+    sidebarNavItems,
+    onNavigate,
     onOpenSettings,
-    openView,
     onToggleArchived,
     sidebarState.pinned_keys,
     sidebarState.archived_keys,
@@ -1021,83 +918,47 @@ function Shell({
                 onClearAgent={onClearAgent}
               />
             </div>
-            {view === "settings" && (
-              <div className="absolute inset-0 flex flex-col">
-                <ErrorBoundary>
-                  <SettingsView
-                    themeMode={mode}
-                    initialSection={settingsInitialSection}
-                    showSidebar={view === "settings"}
-                    onSetThemeMode={setMode}
-                    onBackToChat={onBackToChat}
-                    onModelNameChange={onModelNameChange}
-                    onSettingsChange={setSettingsSnapshot}
-                    onRestart={onRestart}
-                    isRestarting={isRestarting}
-                    hostChromeInset={showHostChrome}
-                  />
-                </ErrorBoundary>
-              </div>
-            )}
-            {view === "mcp" && (
-              <div className="absolute inset-0 flex flex-col">
-                <ErrorBoundary>
-                  <McpView
-                    onBack={onBackToChat}
-                    token={token}
-                  />
-                </ErrorBoundary>
-              </div>
-            )}
-            {view === "skills" && (
-              <div className="absolute inset-0 flex flex-col">
-                <ErrorBoundary>
-                  <SkillsView
-                    onBack={onBackToChat}
-                    token={token}
-                  />
-                </ErrorBoundary>
-              </div>
-            )}
-            {view === "agents" && (
-              <div className="absolute inset-0 flex flex-col">
-                <ErrorBoundary>
-                  <AgentsView
-                    onBack={onBackToChat}
-                    token={token}
-                    onUseAgent={onUseAgent}
-                  />
-                </ErrorBoundary>
-              </div>
-            )}
-            {view === "cron" && (
-              <div className="absolute inset-0 flex flex-col">
-                <ErrorBoundary>
-                  <CronView onBack={onBackToChat} token={token} />
-                </ErrorBoundary>
-              </div>
-            )}
-            {view === "tools" && (
-              <div className="absolute inset-0 flex flex-col">
-                <ToolsView onBack={onBackToChat} token={token} />
-              </div>
-            )}
-            {view === "channels" && (
-              <div className="absolute inset-0 flex flex-col">
-                <ChannelsView onBack={onBackToChat} token={token} />
-              </div>
-            )}
-            {view === "apps" && (
-              <div className="absolute inset-0 flex flex-col">
-                <AppsView onBack={onBackToChat} />
-              </div>
-            )}
+            {view !== "chat" && (() => {
+              const reg = getView(view);
+              if (!reg) return null;
+              const ctx: ViewRenderContext = {
+                token,
+                onBack: onBackToChat,
+                onUseAgent,
+                themeMode: mode,
+                initialSection: settingsInitialSection,
+                showSidebar: view === "settings",
+                onSetThemeMode: setMode,
+                onModelNameChange,
+                onSettingsChange: setSettingsSnapshot,
+                onRestart,
+                isRestarting,
+                hostChromeInset: showHostChrome,
+              };
+              const content = (
+                <div className="absolute inset-0 flex flex-col">
+                  <Suspense fallback={null}>
+                    {reg.render(ctx)}
+                  </Suspense>
+                </div>
+              );
+              return reg.showBoundary === false ? (
+                content
+              ) : (
+                <ErrorBoundary key={reg.key}>{content}</ErrorBoundary>
+              );
+            })()}
           </main>
         </div>
 
-        <DeleteConfirm
+        <ResourceDeleteConfirmDialog
           open={!!pendingDelete}
-          title={pendingDelete?.label ?? ""}
+          resourceName={pendingDelete?.label ?? ""}
+          icon={Trash2}
+          titleKey="deleteConfirm.title"
+          descriptionKey="deleteConfirm.description"
+          cancelKey="deleteConfirm.cancel"
+          confirmKey="deleteConfirm.confirm"
           onCancel={cancelDelete}
           onConfirm={onConfirmDelete}
         />

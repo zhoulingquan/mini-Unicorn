@@ -131,7 +131,13 @@ class TestBuildKwargsExtraBody:
         spec.env_key = None
         spec.default_api_base = None
         spec.is_local = True
-        spec.detect_by_base_keyword = None
+        # 行为 flags（新增字段，需显式设置以匹配 ProviderSpec 默认值）
+        spec.extra_headers = {}
+        spec.stream_extra_body = {}
+        spec.force_string_content = False
+        spec.backfill_reasoning_content = False
+        spec.normalize_tool_call_ids = False
+        spec.reasoning_effort_aliases = ()
 
         provider = OpenAICompatProvider(
             api_key="test",

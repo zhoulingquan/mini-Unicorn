@@ -7,20 +7,11 @@ aggregator 负责降级链与并发聚合,后端只关心单次查询。
 from __future__ import annotations
 
 import os
-import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Pattern
 
 import httpx
-from loguru import logger
 
-from miniUnicorn.agent.tools.web_search.backends._html_utils import (
-    clean_snippet,
-    encode_query,
-    make_absolute_url,
-    strip_tags,
-)
 from miniUnicorn.agent.tools.web_search.circuit_breaker import BackendCircuitBreaker
 from miniUnicorn.agent.tools.web_search.config import WebSearchConfig
 
@@ -151,102 +142,6 @@ class SearchBackend(ABC):
         else:
             cb.record_failure()
         return resp
-
-
-class HtmlScrapeBackend(SearchBackend):
-    """免 API Key 的 HTML 抓取后端通用模板。
-
-    子类只需声明 4 个类属性 (``_SEARCH_URL`` / ``_RESULT_RE`` /
-    ``_LINK_RE`` / ``_SNIPPET_RE``) 与 ``_BASE_URL``,即可复用通用的
-    fetch + parse 流程。可选覆盖 ``count_multiplier`` / ``count_cap``
-    调整请求条数。
-
-    当前注册的后端均基于 API/JSON,本类作为可扩展基类保留,便于将来
-    添加新的免 Key 抓取型后端。
-    """
-
-    # 子类必须覆盖:
-    _SEARCH_URL: str = ""  # 含 {query} 和 {count} 占位符
-    _RESULT_RE: Pattern[str] = re.compile(r"$^")  # 默认不匹配任何内容
-    _LINK_RE: Pattern[str] = re.compile(r"$^")
-    _SNIPPET_RE: Pattern[str] = re.compile(r"$^")
-    _BASE_URL: str = ""
-
-    # 可选覆盖:
-    count_multiplier: int = 2
-    count_cap: int = 20
-
-    def _build_url(self, query: str, count: int) -> str:
-        """构造搜索 URL。子类可覆盖以注入额外参数。"""
-        effective_count = min(count * self.count_multiplier, self.count_cap)
-        return self._SEARCH_URL.format(
-            query=encode_query(query),
-            count=effective_count,
-        )
-
-    def _build_headers(self) -> dict[str, str]:
-        """构造请求头。子类可覆盖。"""
-        return {
-            "User-Agent": self.user_agent,
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        }
-
-    async def _fetch_html(self, url: str) -> str:
-        """发起 GET 请求并返回响应文本。"""
-        async with self.make_client() as client:
-            resp = await client.get(url, headers=self._build_headers())
-            resp.raise_for_status()
-            return resp.text
-
-    async def search(self, query: str, count: int) -> BackendResponse:
-        url = self._build_url(query, count)
-        try:
-            html_text = await self._fetch_html(url)
-        except Exception as e:
-            logger.debug("{} search failed: {}", self.name, e)
-            return BackendResponse(
-                backend=self.name,
-                error=f"{self.name} fetch failed: {type(e).__name__}: {e}",
-            )
-
-        results = self._parse(html_text, count)
-        if not results:
-            return BackendResponse(
-                backend=self.name,
-                error=f"{self.name} parse failed: no results (may be blocked or HTML changed)",
-            )
-        return BackendResponse(backend=self.name, results=results)
-
-    def _parse(self, html_text: str, count: int) -> list[SearchResult]:
-        """通用解析:用 _RESULT_RE 切块、_LINK_RE 取链接、_SNIPPET_RE 取摘要。
-
-        子类可覆盖以处理特殊结构 (例如 Bing RSS 用 XML 而非 HTML)。
-        """
-        results: list[SearchResult] = []
-        for match in self._RESULT_RE.finditer(html_text):
-            block = match.group(1)
-            link_match = self._LINK_RE.search(block)
-            if not link_match:
-                continue
-            url = make_absolute_url(self._BASE_URL, link_match.group(1))
-            title = strip_tags(link_match.group(2))
-            if not title or not url:
-                continue
-            snippet = ""
-            sn_match = self._SNIPPET_RE.search(block)
-            if sn_match:
-                snippet = clean_snippet(sn_match.group(1))
-            results.append(
-                SearchResult(
-                    title=title,
-                    url=url,
-                    snippet=snippet,
-                    source_backend=self.name,
-                )
-            )
-            if len(results) >= count:
-                break
-        return results
 
 
 _DEFAULT_USER_AGENT = (

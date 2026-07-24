@@ -77,13 +77,13 @@ export function SettingsView({
             isRestarting={isRestarting || state.hostEngineApplying}
             showBrandLogos={state.localPrefs.brandLogos}
             onSelectSection={state.setActiveSection}
-            runtimeForm={state.runtimeForm}
-            runtimeDirty={state.runtimeDirty}
-            runtimeSaving={state.runtimeSaving}
-            onChangeRuntimeForm={state.setRuntimeForm}
-            onSaveRuntime={state.saveRuntimeSettings}
-            plannerSaving={state.plannerSaving}
-            onSavePlanner={state.savePlannerSettings}
+            runtimeForm={state.runtime.runtimeForm}
+            runtimeDirty={state.runtime.runtimeDirty}
+            runtimeSaving={state.runtime.runtimeSaving}
+            onChangeRuntimeForm={state.runtime.setRuntimeForm}
+            onSaveRuntime={state.runtime.saveRuntimeSettings}
+            plannerSaving={state.runtime.plannerSaving}
+            onSavePlanner={state.runtime.savePlannerSettings}
           />
         );
       case "appearance":
@@ -99,89 +99,91 @@ export function SettingsView({
         return (
           <div className="space-y-8">
             <ModelsSettings
-              form={state.form}
-              setForm={state.setForm}
+              form={state.models.form}
+              setForm={state.models.setForm}
               settings={state.settings}
-              dirty={state.modelDirty}
-              saving={state.saving}
-              contextWindowLearning={state.contextWindowLearning}
-              contextWindowLearnTimeout={state.contextWindowLearnTimeout}
+              dirty={state.models.modelDirty}
+              saving={state.models.saving}
+              contextWindowLearning={state.models.contextWindowLearning}
+              contextWindowLearnTimeout={state.models.contextWindowLearnTimeout}
               showBrandLogos={state.localPrefs.brandLogos}
-              onSave={state.saveModelSettings}
-              onSaveContextWindow={state.saveContextWindow}
-              onCreateConfiguration={state.openModelConfigurationDialog}
+              onSave={state.models.saveModelSettings}
+              onSaveContextWindow={state.models.saveContextWindow}
+              onCreateConfiguration={state.models.openModelConfigurationDialog}
             />
             <ProvidersSettings
               settings={state.settings}
-              expandedProvider={state.expandedProvider}
-              providerForms={state.providerForms}
-              visibleProviderKeys={state.visibleProviderKeys}
-              editingProviderKeys={state.editingProviderKeys}
-              providerSaving={state.providerSaving}
-              providerSaved={state.providerSaved}
-              learningProvider={state.learningProvider}
-              timeoutProvider={state.timeoutProvider}
+              expandedProvider={state.models.expandedProvider}
+              providerForms={state.models.providerForms}
+              visibleProviderKeys={state.models.visibleProviderKeys}
+              editingProviderKeys={state.models.editingProviderKeys}
+              providerSaving={state.models.providerSaving}
+              providerSaved={state.models.providerSaved}
+              learningProvider={state.models.learningProvider}
+              timeoutProvider={state.models.timeoutProvider}
               showBrandLogos={state.localPrefs.brandLogos}
-              onToggleProvider={state.handleToggleProvider}
-              onToggleProviderKey={state.toggleProviderKeyVisibility}
-              onToggleProviderKeyEditing={state.toggleProviderKeyEditing}
-              onChangeProviderForm={state.changeProviderForm}
-              onSaveProvider={state.saveProvider}
-              onProviderOAuthLogin={(provider) => state.runProviderOAuth(provider, "login")}
-              onProviderOAuthLogout={(provider) => state.runProviderOAuth(provider, "logout")}
-              onRequestDeleteProvider={(provider) => state.setProviderToDelete(provider)}
-              onAddModelToProvider={state.openModelConfigurationForProvider}
-              onActivatePreset={state.activateModelPreset}
-              onDeletePreset={(presetName) => state.deletePreset(presetName)}
-              inlineAddModelProvider={state.inlineAddModelProvider}
-              inlineAddModelDraft={state.inlineAddModelDraft}
-              inlineAddModelModels={state.inlineAddModelModels}
-              inlineAddModelModelsLoading={state.inlineAddModelModelsLoading}
-              inlineAddModelSaving={state.inlineAddModelSaving}
-              onChangeInlineAddModelDraft={state.setInlineAddModelDraft}
-              onCancelInlineAddModel={state.cancelInlineAddModel}
-              onSaveInlineAddModel={state.saveInlineAddModel}
-              onFetchInlineAddModelModels={state.fetchInlineAddModelModels}
-              customConfigOpen={state.customConfigOpen}
-              customConfigDraft={state.customConfigDraft}
-              customConfigSaving={state.customConfigSaving}
-              customConfigModels={state.customConfigModels}
-              customConfigModelsLoading={state.customConfigModelsLoading}
-              onOpenCustomConfig={state.openCustomConfig}
-              onChangeCustomConfigDraft={state.setCustomConfigDraft}
-              onCancelCustomConfig={state.cancelCustomConfig}
-              onSaveCustomConfig={state.saveCustomConfig}
-              onFetchCustomConfigModels={state.fetchCustomConfigModels}
+              onToggleProvider={state.models.handleToggleProvider}
+              onToggleProviderKey={state.models.toggleProviderKeyVisibility}
+              onToggleProviderKeyEditing={state.models.toggleProviderKeyEditing}
+              onChangeProviderForm={state.models.changeProviderForm}
+              onSaveProvider={state.models.saveProvider}
+              onProviderOAuthLogin={(provider) => state.models.runProviderOAuth(provider, "login")}
+              onProviderOAuthLogout={(provider) => state.models.runProviderOAuth(provider, "logout")}
+              onRequestDeleteProvider={(provider) => state.models.setProviderToDelete(provider)}
+              onAddModelToProvider={state.models.openModelConfigurationForProvider}
+              onActivatePreset={state.models.activateModelPreset}
+              onDeletePreset={(presetName) => state.models.deletePreset(presetName)}
+              inlineAddModelProvider={state.models.inlineAddModelProvider}
+              inlineAddModelDraft={state.models.inlineAddModelDraft}
+              inlineAddModelModels={state.models.inlineAddModelModels}
+              inlineAddModelModelsLoading={state.models.inlineAddModelModelsLoading}
+              inlineAddModelSaving={state.models.inlineAddModelSaving}
+              onChangeInlineAddModelDraft={state.models.setInlineAddModelDraft}
+              onCancelInlineAddModel={state.models.cancelInlineAddModel}
+              onSaveInlineAddModel={state.models.saveInlineAddModel}
+              onFetchInlineAddModelModels={state.models.fetchInlineAddModelModels}
+              customConfigOpen={state.models.customConfigOpen}
+              customConfigDraft={state.models.customConfigDraft}
+              customConfigSaving={state.models.customConfigSaving}
+              customConfigModels={state.models.customConfigModels}
+              customConfigModelsLoading={state.models.customConfigModelsLoading}
+              onOpenCustomConfig={state.models.openCustomConfig}
+              onChangeCustomConfigDraft={state.models.setCustomConfigDraft}
+              onCancelCustomConfig={state.models.cancelCustomConfig}
+              onSaveCustomConfig={state.models.saveCustomConfig}
+              onFetchCustomConfigModels={state.models.fetchCustomConfigModels}
+              onDeleteAllProviders={state.models.deleteAllProviders}
+              deletingAllProviders={state.models.deletingAllProviders}
             />
           </div>
         );
       case "browser":
         return (
           <WebSearchSettings
-            form={state.webSearchForm}
-            dirty={state.webSearchDirty}
-            saving={state.webSearchSaving}
-            onChangeForm={state.setWebSearchForm}
-            onSave={state.saveWebSearchSettings}
+            form={state.webSearch.webSearchForm}
+            dirty={state.webSearch.webSearchDirty}
+            saving={state.webSearch.webSearchSaving}
+            onChangeForm={state.webSearch.setWebSearchForm}
+            onSave={state.webSearch.saveWebSearchSettings}
             onRestart={state.restartViaSettingsSurface}
             isRestarting={isRestarting || state.hostEngineApplying}
             requiresRestartPending={state.pendingRestartSections.browser}
-            webFetchForm={state.webFetchForm}
-            webFetchDirty={state.webFetchDirty}
-            webFetchSaving={state.webFetchSaving}
-            onChangeWebFetchForm={state.setWebFetchForm}
-            onSaveWebFetch={state.saveWebFetchSettings}
+            webFetchForm={state.webSearch.webFetchForm}
+            webFetchDirty={state.webSearch.webFetchDirty}
+            webFetchSaving={state.webSearch.webFetchSaving}
+            onChangeWebFetchForm={state.webSearch.setWebFetchForm}
+            onSaveWebFetch={state.webSearch.saveWebFetchSettings}
           />
         );
       case "advanced":
         return (
           <AdvancedSettings
-            form={state.networkSafetyForm}
-            dirty={state.networkSafetyDirty}
-            saving={state.networkSafetySaving}
+            form={state.advanced.networkSafetyForm}
+            dirty={state.advanced.networkSafetyDirty}
+            saving={state.advanced.networkSafetySaving}
             isNativeHostSurface={(state.settings.surface ?? state.settings.runtime_surface) === "native"}
-            onChangeForm={state.setNetworkSafetyForm}
-            onSave={state.saveNetworkSafetySettings}
+            onChangeForm={state.advanced.setNetworkSafetyForm}
+            onSave={state.advanced.saveNetworkSafetySettings}
             onRestart={state.restartViaSettingsSurface}
             isRestarting={isRestarting || state.hostEngineApplying}
             requiresRestartPending={state.pendingRestartSections.runtime}
@@ -207,20 +209,20 @@ export function SettingsView({
       ) : null}
 
       <NewModelConfigurationDialog
-        open={state.modelConfigurationOpen}
-        draft={state.modelConfigurationForm}
-        providers={state.configuredModelProviderOptions}
-        saving={state.modelConfigurationSaving}
+        open={state.models.modelConfigurationOpen}
+        draft={state.models.modelConfigurationForm}
+        providers={state.models.configuredModelProviderOptions}
+        saving={state.models.modelConfigurationSaving}
         showProviderLogos={state.localPrefs.brandLogos}
-        onOpenChange={state.setModelConfigurationOpen}
-        onChangeDraft={state.setModelConfigurationForm}
-        onSave={state.handleCreateModelConfiguration}
+        onOpenChange={state.models.setModelConfigurationOpen}
+        onChangeDraft={state.models.setModelConfigurationForm}
+        onSave={state.models.handleCreateModelConfiguration}
       />
 
       <Dialog
-        open={state.providerToDelete !== null}
+        open={state.models.providerToDelete !== null}
         onOpenChange={(open) => {
-          if (!open && !state.providerDeleting) state.setProviderToDelete(null);
+          if (!open && !state.models.providerDeleting) state.models.setProviderToDelete(null);
         }}
       >
         <DialogContent className="max-w-[520px]">
@@ -238,7 +240,7 @@ export function SettingsView({
           {/* 列出将一并删除的 preset 列表,避免级联删除造成意外损失 */}
           {(() => {
             const provider = state.settings?.providers.find(
-              (p) => p.name === state.providerToDelete,
+              (p) => p.name === state.models.providerToDelete,
             );
             const affectedPresets = provider?.presets ?? [];
             if (affectedPresets.length === 0) return null;
@@ -264,22 +266,22 @@ export function SettingsView({
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              onClick={() => state.setProviderToDelete(null)}
-              disabled={state.providerDeleting}
+              onClick={() => state.models.setProviderToDelete(null)}
+              disabled={state.models.providerDeleting}
               className="rounded-full"
             >
               {t("settings.bootstrap.cancel", { defaultValue: "Cancel" })}
             </Button>
             <Button
               variant="destructive"
-              onClick={state.confirmDeleteProvider}
-              disabled={state.providerDeleting}
+              onClick={state.models.confirmDeleteProvider}
+              disabled={state.models.providerDeleting}
               className="rounded-full"
             >
-              {state.providerDeleting ? (
+              {state.models.providerDeleting ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
               ) : null}
-              {state.providerDeleting
+              {state.models.providerDeleting
                 ? t("settings.byok.deleting", { defaultValue: "Deleting..." })
                 : t("settings.byok.deleteConfirmAction", { defaultValue: "Delete" })}
             </Button>

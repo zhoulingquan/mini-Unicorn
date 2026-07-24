@@ -1,17 +1,10 @@
 import { useState, type ReactNode } from "react";
 import {
   Archive,
-  CalendarClock,
-  LayoutGrid,
   Menu,
-  MessageSquare,
-  Package,
-  PlugZap,
   Search,
   Settings,
-  Sparkles,
   SquarePen,
-  Users,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -24,6 +17,7 @@ import type {
   SidebarViewState,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import type { ViewRegistration } from "@/views/registry";
 
 interface SidebarProps {
   sessions: ChatSummary[];
@@ -38,14 +32,11 @@ interface SidebarProps {
   onToggleGroup: (groupId: string) => void;
   onRequestRenameProject: (projectKey: string, label: string) => void;
   onNewChatInProject: (projectPath: string, projectName: string) => void;
+  // 声明式视图导航：由 App.tsx 从 VIEW_REGISTRY 传入
+  navItems: ViewRegistration[];
+  onNavigate: (key: string) => void;
+  // settings 单独处理（位于底部，且 onOpenSettings 可携带 section 参数）
   onOpenSettings: () => void;
-  onOpenMcp: () => void;
-  onOpenSkills: () => void;
-  onOpenAgents: () => void;
-  onOpenCron: () => void;
-  onOpenTools: () => void;
-  onOpenChannels: () => void;
-  onOpenApps: () => void;
   onOpenSearch: () => void;
   onToggleArchived: () => void;
   onCollapse: () => void;
@@ -119,48 +110,19 @@ export function Sidebar(props: SidebarProps) {
           onClick={props.onOpenSearch}
           icon={<Search className="h-4 w-4" />}
         />
-        <SidebarActionButton
-          collapsed={collapsed}
-          label={t("sidebar.skills")}
-          onClick={props.onOpenSkills}
-          icon={<Sparkles className="h-4 w-4" />}
-        />
-        <SidebarActionButton
-          collapsed={collapsed}
-          label={t("sidebar.tools")}
-          onClick={props.onOpenTools}
-          icon={<Package className="h-4 w-4" />}
-        />
-        <SidebarActionButton
-          collapsed={collapsed}
-          label={t("sidebar.agents")}
-          onClick={props.onOpenAgents}
-          icon={<Users className="h-4 w-4" />}
-        />
-        <SidebarActionButton
-          collapsed={collapsed}
-          label={t("sidebar.mcp")}
-          onClick={props.onOpenMcp}
-          icon={<PlugZap className="h-4 w-4" />}
-        />
-        <SidebarActionButton
-          collapsed={collapsed}
-          label={t("sidebar.channels")}
-          onClick={props.onOpenChannels}
-          icon={<MessageSquare className="h-4 w-4" />}
-        />
-        <SidebarActionButton
-          collapsed={collapsed}
-          label={t("sidebar.apps")}
-          onClick={props.onOpenApps}
-          icon={<LayoutGrid className="h-4 w-4" />}
-        />
-        <SidebarActionButton
-          collapsed={collapsed}
-          label={t("sidebar.cron")}
-          onClick={props.onOpenCron}
-          icon={<CalendarClock className="h-4 w-4" />}
-        />
+        {/* 声明式视图导航按钮：由 VIEW_REGISTRY 驱动，新增视图只需在 registry 加一项 */}
+        {props.navItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <SidebarActionButton
+              key={item.key}
+              collapsed={collapsed}
+              label={t(item.labelKey)}
+              onClick={() => props.onNavigate(item.key)}
+              icon={<Icon className="h-4 w-4" />}
+            />
+          );
+        })}
         {props.archivedCount ? (
           <SidebarActionButton
             collapsed={collapsed}

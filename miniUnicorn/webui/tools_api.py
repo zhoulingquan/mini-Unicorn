@@ -12,6 +12,9 @@ import re
 from pathlib import Path
 from typing import Any
 
+from ._helpers import _query_first, _query_first_alias
+from ._runtime import QueryParams
+
 
 class WebUIToolsError(ValueError):
     """User-facing tool validation failure."""
@@ -22,20 +25,8 @@ class WebUIToolsError(ValueError):
         self.status = status
 
 
-QueryParams = dict[str, list[str]]
-
 _SAFE_FILENAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_\-]*\.py$")
 _BUILTIN_TOOL_SOURCES = {"builtin", "mcp"}
-
-
-def _query_first(query: QueryParams, key: str) -> str | None:
-    values = query.get(key)
-    return values[0] if values else None
-
-
-def _query_first_alias(query: QueryParams, snake: str, camel: str) -> str | None:
-    value = _query_first(query, snake)
-    return _query_first(query, camel) if value is None else value
 
 
 def _user_tools_dir(workspace: Path) -> Path:

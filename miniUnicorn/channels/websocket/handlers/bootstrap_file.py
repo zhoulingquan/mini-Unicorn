@@ -16,7 +16,7 @@ from .._http_routes import (
     _query_first,
 )
 from .._http_router import RouteContext, router
-from ._common import unauthorized
+from ._common import require_auth
 
 # Allowed bootstrap files (workspace-root markdown loaded into the system
 # prompt by ContextBuilder). Kept to a fixed allowlist to avoid arbitrary
@@ -42,10 +42,9 @@ DREAM_FILE_ALLOWLIST: tuple[str, ...] = (
 
 
 @router.route("/api/bootstrap-file")
+@require_auth
 def read_bootstrap_file(ctx: RouteContext) -> Response:
     """Read a workspace bootstrap markdown file (AGENTS.md / SOUL.md)."""
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     name = _query_first(ctx.query, "name")
     if name not in BOOTSTRAP_FILE_ALLOWLIST:
         return _http_error(400, "invalid or missing 'name' parameter")
@@ -64,6 +63,7 @@ def read_bootstrap_file(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/bootstrap-file/save")
+@require_auth
 def save_bootstrap_file(ctx: RouteContext) -> Response:
     """Create or update a workspace bootstrap markdown file.
 
@@ -72,8 +72,6 @@ def save_bootstrap_file(ctx: RouteContext) -> Response:
     limit for large files.
     """
 
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     name = _query_first(ctx.query, "name")
     if name not in BOOTSTRAP_FILE_ALLOWLIST:
         return _http_error(400, "invalid or missing 'name' parameter")
@@ -103,10 +101,9 @@ def save_bootstrap_file(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/dream/files")
+@require_auth
 def list_dream_files(ctx: RouteContext) -> Response:
     """列出 Dream 生成的记忆文件及其元信息(大小、修改时间、是否存在)。"""
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     try:
         ws_root = ctx.deps.workspace_path.resolve()
         files = []
@@ -141,10 +138,9 @@ def list_dream_files(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/dream/file")
+@require_auth
 def read_dream_file(ctx: RouteContext) -> Response:
     """读取 Dream 生成的记忆文件内容(只读)。"""
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     name = _query_first(ctx.query, "name")
     if not name or name not in DREAM_FILE_ALLOWLIST:
         return _http_error(400, "invalid or missing 'name' parameter")

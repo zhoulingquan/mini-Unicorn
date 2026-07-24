@@ -9,16 +9,15 @@ from websockets.http11 import Response
 
 from .._http_routes import _http_error, _http_json_response, _query_first, _collect_chunked_header
 from .._http_router import RouteContext, router
-from ._common import unauthorized
+from ._common import require_auth
 
 
 @router.route("/api/tools")
+@require_auth
 def list(ctx: RouteContext) -> Response:
     """List all registered tools + user tool files on disk."""
     from miniUnicorn.webui.tools_api import list_tools
 
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     try:
         payload = list_tools(ctx.deps.tool_registry, ctx.deps.workspace_path)
     except Exception as exc:
@@ -27,12 +26,10 @@ def list(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/tools/import")
+@require_auth
 def import_tool(ctx: RouteContext) -> Response:
     """Import a .py tool file into <workspace>/tools/."""
     from miniUnicorn.webui.tools_api import WebUIToolsError, import_tool as _import_tool
-
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
 
     filename = _query_first(ctx.query, "filename")
     filename = unquote(filename) if filename else None
@@ -56,12 +53,11 @@ def import_tool(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/tools/delete")
+@require_auth
 def delete(ctx: RouteContext) -> Response:
     """Delete a user tool .py file by name."""
     from miniUnicorn.webui.tools_api import WebUIToolsError, delete_tool
 
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     try:
         payload = delete_tool(ctx.deps.workspace_path, ctx.query)
     except WebUIToolsError as e:

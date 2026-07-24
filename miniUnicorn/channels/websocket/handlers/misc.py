@@ -18,14 +18,13 @@ from miniUnicorn.webui.sidebar_state import (
 
 from .._http_routes import _http_error, _http_json_response, _query_first
 from .._http_router import RouteContext, router
-from ._common import service_unavailable, unauthorized
+from ._common import require_auth, service_unavailable
 
 
 @router.route("/api/sessions")
+@require_auth
 def list_sessions(ctx: RouteContext) -> Response:
     """列出 websocket 频道的会话(供侧边栏渲染)。"""
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     if ctx.deps.session_manager is None:
         return service_unavailable("session manager unavailable")
     sessions = ctx.deps.session_manager.list_sessions()
@@ -48,18 +47,16 @@ def list_sessions(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/commands")
+@require_auth
 def list_commands(ctx: RouteContext) -> Response:
     """返回内置斜杠命令面板。"""
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     return _http_json_response({"commands": builtin_command_palette()})
 
 
 @router.route("/api/workspaces")
+@require_auth
 def list_workspaces(ctx: RouteContext) -> Response:
     """返回工作区列表,本地连接可获取控制能力标记。"""
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     return _http_json_response(
         ctx.deps.webui_workspaces.payload(
             controls_available=ctx.deps.is_localhost_connection(ctx.connection)
@@ -68,18 +65,16 @@ def list_workspaces(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/webui/sidebar-state")
+@require_auth
 def read_sidebar_state(ctx: RouteContext) -> Response:
     """读取 WebUI 侧边栏持久化状态。"""
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     return _http_json_response(read_webui_sidebar_state())
 
 
 @router.route("/api/webui/sidebar-state/update")
+@require_auth
 def update_sidebar_state(ctx: RouteContext) -> Response:
     """更新 WebUI 侧边栏持久化状态(JSON via ``state`` query 参数)。"""
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     raw_state = _query_first(ctx.query, "state")
     if raw_state is None:
         return _http_error(400, "missing state")

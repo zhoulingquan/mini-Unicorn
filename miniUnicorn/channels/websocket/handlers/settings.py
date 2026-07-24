@@ -13,10 +13,11 @@ from .._http_routes import (
     _MCP_PRESET_ACTIONS_BY_PATH,
 )
 from .._http_router import RouteContext, router
-from ._common import unauthorized
+from ._common import require_auth, unauthorized
 from miniUnicorn.webui.settings_api import (
     WebUISettingsError,
     create_model_configuration,
+    delete_all_providers,
     delete_model_configuration,
     delete_provider_settings,
     list_provider_models,
@@ -35,9 +36,8 @@ from miniUnicorn.webui.mcp_presets_api import mcp_presets_settings_action
 
 
 @router.route("/api/settings")
+@require_auth
 def settings(ctx: RouteContext) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     return _http_json_response(
         ctx.deps.with_restart_state(
             settings_payload(
@@ -50,9 +50,8 @@ def settings(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/settings/update")
+@require_auth
 def settings_update(ctx: RouteContext) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     query = ctx.query
     try:
         payload = update_agent_settings(query)
@@ -65,9 +64,8 @@ def settings_update(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/settings/model-configurations/create")
+@require_auth
 def model_config_create(ctx: RouteContext) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     query = ctx.query
     try:
         payload = create_model_configuration(query)
@@ -78,9 +76,8 @@ def model_config_create(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/settings/model-configurations/update")
+@require_auth
 def model_config_update(ctx: RouteContext) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     query = ctx.query
     try:
         payload = update_model_configuration(query)
@@ -91,9 +88,8 @@ def model_config_update(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/settings/model-configurations/delete")
+@require_auth
 def model_config_delete(ctx: RouteContext) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     query = ctx.query
     try:
         payload = delete_model_configuration(query)
@@ -104,9 +100,8 @@ def model_config_delete(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/settings/provider/update")
+@require_auth
 def provider_update(ctx: RouteContext) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     query = ctx.query
     try:
         payload = update_provider_settings(query)
@@ -116,9 +111,8 @@ def provider_update(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/settings/provider/delete")
+@require_auth
 def provider_delete(ctx: RouteContext) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     query = ctx.query
     try:
         payload = delete_provider_settings(query)
@@ -127,10 +121,20 @@ def provider_delete(ctx: RouteContext) -> Response:
     return _http_json_response(ctx.deps.with_restart_state(payload, section=None))
 
 
+@router.route("/api/settings/providers/delete-all")
+@require_auth
+def providers_delete_all(ctx: RouteContext) -> Response:
+    query = ctx.query
+    try:
+        payload = delete_all_providers(query)
+    except WebUISettingsError as e:
+        return _http_error(e.status, e.message)
+    return _http_json_response(ctx.deps.with_restart_state(payload, section=None))
+
+
 @router.route("/api/settings/provider/models")
+@require_auth
 async def provider_models(ctx: RouteContext) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     query = ctx.query
     try:
         payload = await list_provider_models(query)
@@ -167,9 +171,8 @@ async def provider_oauth_logout(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/settings/web-fetch/update")
+@require_auth
 def web_fetch_update(ctx: RouteContext) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     query = ctx.query
     try:
         payload = update_web_fetch_settings(query)
@@ -179,9 +182,8 @@ def web_fetch_update(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/settings/web-search/update")
+@require_auth
 def web_search_update(ctx: RouteContext) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     query = ctx.query
     try:
         payload = update_web_search_settings(query)
@@ -191,9 +193,8 @@ def web_search_update(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/settings/network-safety/update")
+@require_auth
 def network_safety_update(ctx: RouteContext) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     query = ctx.query
     try:
         payload = update_network_safety_settings(query)
@@ -203,9 +204,8 @@ def network_safety_update(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/settings/runtime/update")
+@require_auth
 def runtime_update(ctx: RouteContext) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     query = ctx.query
     try:
         payload = update_runtime_settings(query)
@@ -216,9 +216,8 @@ def runtime_update(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/settings/cli-apps")
+@require_auth
 def cli_apps(ctx: RouteContext) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     # Import from channel module so tests can monkeypatch
     # ``channel.cli_apps_payload`` and intercept the call.
     from miniUnicorn.channels.websocket.channel import cli_apps_payload

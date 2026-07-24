@@ -23,7 +23,8 @@ from miniUnicorn.config.paths import get_runtime_subdir
 from miniUnicorn.config.schema import MCPServerConfig
 from miniUnicorn.utils.helpers import ensure_dir
 
-QueryParams = dict[str, list[str]]
+from ._helpers import _clip_ws_string, _query_first
+from ._runtime import QueryParams
 
 _MCP_PRESET_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$", re.IGNORECASE)
 _SECRET_QUERY_RE = re.compile(
@@ -272,11 +273,6 @@ MCP_PRESETS: tuple[McpPreset, ...] = (
 )
 
 
-def _query_first(query: QueryParams, key: str) -> str | None:
-    values = query.get(key)
-    return values[0] if values else None
-
-
 def _query_value(query: QueryParams, key: str) -> str | None:
     raw = _query_first(query, key)
     if raw is None:
@@ -310,15 +306,6 @@ def _known_mcp_names() -> set[str]:
     with suppress(Exception):
         names.update(load_config().tools.mcp_servers)
     return names
-
-
-def _clip_ws_string(value: Any, limit: int = 240) -> str | None:
-    if not isinstance(value, str):
-        return None
-    text = value.strip()
-    if not text:
-        return None
-    return text[:limit]
 
 
 def normalize_mcp_preset_mentions(raw: Any) -> list[dict[str, Any]]:

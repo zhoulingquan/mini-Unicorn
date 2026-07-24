@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +49,7 @@ class BaseChannel(ABC):
         self.logger = logger.bind(channel=self.name)
         self.bus = bus
         self._running = False
+        self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
 
     async def transcribe_audio(self, file_path: str | Path) -> str:
         """Transcribe an audio file via Whisper (OpenAI or Groq). Returns empty string on failure."""
@@ -195,6 +197,19 @@ class BaseChannel(ABC):
         if is_approved(self.name, str(sender_id)):
             return True
         return False
+
+    def _dedup_message(self, msg_id: str, max_size: int = 1000) -> bool:
+        """Check and record a message ID for deduplication.
+
+        Returns True if the message is new (should be processed),
+        False if it's a duplicate (should be skipped).
+        """
+        if msg_id in self._processed_message_ids:
+            return False
+        self._processed_message_ids[msg_id] = None
+        while len(self._processed_message_ids) > max_size:
+            self._processed_message_ids.popitem(last=False)
+        return True
 
     async def _handle_message(
         self,

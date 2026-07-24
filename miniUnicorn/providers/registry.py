@@ -12,7 +12,7 @@ Every entry writes out all fields so you can copy-paste as a template.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic.alias_generators import to_snake
@@ -43,8 +43,6 @@ class ProviderSpec:
     # gateway / local detection
     is_gateway: bool = False  # routes any model (OpenRouter, AiHubMix)
     is_local: bool = False  # local deployment (vLLM, Ollama)
-    detect_by_key_prefix: str = ""  # match api_key prefix, e.g. "sk-or-"
-    detect_by_base_keyword: str = ""  # match substring in api_base URL
     default_api_base: str = ""  # OpenAI-compatible base URL for this provider
 
     # gateway behavior
@@ -78,6 +76,20 @@ class ProviderSpec:
     # whose API returns the actual answer in "reasoning" instead of "content".
     reasoning_as_content: bool = False
 
+    # --- 行为 flags（替代 openai_compat_provider.py 中散落的 if spec.name == "X" 分支）---
+    # 拒绝 block content，强制 string（DeepSeek）
+    force_string_content: bool = False
+    # 回填空 reasoning_content（DeepSeek，仍需配合 model 名匹配）
+    backfill_reasoning_content: bool = False
+    # tool_call_id 需 sha1 截短（Mistral）
+    normalize_tool_call_ids: bool = False
+    # reasoning_effort wire 格式别名，如 (("minimal", "minimum"),)（DashScope）
+    reasoning_effort_aliases: tuple[tuple[str, str], ...] = ()
+    # 流式请求注入 extra_body（Z.AI/GLM: {"tool_stream": True}）
+    stream_extra_body: dict[str, Any] = field(default_factory=dict)
+    # 默认注入的 HTTP headers（OpenRouter attribution）
+    extra_headers: dict[str, str] = field(default_factory=dict)
+
     @property
     def label(self) -> str:
         return self.display_name or self.name.title()
@@ -106,6 +118,8 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         backend="openai_compat",
         default_api_base="https://api.deepseek.com",
         thinking_style="thinking_type",
+        force_string_content=True,
+        backfill_reasoning_content=True,
     ),
     # === OpenCode Zen: free-tier models at opencode.ai ======================
     ProviderSpec(

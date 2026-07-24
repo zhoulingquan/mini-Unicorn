@@ -677,7 +677,9 @@
     },
     "scrollToBottom": "滚动到底部",
     "loadEarlier": "加载更早消息",
-    "awaitingReply": "等待回复…"
+    "awaitingReply": "等待回复…",
+    "navDots": "消息导航",
+    "goToMessage": "跳转到第 {{index}} 条消息"
   },
   "message": {
     "streaming": "流式输出中",

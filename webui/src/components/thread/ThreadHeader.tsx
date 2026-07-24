@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ThemeMode } from "@/hooks/useTheme";
-import { providerBrand, providerDisplayLabel, faviconUrls, type ProviderBrand } from "@/lib/provider-brand";
+import { providerDisplayLabel, resolveCustomBrand, type ProviderBrand } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
 
 interface ThreadHeaderProps {
@@ -172,45 +172,10 @@ function HeaderProviderSwitcher({
     (p) => p.configured || (p.name === "custom" && (p.presets?.length ?? 0) > 0),
   );
 
-  // 从 api_base 提取 host(去掉通用前缀),用于 custom provider 动态生成 brand
-  const hostFromApiBase = (apiBase: string | null | undefined): string | null => {
-    if (!apiBase) return null;
-    try {
-      const parsed = new URL(apiBase);
-      let host = parsed.hostname.toLowerCase();
-      host = host.replace(/^(www|api|apihub|api-gateway|gateway)\./, "");
-      return host || null;
-    } catch {
-      return null;
-    }
-  };
-  const initialsFromHost = (host: string | null): string => {
-    if (!host) return "C";
-    return host.split(".")[0].charAt(0).toUpperCase() || "C";
-  };
-  const colorFromHost = (host: string | null): string => {
-    if (!host) return "#6B7280";
-    let hash = 0;
-    for (let i = 0; i < host.length; i++) hash = host.charCodeAt(i) + ((hash << 5) - hash);
-    return `hsl(${Math.abs(hash) % 360}, 55%, 50%)`;
-  };
   // 解析 provider brand:custom(单例或虚拟 row custom__xxx)用 api_base 动态生成,
   // 其余用内置 providerBrand
-  const resolveBrand = (providerName: string, apiBase: string | null | undefined): ProviderBrand | null => {
-    const isCustom = providerName === "custom" || providerName.startsWith("custom__");
-    if (isCustom) {
-      const host = hostFromApiBase(apiBase);
-      if (!host) return providerBrand("custom");
-      const urls = faviconUrls(host);
-      return {
-        logoUrl: urls[0] ?? "",
-        logoUrls: urls,
-        color: colorFromHost(host),
-        initials: initialsFromHost(host),
-      };
-    }
-    return providerBrand(providerName);
-  };
+  const resolveBrand = (providerName: string, apiBase: string | null | undefined): ProviderBrand | null =>
+    resolveCustomBrand(providerName, apiBase);
 
   // trigger 图标:跟随 logoIndex 回退
   const [triggerLogoIndex, setTriggerLogoIndex] = useState(0);

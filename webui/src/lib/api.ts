@@ -708,6 +708,16 @@ export async function deleteProviderSettings(
   );
 }
 
+export async function deleteAllProviders(
+  token: string,
+  base: string = "",
+): Promise<SettingsPayload> {
+  return request<SettingsPayload>(
+    `${base}/api/settings/providers/delete-all`,
+    token,
+  );
+}
+
 export async function fetchProviderModels(
   token: string,
   provider: string,

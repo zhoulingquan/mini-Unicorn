@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { faviconUrls, inferProviderFromModelName, providerBrand, type ProviderBrand } from "@/lib/provider-brand";
+import { resolveCustomBrand, inferProviderFromModelName, type ProviderBrand } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
 
 export interface ComposerModelBadgeProps {
@@ -27,29 +27,6 @@ export interface ComposerModelBadgeProps {
   onSelect?: (model: string) => void;
 }
 
-// 从 api_base 提取 host(去掉通用前缀),用于 custom provider 动态生成 brand
-function hostFromApiBase(apiBase: string | null | undefined): string | null {
-  if (!apiBase) return null;
-  try {
-    const parsed = new URL(apiBase);
-    let host = parsed.hostname.toLowerCase();
-    host = host.replace(/^(www|api|apihub|api-gateway|gateway)\./, "");
-    return host || null;
-  } catch {
-    return null;
-  }
-}
-function initialsFromHost(host: string | null): string {
-  if (!host) return "C";
-  return host.split(".")[0].charAt(0).toUpperCase() || "C";
-}
-function colorFromHost(host: string | null): string {
-  if (!host) return "#6B7280";
-  let hash = 0;
-  for (let i = 0; i < host.length; i++) hash = host.charCodeAt(i) + ((hash << 5) - hash);
-  return `hsl(${Math.abs(hash) % 360}, 55%, 50%)`;
-}
-
 /** 输入框右下角的模型徽章,展示模型名 + provider 图标(logo 失败时回退首字母)。
  * 当传入多个 models 且 onSelect 可用时,变为可点击的下拉选择器。 */
 export function ComposerModelBadge({
@@ -64,18 +41,10 @@ export function ComposerModelBadge({
   const inferredProvider = provider || inferProviderFromModelName(label);
   // custom(单例或虚拟 row custom__xxx):用 api_base 动态生成 brand;
   // 其余用内置 providerBrand
-  const brand: ProviderBrand | null = useMemo(() => {
-    const isCustom = inferredProvider === "custom" || inferredProvider?.startsWith("custom__");
-    if (isCustom) {
-      const host = hostFromApiBase(apiBase);
-      if (host) {
-        const urls = faviconUrls(host);
-        return { logoUrl: urls[0] ?? "", logoUrls: urls, color: colorFromHost(host), initials: initialsFromHost(host) };
-      }
-      return providerBrand("custom");
-    }
-    return providerBrand(inferredProvider);
-  }, [inferredProvider, apiBase]);
+  const brand: ProviderBrand | null = useMemo(
+    () => resolveCustomBrand(inferredProvider, apiBase),
+    [inferredProvider, apiBase],
+  );
   const [logoIndex, setLogoIndex] = useState(0);
   const logoUrl = brand?.logoUrls[logoIndex];
   const showLogo = !!logoUrl;

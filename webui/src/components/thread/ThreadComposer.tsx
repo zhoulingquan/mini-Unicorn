@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -31,6 +30,7 @@ import {
   MAX_IMAGES_PER_MESSAGE,
 } from "@/hooks/useAttachedImages";
 import { useClipboardAndDrop } from "@/hooks/useClipboardAndDrop";
+import { useSlashCommandPalette } from "@/hooks/useSlashCommandPalette";
 import type { SendImage, SendOptions } from "@/hooks/useMiniUnicornStream";
 import {
   Tooltip,
@@ -38,29 +38,17 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { SlashCommand } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { STORAGE_KEYS } from "@/lib/storage";
+import type { SlashCommand } from "@/lib/types";
 
-import type {
-  SlashPaletteCommand,
-  SlashPaletteLayout,
-  SlashPalettePlacement,
-  ThreadComposerProps,
-} from "./types";
+import type { ThreadComposerProps } from "./types";
 import { AgentSelectionChip } from "./components/AgentSelectionChip";
 import { AgentSelectorButton } from "./components/AgentSelectorButton";
 import { AttachmentChip, formatBytes } from "./components/AttachmentChip";
 import { ComposerModelBadge } from "./components/ComposerModelBadge";
 import { ContextChip } from "./components/ContextChip";
 import { RunElapsedStrip } from "./components/RunElapsedStrip";
-import {
-  SlashCommandPalette,
-  SLASH_PALETTE_GAP_PX,
-  SLASH_PALETTE_MAX_HEIGHT_PX,
-  SLASH_PALETTE_MIN_HEIGHT_PX,
-  slashCommandI18nKey,
-} from "./components/SlashCommandPalette";
+import { SlashCommandPalette } from "./components/SlashCommandPalette";
 
 /** ``<input accept>``:与后端 MIME 白名单对齐。图片走 image worker,
  * 文档走直接 base64 路径。SVG 被刻意排除以避免嵌入式脚本的 XSS 风险。 */
@@ -75,55 +63,6 @@ const ACCEPT_ATTR =
   "application/x-yaml,text/yaml," +
   "application/octet-stream," +
   DOCUMENT_EXTENSIONS;
-
-const SLASH_RECENTS_STORAGE_KEY = STORAGE_KEYS.slashCommandRecents;
-const SLASH_RECENTS_LIMIT = 5;
-
-/** 从 localStorage 读取最近使用的斜杠命令(用于面板排序)。 */
-function readSlashRecents(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(SLASH_RECENTS_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === "string").slice(0, SLASH_RECENTS_LIMIT)
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-/** 把最近使用的斜杠命令写入 localStorage。 */
-function storeSlashRecents(commands: string[]): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(
-      SLASH_RECENTS_STORAGE_KEY,
-      JSON.stringify(commands.slice(0, SLASH_RECENTS_LIMIT)),
-    );
-  } catch {
-    // localStorage may be unavailable in private contexts; command insertion still works.
-  }
-}
-
-/** 计算元素在所有可滚动祖先裁剪后的可见垂直区间(top/bottom)。 */
-function getVisibleBounds(el: HTMLElement): { top: number; bottom: number } {
-  let top = 0;
-  let bottom = window.innerHeight;
-  let parent = el.parentElement;
-
-  while (parent) {
-    const style = window.getComputedStyle(parent);
-    if (/(auto|scroll|hidden|clip)/.test(style.overflowY)) {
-      const rect = parent.getBoundingClientRect();
-      top = Math.max(top, rect.top);
-      bottom = Math.min(bottom, rect.bottom);
-    }
-    parent = parent.parentElement;
-  }
-
-  return { top, bottom };
-}
 
 export function ThreadComposer({
   onSend,
@@ -162,9 +101,6 @@ export function ThreadComposer({
   const [value, setValue] = useState("");
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
-  const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
-  const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
-  const [recentSlashCommands, setRecentSlashCommands] = useState<string[]>(() => readSlashRecents());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -299,162 +235,6 @@ export function ThreadComposer({
     onClearAgent?.();
   }, [onClearAgent]);
 
-  const slashQuery = useMemo(() => {
-    if (disabled || slashMenuDismissed || !value.startsWith("/")) return null;
-    const commandToken = value.slice(1);
-    if (/\s/.test(commandToken)) return null;
-    return commandToken.toLowerCase();
-  }, [disabled, slashMenuDismissed, value]);
-
-  const visibleSlashCommands = useMemo(() => {
-    const baseCommands = slashCommands.filter((command) => command.command !== "/stop");
-    if (!(isStreaming && onStop)) return baseCommands;
-    const stopCommand = slashCommands.find((command) => command.command === "/stop") ?? {
-      command: "/stop",
-      title: "Stop current task",
-      description: "Cancel the active agent turn for this chat.",
-      icon: "square",
-    };
-    return [
-      stopCommand,
-      ...baseCommands,
-    ];
-  }, [isStreaming, onStop, slashCommands]);
-
-  const filteredSlashCommands = useMemo<SlashPaletteCommand[]>(() => {
-    if (slashQuery === null) return [];
-    const withDetails = visibleSlashCommands
-      .filter((command) => {
-        const commandKey = slashCommandI18nKey(command.command);
-        const title = t(`thread.composer.slash.commands.${commandKey}.title`, {
-          defaultValue: command.title,
-        });
-        const description = t(`thread.composer.slash.commands.${commandKey}.description`, {
-          defaultValue: command.description,
-        });
-        const haystack = [
-          command.command,
-          command.title,
-          command.description,
-          command.argHint ?? "",
-          title,
-          description,
-        ].join(" ").toLowerCase();
-        return haystack.includes(slashQuery);
-      })
-      .map((command) => {
-        const commandKey = slashCommandI18nKey(command.command);
-        const description = t(`thread.composer.slash.commands.${commandKey}.description`, {
-          defaultValue: command.description,
-        });
-        let detail = description;
-        let badge: string | undefined;
-        if (command.command === "/model" && modelLabel) {
-          detail = modelLabel;
-          badge = t("thread.composer.slash.badges.current");
-        } else if (command.command === "/goal") {
-          detail = goalState?.active
-            ? t("thread.composer.slash.details.goalActive")
-            : t("thread.composer.slash.details.goalReady");
-        } else if (command.command === "/stop" && isStreaming) {
-          detail = t("thread.composer.slash.details.stopRunning");
-        } else if (command.command === "/history") {
-          detail = t("thread.composer.slash.details.history");
-        }
-        return {
-          ...command,
-          detail,
-          badge,
-          recent: recentSlashCommands.includes(command.command),
-        };
-      })
-      .sort((a, b) => {
-        if (isStreaming) {
-          if (a.command === "/stop") return -1;
-          if (b.command === "/stop") return 1;
-        }
-        if (slashQuery !== "") return 0;
-        const aRecent = recentSlashCommands.indexOf(a.command);
-        const bRecent = recentSlashCommands.indexOf(b.command);
-        if (aRecent !== -1 || bRecent !== -1) {
-          if (aRecent === -1) return 1;
-          if (bRecent === -1) return -1;
-          return aRecent - bRecent;
-        }
-        return 0;
-      });
-
-    return withDetails
-      .slice(0, 8);
-  }, [goalState?.active, isStreaming, modelLabel, recentSlashCommands, slashQuery, t, visibleSlashCommands]);
-
-  const showSlashMenu = filteredSlashCommands.length > 0;
-  const showAnyPalette = showSlashMenu;
-  const [slashPaletteLayout, setSlashPaletteLayout] = useState<SlashPaletteLayout>({
-    placement: "above",
-    maxHeight: SLASH_PALETTE_MAX_HEIGHT_PX,
-  });
-
-  useEffect(() => {
-    setSelectedCommandIndex(0);
-  }, [slashQuery]);
-
-  useEffect(() => {
-    if (selectedCommandIndex >= filteredSlashCommands.length) {
-      setSelectedCommandIndex(0);
-    }
-  }, [filteredSlashCommands.length, selectedCommandIndex]);
-
-  useEffect(() => {
-    if (!showAnyPalette) return;
-
-    const dismissOnPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Node && formRef.current?.contains(target)) return;
-      setSlashMenuDismissed(true);
-    };
-
-    document.addEventListener("pointerdown", dismissOnPointerDown, true);
-    return () => {
-      document.removeEventListener("pointerdown", dismissOnPointerDown, true);
-    };
-  }, [showAnyPalette]);
-
-  useLayoutEffect(() => {
-    if (!showAnyPalette) return;
-
-    const updateLayout = () => {
-      const form = formRef.current;
-      if (!form) return;
-      const rect = form.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) return;
-
-      const bounds = getVisibleBounds(form);
-      const spaceAbove = Math.max(0, rect.top - bounds.top - SLASH_PALETTE_GAP_PX);
-      const spaceBelow = Math.max(0, bounds.bottom - rect.bottom - SLASH_PALETTE_GAP_PX);
-      const placement: SlashPalettePlacement =
-        spaceAbove >= SLASH_PALETTE_MIN_HEIGHT_PX || spaceAbove >= spaceBelow
-          ? "above"
-          : "below";
-      const available = placement === "above" ? spaceAbove : spaceBelow;
-      const maxHeight = Math.min(SLASH_PALETTE_MAX_HEIGHT_PX, available);
-
-      setSlashPaletteLayout((current) =>
-        current.placement === placement && current.maxHeight === maxHeight
-          ? current
-          : { placement, maxHeight },
-      );
-    };
-
-    updateLayout();
-    window.addEventListener("resize", updateLayout);
-    document.addEventListener("scroll", updateLayout, true);
-    return () => {
-      window.removeEventListener("resize", updateLayout);
-      document.removeEventListener("scroll", updateLayout, true);
-    };
-  }, [filteredSlashCommands.length, showAnyPalette]);
-
   const resizeTextarea = useCallback(() => {
     requestAnimationFrame(() => {
       const el = textareaRef.current;
@@ -467,31 +247,40 @@ export function ThreadComposer({
     });
   }, [expanded]);
 
-  const chooseSlashCommand = useCallback(
+  const handleCommandSelected = useCallback(
     (command: SlashCommand) => {
-      if (command.command === "/stop" && isStreaming && onStop) {
-        onStop();
+      // /stop 命令只清空输入框(由 Hook 负责 onStop 调用和 recent 管理)
+      if (command.command === "/stop") {
         setValue("");
-        setSlashMenuDismissed(true);
-        setInlineError(null);
-        resizeTextarea();
-        return;
+      } else {
+        setValue(command.argHint ? `${command.command} ` : command.command);
       }
-
-      const nextRecents = [
-        command.command,
-        ...recentSlashCommands.filter((item) => item !== command.command),
-      ].slice(0, SLASH_RECENTS_LIMIT);
-      setRecentSlashCommands(nextRecents);
-      storeSlashRecents(nextRecents);
-
-      setValue(command.argHint ? `${command.command} ` : command.command);
-      setSlashMenuDismissed(true);
       setInlineError(null);
-      resizeTextarea();
     },
-    [isStreaming, onStop, recentSlashCommands, resizeTextarea],
+    [],
   );
+
+  const {
+    filteredSlashCommands,
+    showSlashMenu,
+    selectedCommandIndex,
+    setSelectedCommandIndex,
+    slashPaletteLayout,
+    chooseSlashCommand,
+    reset: resetSlashMenu,
+    onKeyDown: handleSlashKeyDown,
+  } = useSlashCommandPalette({
+    value,
+    disabled: !!disabled,
+    isStreaming: !!isStreaming,
+    onStop,
+    slashCommands: slashCommands ?? [],
+    modelLabel,
+    goalState,
+    formRef,
+    resizeTextarea,
+    onCommandSelected: handleCommandSelected,
+  });
 
   const submit = useCallback(() => {
     if (!canSend) return;
@@ -517,43 +306,22 @@ export function ThreadComposer({
     setValue("");
     setInlineError(null);
     clear();
-    setSlashMenuDismissed(false);
+    resetSlashMenu();
     resizeTextarea();
   }, [
     canSend,
     clear,
     onSend,
     readyImages,
+    resetSlashMenu,
     resizeTextarea,
     selectedAgentId,
     value,
   ]);
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    if (showSlashMenu) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setSelectedCommandIndex((idx) => (idx + 1) % filteredSlashCommands.length);
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setSelectedCommandIndex(
-          (idx) => (idx - 1 + filteredSlashCommands.length) % filteredSlashCommands.length,
-        );
-        return;
-      }
-      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
-        e.preventDefault();
-        chooseSlashCommand(filteredSlashCommands[selectedCommandIndex]);
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setSlashMenuDismissed(true);
-        return;
-      }
-    }
+    // 斜杠命令面板的键盘导航(ArrowUp/Down/Tab/Enter/Escape)由 Hook 处理。
+    if (handleSlashKeyDown(e)) return;
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       // 展开模式下回车不提交,改为换行,方便输入大段文字
       if (expanded) return;
@@ -715,7 +483,7 @@ export function ThreadComposer({
             value={value}
             onChange={(e) => {
               setValue(e.target.value);
-              setSlashMenuDismissed(false);
+              resetSlashMenu();
             }}
             onInput={onInput}
             onKeyDown={onKeyDown}

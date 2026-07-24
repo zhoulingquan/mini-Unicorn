@@ -38,6 +38,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from miniUnicorn.security.network import create_ssrf_safe_client, validate_url_target
 
+from ._helpers import _query_first
+
 # 项目标识，传给第三方扫码授权端点作为 source 参数（参考 QwenPaw PROJECT_NAME）。
 PROJECT_NAME = "MiniUnicorn"
 
@@ -110,11 +112,6 @@ def generate_qrcode_image(scan_url: str) -> str:
     buf = io.BytesIO()
     qr.save(buf, kind="png", scale=6, border=2)
     return base64.b64encode(buf.getvalue()).decode()
-
-
-def _query_first(query: dict[str, list[str]], key: str) -> str | None:
-    values = query.get(key)
-    return values[0] if values else None
 
 
 # ---------------------------------------------------------------------------

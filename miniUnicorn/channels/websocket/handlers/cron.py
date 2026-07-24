@@ -6,16 +6,15 @@ from websockets.http11 import Response
 
 from .._http_routes import _http_error, _http_json_response
 from .._http_router import RouteContext, router
-from ._common import service_unavailable, unauthorized
+from ._common import require_auth, service_unavailable
 
 
 @router.route("/api/cron/jobs")
+@require_auth
 def list(ctx: RouteContext) -> Response:
     """List all cron jobs (including system jobs and disabled ones)."""
     from miniUnicorn.webui.cron_api import list_cron_jobs
 
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     if ctx.deps.cron_service is None:
         return service_unavailable("cron service is not available")
     try:
@@ -26,12 +25,11 @@ def list(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/cron/jobs/create")
+@require_auth
 def create(ctx: RouteContext) -> Response:
     """Create a new user cron job."""
     from miniUnicorn.webui.cron_api import WebUICronError, create_cron_job
 
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     if ctx.deps.cron_service is None:
         return service_unavailable("cron service is not available")
     query = ctx.query
@@ -45,12 +43,11 @@ def create(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/cron/jobs/delete")
+@require_auth
 def delete(ctx: RouteContext) -> Response:
     """Delete a cron job by id (system jobs are protected)."""
     from miniUnicorn.webui.cron_api import WebUICronError, delete_cron_job
 
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     if ctx.deps.cron_service is None:
         return service_unavailable("cron service is not available")
     query = ctx.query
@@ -64,12 +61,11 @@ def delete(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/cron/jobs/toggle")
+@require_auth
 def toggle(ctx: RouteContext) -> Response:
     """Enable or disable a cron job by id."""
     from miniUnicorn.webui.cron_api import WebUICronError, toggle_cron_job
 
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     if ctx.deps.cron_service is None:
         return service_unavailable("cron service is not available")
     query = ctx.query

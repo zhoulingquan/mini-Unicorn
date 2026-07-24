@@ -330,8 +330,17 @@ export function ThreadMessages({
             ? () => onRetry!(userIndexByUnit[index] + userMessageIndexOffset)
             : undefined;
 
+        const isUserTurn =
+          unit.type === "single"
+          && unit.message.role === "user"
+          && unit.message.kind !== "trace";
+
         return (
-          <div key={unitKey(unit, index)} className={marginTop}>
+          <div
+            key={unitKey(unit, index)}
+            className={marginTop}
+            data-user-turn={isUserTurn ? unit.message.id : undefined}
+          >
             {unit.type === "cluster" ? (
               <AgentActivityCluster
                 messages={unit.messages}

@@ -16,7 +16,7 @@ from .._http_routes import (
     _query_first,
 )
 from .._http_router import RouteContext, router
-from ._common import unauthorized
+from ._common import require_auth
 
 
 @router.route("/api/skills")
@@ -100,6 +100,7 @@ def delete_skill(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/skills/toggle")
+@require_auth
 def toggle_skill(ctx: RouteContext) -> Response:
     """Enable or disable a skill at runtime (hot reload, no restart).
 
@@ -109,9 +110,6 @@ def toggle_skill(ctx: RouteContext) -> Response:
     """
     from miniUnicorn.agent.skills import is_valid_skill_name
     from miniUnicorn.config.loader import load_config, save_config
-
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
 
     name = _query_first(ctx.query, "name")
     if not name or not is_valid_skill_name(name):
@@ -186,6 +184,7 @@ def read_skill_file(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/skills/save")
+@require_auth
 def save_skill(ctx: RouteContext) -> Response:
     """Create or update a workspace skill's SKILL.md.
 
@@ -196,9 +195,6 @@ def save_skill(ctx: RouteContext) -> Response:
     """
 
     from miniUnicorn.agent.skills import SkillsLoader, is_valid_skill_name
-
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
 
     name = _query_first(ctx.query, "name")
     if not name or not is_valid_skill_name(name):
@@ -225,6 +221,7 @@ def save_skill(ctx: RouteContext) -> Response:
 
 
 @router.route("/api/skills/upload")
+@require_auth
 def upload_skill(ctx: RouteContext) -> Response:
     """Upload and extract a ZIP skill package into the workspace.
 
@@ -236,9 +233,6 @@ def upload_skill(ctx: RouteContext) -> Response:
     import base64
 
     from miniUnicorn.agent.skills import SkillsLoader
-
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
 
     preferred = _query_first(ctx.query, "name")
     preferred = unquote(preferred) if preferred else None

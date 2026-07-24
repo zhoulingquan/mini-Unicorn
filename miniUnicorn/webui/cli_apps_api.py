@@ -8,7 +8,8 @@ from typing import Any
 from miniUnicorn.apps.cli import CliAppError, CliAppManager, CliAppsRuntimeConfig
 from miniUnicorn.config.loader import load_config
 
-QueryParams = dict[str, list[str]]
+from ._helpers import _clip_ws_string, _query_first
+from ._runtime import QueryParams
 
 _CLI_APP_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$", re.IGNORECASE)
 _CLI_APP_ATTACHMENT_KEYS = (
@@ -19,15 +20,6 @@ _CLI_APP_ATTACHMENT_KEYS = (
     "logo_url",
     "brand_color",
 )
-
-
-def _clip_ws_string(value: Any, limit: int = 240) -> str | None:
-    if not isinstance(value, str):
-        return None
-    text = value.strip()
-    if not text:
-        return None
-    return text[:limit]
 
 
 def normalize_cli_app_mentions(raw: Any) -> list[dict[str, str]]:
@@ -53,11 +45,6 @@ def normalize_cli_app_mentions(raw: Any) -> list[dict[str, str]]:
                 row[field] = value
         out.append(row)
     return out
-
-
-def _query_first(query: QueryParams, key: str) -> str | None:
-    values = query.get(key)
-    return values[0] if values else None
 
 
 def _manager() -> CliAppManager:

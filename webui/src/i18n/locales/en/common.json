@@ -671,7 +671,9 @@
     },
     "scrollToBottom": "Scroll to bottom",
     "loadEarlier": "Load earlier messages",
-    "awaitingReply": "Awaiting reply…"
+    "awaitingReply": "Awaiting reply…",
+    "navDots": "Message navigation",
+    "goToMessage": "Go to message {{index}}"
   },
   "message": {
     "streaming": "streaming",

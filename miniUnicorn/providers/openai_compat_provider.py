@@ -197,7 +197,7 @@ def _extract_tc_extras(tc: Any) -> tuple[
 
 def _uses_openrouter_attribution(spec: "ProviderSpec | None", api_base: str | None) -> bool:
     """Apply MiniUnicorn attribution headers to OpenRouter requests by default."""
-    if spec and spec.name == "openrouter":
+    if spec and spec.extra_headers:
         return True
     return bool(api_base and "openrouter" in api_base.lower())
 
@@ -345,7 +345,9 @@ class OpenAICompatProvider(LLMProvider):
         effective_base = api_base or (spec.default_api_base if spec else None) or None
         self._effective_base = effective_base
         self._default_headers = {"x-session-affinity": uuid.uuid4().hex}
-        if _uses_openrouter_attribution(spec, effective_base):
+        if spec and spec.extra_headers:
+            self._default_headers.update(spec.extra_headers)
+        elif _uses_openrouter_attribution(spec, effective_base):
             self._default_headers.update(_DEFAULT_OPENROUTER_HEADERS)
         if extra_headers:
             self._default_headers.update(extra_headers)
@@ -488,7 +490,7 @@ class OpenAICompatProvider(LLMProvider):
 
     def _should_normalize_tool_call_ids(self) -> bool:
         """Return True for providers that reject normal OpenAI tool call IDs."""
-        return bool(self._spec and self._spec.name == "mistral")
+        return bool(self._spec and self._spec.normalize_tool_call_ids)
 
     @staticmethod
     def _normalize_tool_call_arguments(arguments: Any) -> str:
@@ -527,7 +529,7 @@ class OpenAICompatProvider(LLMProvider):
         sanitized = LLMProvider._sanitize_request_messages(messages, _ALLOWED_MSG_KEYS)
         id_map: dict[str, str] = {}
         pending_tool_ids: dict[str, deque[str]] = {}
-        force_string_content = bool(self._spec and self._spec.name == "deepseek")
+        force_string_content = bool(self._spec and self._spec.force_string_content)
         normalize_tool_ids = self._should_normalize_tool_call_ids()
 
         def map_id(value: Any) -> Any:
@@ -677,9 +679,12 @@ class OpenAICompatProvider(LLMProvider):
                 semantic_effort = "minimal"
 
         wire_effort = reasoning_effort
-        if spec and spec.name == "dashscope" and semantic_effort == "minimal":
-            # DashScope accepts none/minimum/low/medium/high/xhigh; "minimal" 400s.
-            wire_effort = "minimum"
+        if spec and spec.reasoning_effort_aliases and semantic_effort:
+            # 部分 provider 不接受 "minimal"，需转为 wire 格式别名（如 DashScope minimum）
+            for semantic, wire in spec.reasoning_effort_aliases:
+                if semantic_effort == semantic:
+                    wire_effort = wire
+                    break
 
         if wire_effort and semantic_effort != "none":
             kwargs["reasoning_effort"] = wire_effort
@@ -724,7 +729,7 @@ class OpenAICompatProvider(LLMProvider):
         )
         implicit_deepseek_thinking = (
             spec is not None
-            and spec.name == "deepseek"
+            and spec.backfill_reasoning_content
             and semantic_effort not in ("none", "minimal", "minimum")
             and any(t in model_name.lower() for t in ("deepseek-v4", "deepseek-reasoner"))
         )
@@ -1419,12 +1424,11 @@ class OpenAICompatProvider(LLMProvider):
                 messages, tools, model, max_tokens, temperature,
                 reasoning_effort, tool_choice,
             )
-            if self._spec and self._spec.name == "zhipu" and tools and on_tool_call_delta:
-                # Z.AI/GLM keeps streaming tool-call arguments behind an
-                # explicit provider flag.  Pass it through the OpenAI SDK's
-                # extra_body escape hatch so the usual delta.tool_calls path
-                # can surface live file-edit progress.
-                kwargs.setdefault("extra_body", {})["tool_stream"] = True
+            if self._spec and self._spec.stream_extra_body and tools and on_tool_call_delta:
+                # 部分 provider（如 Z.AI/GLM）需要显式 flag 才能在流式响应中
+                # 返回 tool-call 参数。通过 extra_body 注入（由 registry 声明）。
+                for k, v in self._spec.stream_extra_body.items():
+                    kwargs.setdefault("extra_body", {})[k] = v
             kwargs["stream"] = True
             kwargs["stream_options"] = {"include_usage": True}
             stream = await self._client.chat.completions.create(**kwargs)

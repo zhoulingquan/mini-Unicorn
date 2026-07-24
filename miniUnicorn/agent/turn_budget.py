@@ -104,31 +104,3 @@ class TurnBudget:
         if self.exceeded_reason:
             parts.append(f"BUDGET_EXCEEDED({self.exceeded_reason})")
         return " ".join(parts)
-
-
-# Convenience presets
-def conservative_budget() -> TurnBudget:
-    """Tight budget for cost-sensitive deployments."""
-    return TurnBudget(
-        max_input_tokens=50_000,
-        max_output_tokens=10_000,
-        max_cost_usd=0.50,
-    )
-
-
-def generous_budget() -> TurnBudget:
-    """Loose budget for research/personal use."""
-    return TurnBudget(
-        max_input_tokens=500_000,
-        max_output_tokens=200_000,
-        max_cost_usd=20.0,
-    )
-
-
-def no_budget() -> TurnBudget:
-    """Disable all budget limits (equivalent to passing None)."""
-    return TurnBudget(
-        max_input_tokens=None,
-        max_output_tokens=None,
-        max_cost_usd=None,
-    )
